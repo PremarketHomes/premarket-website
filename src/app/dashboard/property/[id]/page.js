@@ -20,6 +20,7 @@ import {
   getDocs,
   onSnapshot,
   orderBy,
+  serverTimestamp,
 } from 'firebase/firestore';
 import {
   ArrowLeft,
@@ -1002,6 +1003,12 @@ export default function PropertyReportPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [showSoldConfirm, setShowSoldConfirm] = useState(false);
+  const [markingSold, setMarkingSold] = useState(false);
+  const [soldPriceInput, setSoldPriceInput] = useState('');
+  const [soldDateInput, setSoldDateInput] = useState(() => new Date().toISOString().split('T')[0]);
+  const [showUnsoldConfirm, setShowUnsoldConfirm] = useState(false);
+  const [restoringActive, setRestoringActive] = useState(false);
   const [showSendReport, setShowSendReport] = useState(false);
   const [sendingReport, setSendingReport] = useState(false);
   const [reportSent, setReportSent] = useState(false);
@@ -1143,6 +1150,64 @@ export default function PropertyReportPage() {
       console.error('Error archiving property:', err);
     } finally {
       setArchiving(false);
+    }
+  };
+
+  // Marks the existing property record as sold — no duplication, no new
+  // collection. Reuses the same field shape as the pre-existing
+  // /dashboard/property/[id]/sold email-follow-up flow, so every place in
+  // the app that already treats `archived: true` as "not active" (scoring,
+  // invoicing, buyer feeds, cron jobs) picks this up automatically.
+  const handleMarkSold = async () => {
+    if (!property) return;
+    setMarkingSold(true);
+    try {
+      const trimmedPrice = soldPriceInput.trim();
+      const parsedPrice = trimmedPrice ? parseFloat(trimmedPrice.replace(/[^0-9.]/g, '')) : null;
+      const cleanPrice = parsedPrice != null && !isNaN(parsedPrice) ? parsedPrice : null;
+      const cleanDate = soldDateInput ? new Date(soldDateInput) : new Date();
+
+      await updateDoc(doc(db, 'properties', property.id), {
+        soldPrice: cleanPrice,
+        soldAt: cleanDate,
+        archived: true,
+        active: false,
+        visibility: false,
+        archivedAt: serverTimestamp(),
+        archivedReason: 'sold',
+      });
+      setProperty(prev => ({
+        ...prev,
+        soldPrice: cleanPrice,
+        soldAt: cleanDate,
+        archived: true,
+        active: false,
+        visibility: false,
+        archivedReason: 'sold',
+      }));
+      setShowSoldConfirm(false);
+    } catch (err) {
+      console.error('Error marking property sold:', err);
+      alert('Failed to mark property as sold. Please try again.');
+    } finally {
+      setMarkingSold(false);
+    }
+  };
+
+  // Reversal: only flips `archived` back — soldPrice/soldAt/archivedReason
+  // are deliberately left in place so the sold history is never lost.
+  const handleRestoreActive = async () => {
+    if (!property) return;
+    setRestoringActive(true);
+    try {
+      await updateDoc(doc(db, 'properties', property.id), { archived: false });
+      setProperty(prev => ({ ...prev, archived: false }));
+      setShowUnsoldConfirm(false);
+    } catch (err) {
+      console.error('Error restoring property to active:', err);
+      alert('Failed to move property back to active. Please try again.');
+    } finally {
+      setRestoringActive(false);
     }
   };
 
@@ -1355,13 +1420,15 @@ export default function PropertyReportPage() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-full ${
-                  property.archived
-                    ? 'bg-amber-100 text-amber-700'
-                    : property.visibility
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-slate-100 text-slate-500'
+                  property.archivedReason === 'sold'
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : property.archived
+                      ? 'bg-amber-100 text-amber-700'
+                      : property.visibility
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-slate-100 text-slate-500'
                 }`}>
-                  {property.archived ? 'Archived' : property.visibility ? 'Public' : 'Private'}
+                  {property.archivedReason === 'sold' ? 'Sold' : property.archived ? 'Archived' : property.visibility ? 'Public' : 'Private'}
                 </span>
               </div>
               <h2 className="text-xl font-bold text-slate-900 mb-1">
@@ -1464,7 +1531,160 @@ export default function PropertyReportPage() {
 
         {/* Opinions Table */}
         <OpinionsTable opinions={opinions} />
+
+        {/* Sold Status Action — internal agent/admin control, never shown on the public property page */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          {property.archivedReason === 'sold' ? (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-900 mb-1">This property is marked as sold</p>
+                <p className="text-xs text-slate-500">
+                  {property.soldPrice ? `Sold for ${formatPrice(property.soldPrice)}` : 'Sold price not recorded'}
+                  {property.soldAt ? ` · ${formatDate(property.soldAt)}` : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowUnsoldConfirm(true)}
+                className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm hover:bg-slate-200 transition-colors flex items-center justify-center gap-2 shrink-0"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Move Back to Active
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-900 mb-1">Sold this property?</p>
+                <p className="text-xs text-slate-500">Mark it as sold to move it out of your active campaigns and into the Sold section.</p>
+              </div>
+              <button
+                onClick={() => { setSoldPriceInput(''); setSoldDateInput(new Date().toISOString().split('T')[0]); setShowSoldConfirm(true); }}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 shrink-0"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Mark as Sold
+              </button>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Mark as Sold Confirmation Modal */}
+      <AnimatePresence>
+        {showSoldConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onMouseDown={(e) => { if (e.target === e.currentTarget && !markingSold) setShowSoldConfirm(false); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full"
+            >
+              <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 text-center mb-2">Mark this property as sold?</h3>
+              <p className="text-sm text-slate-500 text-center mb-5">
+                It will move out of your active campaigns into the Sold section. All existing opinions, views and reports are preserved.
+              </p>
+              <div className="space-y-3 mb-6">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Sale Price <span className="font-normal text-slate-400">(optional)</span>
+                  </label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={soldPriceInput}
+                      onChange={(e) => setSoldPriceInput(e.target.value)}
+                      placeholder="e.g. 850000"
+                      className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Sale Date</label>
+                  <input
+                    type="date"
+                    value={soldDateInput}
+                    onChange={(e) => setSoldDateInput(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowSoldConfirm(false)}
+                  disabled={markingSold}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleMarkSold}
+                  disabled={markingSold}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                >
+                  {markingSold ? 'Confirming...' : 'Confirm Sold'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Move Back to Active Confirmation Modal */}
+      <AnimatePresence>
+        {showUnsoldConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onMouseDown={(e) => { if (e.target === e.currentTarget && !restoringActive) setShowUnsoldConfirm(false); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full"
+            >
+              <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <RotateCcw className="w-6 h-6 text-slate-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 text-center mb-2">Move back to active?</h3>
+              <p className="text-sm text-slate-500 text-center mb-6">
+                This property will return to your active campaigns. Its sold price and date are kept, not deleted.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowUnsoldConfirm(false)}
+                  disabled={restoringActive}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRestoreActive}
+                  disabled={restoringActive}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 text-white font-semibold hover:bg-slate-800 transition-colors disabled:opacity-50"
+                >
+                  {restoringActive ? 'Restoring...' : 'Move Back to Active'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Delete Confirmation Modal */}
       <AnimatePresence>

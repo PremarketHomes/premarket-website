@@ -67,6 +67,7 @@ function ShimmerImage({ src, alt, ...props }) {
 function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, userName, userData }) {
   const navItems = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'sold', label: 'Sold', icon: CheckCircle },
     { id: 'archived', label: 'Archive', icon: Archive },
     { id: 'add', label: 'Add Property', icon: Plus, href: '/dashboard/add' },
     { id: 'user-manual', label: 'User Manual', icon: BookOpen, href: '/dashboard/user-manual' },
@@ -243,7 +244,7 @@ function StatCard({ label, value, icon: Icon }) {
 }
 
 // --- Property Card ---
-function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archiving, isArchived, onHide, teamAgents }) {
+function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archiving, isArchived, isSold, onHide, teamAgents }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -278,13 +279,15 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
         {/* Status Badge */}
         <div className="absolute top-3 left-3">
           <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-full ${
-            property.archived === true
-              ? 'bg-amber-100 text-amber-700'
-              : property.visibility === true
-                ? 'bg-slate-900 text-white'
-                : 'bg-slate-100 text-slate-500'
+            isSold
+              ? 'bg-emerald-100 text-emerald-700'
+              : property.archived === true
+                ? 'bg-amber-100 text-amber-700'
+                : property.visibility === true
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-slate-100 text-slate-500'
           }`}>
-            {property.archived === true ? 'Archived' : property.visibility === true ? 'Public' : 'Private'}
+            {isSold ? 'Sold' : property.archived === true ? 'Archived' : property.visibility === true ? 'Public' : 'Private'}
           </span>
         </div>
         {/* Top-right badges */}
@@ -330,6 +333,13 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           return agent ? <p className="text-xs text-slate-500 mb-0.5">{agent.name}</p> : null;
         })()}
         <p className="text-lg font-bold text-slate-900 mb-2">{formatPrice(property.price)}</p>
+        {isSold && (
+          <p className="text-xs font-semibold text-emerald-700 mb-2 flex items-center gap-1">
+            <CheckCircle className="w-3.5 h-3.5" />
+            {property.soldPrice ? `Sold ${formatPrice(property.soldPrice)}` : 'Sold'}
+            {property.soldAt ? ` · ${formatDate(property.soldAt)}` : ''}
+          </p>
+        )}
 
         <div className="flex items-center gap-3 text-xs text-slate-500 mb-3">
           {property.bedrooms != null && (
@@ -363,7 +373,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
             <Pencil className="w-3 h-3" />
             Edit
           </Link>
-          {isArchived && onHide && (
+          {isArchived && !isSold && onHide && (
             <button
               onClick={() => onHide(property)}
               className="px-3 py-2 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors flex items-center gap-1"
@@ -809,12 +819,16 @@ function DashboardPage() {
 
   const userName = [userData?.firstName, userData?.lastName].filter(Boolean).join(' ') || 'Agent';
   const activeProperties = properties.filter(p => p.archived !== true && p.hidden !== true);
-  const archivedProperties = properties.filter(p => p.archived === true && p.hidden !== true);
+  // Sold is a distinct reason for being archived — kept separate from the
+  // general Archive tab so the two features don't overlap.
+  const soldProperties = properties.filter(p => p.archived === true && p.archivedReason === 'sold' && p.hidden !== true);
+  const archivedProperties = properties.filter(p => p.archived === true && p.archivedReason !== 'sold' && p.hidden !== true);
   const liveProperties = activeProperties.filter(p => p.visibility === true);
   const totalViews = activeProperties.reduce((sum, p) => sum + (p.stats?.views || 0), 0);
+  const currentTabProperties = activeTab === 'sold' ? soldProperties : activeTab === 'archived' ? archivedProperties : activeProperties;
   const agentFilteredProperties = filterAgentId
-    ? (activeTab === 'archived' ? archivedProperties : activeProperties).filter(p => p.agentId === filterAgentId)
-    : (activeTab === 'archived' ? archivedProperties : activeProperties);
+    ? currentTabProperties.filter(p => p.agentId === filterAgentId)
+    : currentTabProperties;
   const displayProperties = agentFilteredProperties;
 
   return (
@@ -851,11 +865,13 @@ function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-slate-900">
-                {activeTab === 'archived' ? 'Archived Properties' : 'Dashboard'}
+                {activeTab === 'archived' ? 'Archived Properties' : activeTab === 'sold' ? 'Sold Properties' : 'Dashboard'}
               </h1>
               <p className="text-sm text-slate-500 mt-1">
                 {activeTab === 'archived'
                   ? `${archivedProperties.length} ${archivedProperties.length === 1 ? 'property' : 'properties'}`
+                  : activeTab === 'sold'
+                  ? `${soldProperties.length} ${soldProperties.length === 1 ? 'property' : 'properties'}`
                   : userData?.companyName
                     ? `Welcome back, ${userData.companyName}`
                     : <span>Welcome back! <Link href="/dashboard/settings" className="text-orange-500 hover:text-orange-600 font-semibold">Add Agency Details</Link></span>}
@@ -918,12 +934,21 @@ function DashboardPage() {
             <div className="flex items-center justify-center py-20">
               <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" />
             </div>
-          ) : activeTab !== 'archived' && properties.length === 0 ? (
+          ) : activeTab !== 'archived' && activeTab !== 'sold' && properties.length === 0 ? (
             <EmptyState />
           ) : displayProperties.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-              <Archive className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-              <p className="text-sm text-slate-500">No archived properties</p>
+              {activeTab === 'sold' ? (
+                <>
+                  <CheckCircle className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                  <p className="text-sm text-slate-500">No sold properties yet</p>
+                </>
+              ) : (
+                <>
+                  <Archive className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                  <p className="text-sm text-slate-500">No archived properties</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -933,9 +958,10 @@ function DashboardPage() {
                   property={property}
                   onToggleVisibility={toggleVisibility}
                   toggling={toggling}
-                  onArchive={activeTab === 'archived' ? unarchiveProperty : archiveProperty}
+                  onArchive={(activeTab === 'archived' || activeTab === 'sold') ? unarchiveProperty : archiveProperty}
                   archiving={archiving}
                   isArchived={property.archived === true}
+                  isSold={property.archivedReason === 'sold'}
                   onHide={handleHideProperty}
                   teamAgents={teamAgents}
                 />
