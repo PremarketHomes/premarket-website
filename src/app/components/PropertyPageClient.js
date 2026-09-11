@@ -12,6 +12,7 @@ import AgentFooter from '../components/AgentFooter';
 import Nav from '../components/Nav';
 import LikeButton from './LikeButton';
 import { usePropertyEngagement } from '../hooks/usePropertyEngagement';
+import PriceOpinionSlider, { roundToStep } from './PriceOpinionSlider';
 
 // Generate a session ID for tracking price opinions
 const getSessionId = () => {
@@ -308,19 +309,19 @@ export default function PropertyPageClient() {
         const previousOffer = sessionSnapshot.docs[0];
         setSavedOfferId(previousOffer.id);
         if (previousOffer.data().offerAmount) {
-          const roundedOffer = Math.round(previousOffer.data().offerAmount / 1000) * 1000;
+          const roundedOffer = roundToStep(previousOffer.data().offerAmount);
           setPriceOpinion(roundedOffer);
           return;
         }
       }
-      
+
       // If no session offer found, use midpoint
-      const mid = Math.round(((min + max) / 2) / 1000) * 1000;
+      const mid = roundToStep((min + max) / 2);
       setPriceOpinion(mid);
     } catch (error) {
       console.error('Error fetching previous offer:', error);
       // Fallback to midpoint if error
-      const mid = Math.round(((min + max) / 2) / 1000) * 1000;
+      const mid = roundToStep((min + max) / 2);
       setPriceOpinion(mid);
     }
   };
@@ -428,7 +429,7 @@ export default function PropertyPageClient() {
     setPassword('');
     setSignupError('');
     // Reset slider to midpoint
-    const mid = Math.round(((minPrice + maxPrice) / 2) / 1000) * 1000;
+    const mid = roundToStep((minPrice + maxPrice) / 2);
     setPriceOpinion(mid);
   };
 
@@ -466,8 +467,8 @@ export default function PropertyPageClient() {
     }
 
     // Calculate min and max as 25% either side
-    const min = Math.round((basePrice * 0.75) / 1000) * 1000;
-    const max = Math.round((basePrice * 1.25) / 1000) * 1000;
+    const min = roundToStep(basePrice * 0.75);
+    const max = roundToStep(basePrice * 1.25);
 
     return { min, max };
   };
@@ -857,17 +858,13 @@ export default function PropertyPageClient() {
 
           {/* Slider */}
           <div className="mb-6 px-2">
-            <input
-              type="range"
+            <PriceOpinionSlider
               min={minPrice}
               max={maxPrice}
-              step={1000}
               value={priceOpinion}
-              onChange={(e) => setPriceOpinion(Number(e.target.value))}
-              onMouseDown={() => setIsSliding(true)}
-              onMouseUp={() => setIsSliding(false)}
-              onTouchStart={() => setIsSliding(true)}
-              onTouchEnd={() => setIsSliding(false)}
+              onChange={setPriceOpinion}
+              onSlideStart={() => setIsSliding(true)}
+              onSlideEnd={() => setIsSliding(false)}
               className="w-full h-4 bg-gradient-to-r from-orange-400 via-yellow-400 to-green-500 rounded-lg appearance-none cursor-pointer ipad-slider"
             />
             <div className="flex justify-between mt-3 text-sm text-slate-400 font-medium">
@@ -1108,28 +1105,6 @@ export default function PropertyPageClient() {
             </motion.div>
           </div>
         )}
-
-        <style jsx>{`
-          .ipad-slider::-webkit-slider-thumb {
-            appearance: none;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: white;
-            cursor: pointer;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-            border: 4px solid #ea580c;
-          }
-          .ipad-slider::-moz-range-thumb {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: white;
-            cursor: pointer;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-            border: 4px solid #ea580c;
-          }
-        `}</style>
       </div>
     );
   }
@@ -1516,17 +1491,13 @@ export default function PropertyPageClient() {
 
                   {/* Slider */}
                   <div className="mb-4">
-                    <input
-                      type="range"
+                    <PriceOpinionSlider
                       min={minPrice}
                       max={maxPrice}
-                      step={1000}
                       value={priceOpinion}
-                      onChange={(e) => setPriceOpinion(Number(e.target.value))}
-                      onMouseDown={() => setIsSliding(true)}
-                      onMouseUp={() => setIsSliding(false)}
-                      onTouchStart={() => setIsSliding(true)}
-                      onTouchEnd={() => setIsSliding(false)}
+                      onChange={setPriceOpinion}
+                      onSlideStart={() => setIsSliding(true)}
+                      onSlideEnd={() => setIsSliding(false)}
                       className="w-full h-3 bg-gradient-to-r from-orange-400 via-yellow-400 to-green-500 rounded-lg appearance-none cursor-pointer slider-thumb"
                     />
                     <div className="flex justify-between mt-2 text-xs text-slate-500">
@@ -1821,17 +1792,13 @@ export default function PropertyPageClient() {
                     {formatMoney(priceOpinion)}
                   </motion.span>
                 </div>
-                <input
-                  type="range"
+                <PriceOpinionSlider
                   min={minPrice}
                   max={maxPrice}
-                  step={1000}
                   value={priceOpinion}
-                  onChange={(e) => setPriceOpinion(Number(e.target.value))}
-                  onMouseDown={() => setIsSliding(true)}
-                  onMouseUp={() => setIsSliding(false)}
-                  onTouchStart={() => setIsSliding(true)}
-                  onTouchEnd={() => setIsSliding(false)}
+                  onChange={setPriceOpinion}
+                  onSlideStart={() => setIsSliding(true)}
+                  onSlideEnd={() => setIsSliding(false)}
                   className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer sticky-slider"
                 />
                 <div className="flex justify-between text-xs text-slate-500">
@@ -1861,17 +1828,13 @@ export default function PropertyPageClient() {
                 </div>
 
                 <div className="flex-1 px-4">
-                  <input
-                    type="range"
+                  <PriceOpinionSlider
                     min={minPrice}
                     max={maxPrice}
-                    step={1000}
                     value={priceOpinion}
-                    onChange={(e) => setPriceOpinion(Number(e.target.value))}
-                    onMouseDown={() => setIsSliding(true)}
-                    onMouseUp={() => setIsSliding(false)}
-                    onTouchStart={() => setIsSliding(true)}
-                    onTouchEnd={() => setIsSliding(false)}
+                    onChange={setPriceOpinion}
+                    onSlideStart={() => setIsSliding(true)}
+                    onSlideEnd={() => setIsSliding(false)}
                     className="w-full h-3 bg-slate-700 rounded-lg appearance-none cursor-pointer sticky-slider"
                   />
                   <div className="flex justify-between mt-1 text-xs text-slate-500">
@@ -2387,50 +2350,6 @@ export default function PropertyPageClient() {
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        .slider-thumb::-webkit-slider-thumb {
-          appearance: none;
-          width: 24px;
-          height: 24px;
-          border-radius: 50%;
-          background: white;
-          cursor: pointer;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          border: 3px solid #ea580c;
-        }
-
-        .slider-thumb::-moz-range-thumb {
-          width: 24px;
-          height: 24px;
-          border-radius: 50%;
-          background: white;
-          cursor: pointer;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          border: 3px solid #ea580c;
-        }
-
-        .sticky-slider::-webkit-slider-thumb {
-          appearance: none;
-          width: 20px;
-          height: 20px;
-          border-radius: 50%;
-          background: linear-gradient(to right, #e48900, #c64500);
-          cursor: pointer;
-          box-shadow: 0 2px 8px rgba(228, 137, 0, 0.4);
-          border: 2px solid white;
-        }
-
-        .sticky-slider::-moz-range-thumb {
-          width: 20px;
-          height: 20px;
-          border-radius: 50%;
-          background: linear-gradient(to right, #e48900, #c64500);
-          cursor: pointer;
-          box-shadow: 0 2px 8px rgba(228, 137, 0, 0.4);
-          border: 2px solid white;
-        }
-      `}</style>
     </div>
   );
 }

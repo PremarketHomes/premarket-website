@@ -29,6 +29,7 @@ import {
   Car,
   Grid2X2,
 } from 'lucide-react';
+import PriceOpinionSlider, { roundToStep } from '../../components/PriceOpinionSlider';
 
 /* ─────────── helpers ─────────── */
 
@@ -60,8 +61,8 @@ const computeInitialRange = (data) => {
   if (basePrice === 0) basePrice = 1000000;
 
   return {
-    min: Math.round((basePrice * 0.75) / 1000) * 1000,
-    max: Math.round((basePrice * 1.25) / 1000) * 1000,
+    min: roundToStep(basePrice * 0.75),
+    max: roundToStep(basePrice * 1.25),
   };
 };
 
@@ -248,7 +249,7 @@ function TvDisplayPage() {
     const { min, max } = computeInitialRange(property);
     setMinPrice(min);
     setMaxPrice(max);
-    setPriceOpinion(Math.round(((min + max) / 2) / 1000) * 1000);
+    setPriceOpinion(roundToStep((min + max) / 2));
     setCurrentImageIndex(0);
     setSavedOfferId(null);
   }, [currentPropertyIndex, property?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -311,7 +312,7 @@ function TvDisplayPage() {
     setPassword('');
     setSignupError('');
     if (property) {
-      const mid = Math.round(((minPrice + maxPrice) / 2) / 1000) * 1000;
+      const mid = roundToStep((minPrice + maxPrice) / 2);
       setPriceOpinion(mid);
     }
   }, [property, minPrice, maxPrice]);
@@ -545,17 +546,13 @@ function TvDisplayPage() {
           </motion.p>
         </div>
         <div className="pt-6 pb-8">
-          <input
-            type="range"
+          <PriceOpinionSlider
             min={minPrice}
             max={maxPrice}
-            step={1000}
             value={priceOpinion}
-            onChange={(e) => setPriceOpinion(Number(e.target.value))}
-            onMouseDown={() => setIsSliding(true)}
-            onMouseUp={() => { setIsSliding(false); saveTvPriceOpinion(); }}
-            onTouchStart={() => setIsSliding(true)}
-            onTouchEnd={() => { setIsSliding(false); saveTvPriceOpinion(); }}
+            onChange={setPriceOpinion}
+            onSlideStart={() => setIsSliding(true)}
+            onSlideEnd={() => { setIsSliding(false); saveTvPriceOpinion(); }}
             className="w-full cursor-pointer tv-slider"
           />
         </div>
