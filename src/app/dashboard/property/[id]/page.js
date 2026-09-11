@@ -21,6 +21,7 @@ import {
   onSnapshot,
   orderBy,
   serverTimestamp,
+  deleteField,
 } from 'firebase/firestore';
 import {
   ArrowLeft,
@@ -1166,6 +1167,9 @@ export default function PropertyReportPage() {
       const parsedPrice = trimmedPrice ? parseFloat(trimmedPrice.replace(/[^0-9.]/g, '')) : null;
       const cleanPrice = parsedPrice != null && !isNaN(parsedPrice) ? parsedPrice : null;
       const cleanDate = soldDateInput ? new Date(soldDateInput) : new Date();
+      // Remember the visibility it had before being marked sold, so
+      // "Move Back to Active" can restore it exactly rather than guessing.
+      const preSoldVisibility = property.visibility === true;
 
       await updateDoc(doc(db, 'properties', property.id), {
         soldPrice: cleanPrice,
@@ -1175,6 +1179,7 @@ export default function PropertyReportPage() {
         visibility: false,
         archivedAt: serverTimestamp(),
         archivedReason: 'sold',
+        preSoldVisibility,
       });
       setProperty(prev => ({
         ...prev,
@@ -1184,6 +1189,7 @@ export default function PropertyReportPage() {
         active: false,
         visibility: false,
         archivedReason: 'sold',
+        preSoldVisibility,
       }));
       setShowSoldConfirm(false);
     } catch (err) {
@@ -1194,14 +1200,36 @@ export default function PropertyReportPage() {
     }
   };
 
-  // Reversal: only flips `archived` back — soldPrice/soldAt/archivedReason
-  // are deliberately left in place so the sold history is never lost.
+  // Full reversal: restores the property to exactly the state a property
+  // that was never marked sold would be in. Every sold-specific field is
+  // removed outright (not just set to false/null) so no sold badge, sold
+  // price/date, or other sold metadata can linger on the card or page.
+  // Historical opinions/views/enquiries live in separate collections and
+  // are never touched by this.
   const handleRestoreActive = async () => {
     if (!property) return;
     setRestoringActive(true);
     try {
-      await updateDoc(doc(db, 'properties', property.id), { archived: false });
-      setProperty(prev => ({ ...prev, archived: false }));
+      const restoredVisibility = property.preSoldVisibility === true;
+      await updateDoc(doc(db, 'properties', property.id), {
+        archived: false,
+        active: true,
+        visibility: restoredVisibility,
+        archivedReason: deleteField(),
+        soldPrice: deleteField(),
+        soldAt: deleteField(),
+        archivedAt: deleteField(),
+        preSoldVisibility: deleteField(),
+      });
+      setProperty(prev => {
+        const next = { ...prev, archived: false, active: true, visibility: restoredVisibility };
+        delete next.archivedReason;
+        delete next.soldPrice;
+        delete next.soldAt;
+        delete next.archivedAt;
+        delete next.preSoldVisibility;
+        return next;
+      });
       setShowUnsoldConfirm(false);
     } catch (err) {
       console.error('Error restoring property to active:', err);

@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { authFetch } from '../utils/authFetch';
 import { isBuyerOnly } from '../utils/roles';
 import { db } from '../firebase/clientApp';
-import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, orderBy, deleteField } from 'firebase/firestore';
 import { formatPrice, formatDate } from '../utils/formatters';
 import {
   LayoutDashboard,
@@ -787,9 +787,32 @@ function DashboardPage() {
   const unarchiveProperty = async (property) => {
     setArchiving(true);
     try {
-      await updateDoc(doc(db, 'properties', property.id), { archived: false });
+      // If this was a sold property, fully clear the sold state — badge,
+      // sold price/date, everything — so it looks like a normal active
+      // property that was never marked sold. Deleting fields that were
+      // never set (a plain, never-sold archived property) is a no-op.
+      const restoredVisibility = property.preSoldVisibility === true;
+      await updateDoc(doc(db, 'properties', property.id), {
+        archived: false,
+        active: true,
+        visibility: restoredVisibility,
+        archivedReason: deleteField(),
+        soldPrice: deleteField(),
+        soldAt: deleteField(),
+        archivedAt: deleteField(),
+        preSoldVisibility: deleteField(),
+      });
       setProperties(prev =>
-        prev.map(p => p.id === property.id ? { ...p, archived: false } : p)
+        prev.map(p => {
+          if (p.id !== property.id) return p;
+          const next = { ...p, archived: false, active: true, visibility: restoredVisibility };
+          delete next.archivedReason;
+          delete next.soldPrice;
+          delete next.soldAt;
+          delete next.archivedAt;
+          delete next.preSoldVisibility;
+          return next;
+        })
       );
     } catch (err) {
       console.error('Error unarchiving property:', err);
