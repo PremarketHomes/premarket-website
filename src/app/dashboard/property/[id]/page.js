@@ -63,6 +63,7 @@ import {
   CheckCircle2,
   RotateCcw,
   Sparkles,
+  Download,
 } from 'lucide-react';
 import { formatPrice, formatDate } from '../../../utils/formatters';
 
@@ -1010,6 +1011,7 @@ export default function PropertyReportPage() {
   const [soldDateInput, setSoldDateInput] = useState(() => new Date().toISOString().split('T')[0]);
   const [showUnsoldConfirm, setShowUnsoldConfirm] = useState(false);
   const [restoringActive, setRestoringActive] = useState(false);
+  const [generatingCard, setGeneratingCard] = useState(false);
   const [showSendReport, setShowSendReport] = useState(false);
   const [sendingReport, setSendingReport] = useState(false);
   const [reportSent, setReportSent] = useState(false);
@@ -1239,6 +1241,84 @@ export default function PropertyReportPage() {
     }
   };
 
+  // Downloads/shares a 1080x1350 campaign-results image for this property.
+  // Entirely read-only: the PNG is generated server-side from the same
+  // property + offers data this Report already reads. Nothing here writes
+  // to Firestore, and none of the Report's own calculations are touched.
+  const handleDownloadShareableCard = async () => {
+    if (!property || generatingCard) return;
+    setGeneratingCard(true);
+    try {
+      const res = await authFetch('/api/reports/property-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ propertyId: property.id }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to generate the shareable card. Please try again.');
+      }
+
+      const blob = await res.blob();
+      const addressSlug = (property.formattedAddress || property.address || 'property')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 60) || 'property';
+      const filename = `premarket-${addressSlug}-campaign-results.png`;
+
+      const downloadBlob = () => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+      let file = null;
+      try {
+        file = new File([blob], filename, { type: 'image/png' });
+      } catch {
+        // File constructor unsupported — fall through to direct download.
+      }
+
+      const canUseNativeShare = !!file
+        && typeof navigator !== 'undefined'
+        && typeof navigator.canShare === 'function'
+        && navigator.canShare({ files: [file] });
+
+      if (canUseNativeShare) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: 'Premarket Campaign Results',
+            text: property.formattedAddress || property.address || 'Premarket campaign results',
+          });
+        } catch (shareErr) {
+          // AbortError means the agent dismissed the native share sheet —
+          // respect that and do nothing further. Any other failure falls
+          // back to a direct download so the agent still gets the image.
+          if (shareErr?.name !== 'AbortError') {
+            console.error('Native share failed, falling back to download:', shareErr);
+            downloadBlob();
+          }
+        }
+      } else {
+        downloadBlob();
+      }
+    } catch (err) {
+      console.error('Error generating shareable card:', err);
+      alert(err.message || 'Failed to generate the shareable card. Please try again.');
+    } finally {
+      setGeneratingCard(false);
+      setShowMoreMenu(false);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -1399,6 +1479,19 @@ export default function PropertyReportPage() {
                       >
                         <Send className="w-4 h-4 text-slate-400" />
                         Send Report
+                      </button>
+                      {/* Download Shareable Property Card */}
+                      <button
+                        onClick={handleDownloadShareableCard}
+                        disabled={generatingCard}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                      >
+                        {generatingCard ? (
+                          <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
+                        ) : (
+                          <Download className="w-4 h-4 text-slate-400" />
+                        )}
+                        {generatingCard ? 'Generating card...' : 'Download Shareable Property Card'}
                       </button>
                       {/* Archive */}
                       <button
