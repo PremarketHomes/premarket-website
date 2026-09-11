@@ -8,6 +8,16 @@ const nextConfig = {
   // Exclude pdfkit from webpack bundling (it uses fs.readFileSync for fonts)
   serverExternalPackages: ['pdfkit'],
 
+  // The shareable property card route renders text via sharp's native
+  // text mode using an explicit bundled font file (see
+  // src/app/api/services/propertyCardRenderer.js). sharp/libvips opens
+  // that file from native code, which Vercel's automatic file tracing
+  // can miss since it only sees plain JS import/fs calls — this makes
+  // sure the font files are always included in the deployed function.
+  outputFileTracingIncludes: {
+    '/api/reports/property-card': ['./src/app/api/services/fonts/**'],
+  },
+
   // Optimize images
   images: {
     formats: ['image/avif', 'image/webp'],

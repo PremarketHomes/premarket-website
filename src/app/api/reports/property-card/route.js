@@ -8,8 +8,8 @@ import {
   CARD_HEIGHT,
   computeOpinionStats,
   wrapAddressLines,
-  buildCardOverlaySvg,
 } from '../../services/propertyCardService';
+import { renderPropertyCardPng } from '../../services/propertyCardRenderer';
 
 export const maxDuration = 60;
 
@@ -86,18 +86,14 @@ export async function POST(request) {
       .resize(CARD_WIDTH, CARD_HEIGHT, { fit: 'cover', position: 'centre' })
       .toBuffer();
 
-    const overlaySvg = buildCardOverlaySvg({
+    const cardBuffer = await renderPropertyCardPng({
+      heroBuffer,
       addressLines,
       viewsCount,
       opinionsCount,
       seriousBuyersCount,
       medianDisplay,
     });
-
-    const cardBuffer = await sharp(heroBuffer)
-      .composite([{ input: Buffer.from(overlaySvg), top: 0, left: 0 }])
-      .png()
-      .toBuffer();
 
     return new NextResponse(cardBuffer, {
       status: 200,

@@ -49,12 +49,18 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
 // image processing. Each top-level sharp(...) call returns a fresh
 // chainable object, matching how the route uses it (resize().toBuffer(),
 // then a separate composite().png().toBuffer()).
+// sharp is a native binary module, mocked here so these tests never touch
+// real image/font processing. Supports both usages the renderer needs:
+// sharp(buffer).resize()/composite()/png().toBuffer(), and
+// sharp({ text: {...} }).png().toBuffer() followed by
+// sharp(buffer).metadata() to measure the rendered text size.
 vi.mock('sharp', () => ({
   default: vi.fn(() => ({
     resize: vi.fn().mockReturnThis(),
     composite: vi.fn().mockReturnThis(),
     png: vi.fn().mockReturnThis(),
     toBuffer: vi.fn().mockResolvedValue(Buffer.from('fake-png-bytes')),
+    metadata: vi.fn().mockResolvedValue({ width: 200, height: 60 }),
   })),
 }));
 

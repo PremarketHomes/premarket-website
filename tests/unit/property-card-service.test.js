@@ -6,7 +6,7 @@ import {
   computeOpinionStats,
   escapeXml,
   wrapAddressLines,
-  buildCardOverlaySvg,
+  buildBackgroundOverlaySvg,
 } from '../../src/app/api/services/propertyCardService';
 
 describe('median', () => {
@@ -90,54 +90,35 @@ describe('wrapAddressLines', () => {
   });
 });
 
-describe('buildCardOverlaySvg', () => {
-  const baseArgs = {
-    addressLines: ['12 Main St, Sydney NSW 2000'],
-    viewsCount: 126,
-    opinionsCount: 19,
-    seriousBuyersCount: 5,
-    medianDisplay: '$2.9M',
-  };
+describe('buildBackgroundOverlaySvg', () => {
+  // This overlay deliberately contains no <text> at all — see the module
+  // comment in propertyCardService.js. All text is rendered separately
+  // in propertyCardRenderer.js via an explicit bundled font file, which
+  // is what actually fixed the square/missing-glyph rendering bug.
 
   it('produces a well-formed SVG at the exact card dimensions', () => {
-    const svg = buildCardOverlaySvg(baseArgs);
+    const svg = buildBackgroundOverlaySvg({ gradientTop: 700 });
     expect(svg).toContain(`width="${CARD_WIDTH}"`);
     expect(svg).toContain(`height="${CARD_HEIGHT}"`);
     expect(svg.trim().startsWith('<svg')).toBe(true);
   });
 
-  it('includes every stat value and the Premarket wordmark', () => {
-    const svg = buildCardOverlaySvg(baseArgs);
-    expect(svg).toContain('126');
-    expect(svg).toContain('19');
-    expect(svg).toContain('$2.9M');
-    expect(svg).toContain('5 Serious Buyers');
-    expect(svg).toContain('Premarket');
+  it('contains no text elements', () => {
+    const svg = buildBackgroundOverlaySvg({ gradientTop: 700, brandMark: { x: 72, y: 1200, size: 30 } });
+    expect(svg).not.toContain('<text');
   });
 
-  it('never emits "undefined" or "NaN" even when stats are missing/zero', () => {
-    const svg = buildCardOverlaySvg({
-      addressLines: undefined,
-      viewsCount: undefined,
-      opinionsCount: 0,
-      seriousBuyersCount: 0,
-      medianDisplay: undefined,
-    });
-    expect(svg).not.toContain('undefined');
-    expect(svg).not.toContain('NaN');
-    expect(svg).toContain('Address unavailable');
+  it('includes the brand mark grid only when brandMark is provided', () => {
+    const withMark = buildBackgroundOverlaySvg({ gradientTop: 700, brandMark: { x: 72, y: 1200, size: 30 } });
+    const withoutMark = buildBackgroundOverlaySvg({ gradientTop: 700 });
+    expect(withMark).toContain('#e48900');
+    expect(withoutMark).not.toContain('#e48900');
   });
 
-  it('correctly pluralizes singular counts', () => {
-    const svg = buildCardOverlaySvg({ ...baseArgs, opinionsCount: 1, seriousBuyersCount: 1 });
-    expect(svg).toContain('Price Opinion<');
-    expect(svg).toContain('1 Serious Buyer<');
-  });
-
-  it('escapes address text that contains XML-sensitive characters', () => {
-    const svg = buildCardOverlaySvg({ ...baseArgs, addressLines: ['5 <Test> & "Co" St'] });
-    expect(svg).toContain('&lt;Test&gt;');
-    expect(svg).toContain('&amp;');
-    expect(svg).not.toContain('<Test>');
+  it('clamps the gradient position within the canvas bounds', () => {
+    const svgNegative = buildBackgroundOverlaySvg({ gradientTop: -500 });
+    const svgTooLarge = buildBackgroundOverlaySvg({ gradientTop: 99999 });
+    expect(svgNegative).toContain('y="0"');
+    expect(svgTooLarge).toContain(`y="${CARD_HEIGHT}"`);
   });
 });

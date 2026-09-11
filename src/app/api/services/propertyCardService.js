@@ -100,113 +100,50 @@ export function wrapAddressLines(address, maxCharsPerLine = 28, maxLines = 2) {
 }
 
 /**
- * Builds the full-canvas SVG overlay (gradient + address + stats +
- * Premarket branding) that gets composited on top of the cover-cropped
- * hero image. Returns a complete SVG document string.
+ * Builds a full-canvas SVG containing ONLY vector shapes — a dark bottom
+ * gradient (for text legibility over any photograph) and the Premarket
+ * brand mark (the same 2x2 rounded-square grid as
+ * src/app/components/BrandMark.js). Deliberately contains no <text> at
+ * all: SVG/vector shapes rasterize identically everywhere regardless of
+ * what fonts a machine has installed, so keeping text out of this layer
+ * entirely sidesteps the font-availability problem for the parts of the
+ * design that don't need it. All actual text is rendered separately by
+ * propertyCardRenderer.js using an explicitly bundled font file.
  */
-export function buildCardOverlaySvg({
-  addressLines,
-  viewsCount,
-  opinionsCount,
-  seriousBuyersCount,
-  medianDisplay,
+export function buildBackgroundOverlaySvg({
   width = CARD_WIDTH,
   height = CARD_HEIGHT,
+  gradientTop,
+  brandMark, // { x, y, size } — top-left origin of the 2x2 grid
 }) {
-  const safeAddressLines = (addressLines && addressLines.length ? addressLines : ['Address unavailable'])
-    .map(escapeXml);
+  const top = Math.max(0, Math.min(gradientTop ?? Math.round(height * 0.55), height));
 
-  const leftMargin = 80;
-  const addressLineHeight = 52;
-  const statBlockHeight = 128;
-
-  // Reserve space for up to 2 address lines regardless of how many this
-  // property actually has, so every other element's position is fixed and
-  // can never overlap depending on address length.
-  const addressReserved = 2 * addressLineHeight;
-
-  const stats = [
-    { value: String(viewsCount ?? 0), label: 'Views' },
-    { value: String(opinionsCount ?? 0), label: opinionsCount === 1 ? 'Price Opinion' : 'Price Opinions' },
-    { value: medianDisplay || '--', label: 'Combined Median' },
-  ];
-  const seriousLabel = seriousBuyersCount === 1 ? 'Serious Buyer' : 'Serious Buyers';
-
-  // Fixed block heights, laid out top-to-bottom with a running cursor so
-  // positions are computed sequentially and can never collide.
-  const topPadding = 70;
-  const gapAfterAddress = 44;
-  const gapAfterStats = 30;
-  const gapAfterSerious = 46;
-  const bottomPadding = 56;
-  const brandRowHeight = 40;
-  const seriousRowHeight = 40;
-
-  const contentHeight = topPadding
-    + addressReserved
-    + gapAfterAddress
-    + stats.length * statBlockHeight
-    + gapAfterStats
-    + seriousRowHeight
-    + gapAfterSerious
-    + brandRowHeight
-    + bottomPadding;
-
-  const gradientTop = Math.max(height - contentHeight, Math.round(height * 0.35));
-
-  let cursorY = gradientTop + topPadding;
-
-  const addressStartY = cursorY + addressLineHeight * 0.7; // first baseline within the reserved block
-  const addressText = safeAddressLines.map((line, i) => (
-    `<text x="${leftMargin}" y="${addressStartY + i * addressLineHeight}" font-family="Helvetica, Arial, sans-serif" font-size="42" font-weight="600" fill="#ffffff">${line}</text>`
-  )).join('\n');
-  cursorY += addressReserved + gapAfterAddress;
-
-  const statLines = stats.map((stat) => {
-    const numberBaseline = cursorY + 78;
-    const labelBaseline = numberBaseline + 40;
-    cursorY += statBlockHeight;
-    return `
-      <text x="${leftMargin}" y="${numberBaseline}" font-family="Helvetica, Arial, sans-serif" font-size="84" font-weight="700" fill="#ffffff">${escapeXml(stat.value)}</text>
-      <text x="${leftMargin}" y="${labelBaseline}" font-family="Helvetica, Arial, sans-serif" font-size="28" font-weight="500" fill="rgba(255,255,255,0.82)" letter-spacing="0.5">${escapeXml(stat.label)}</text>
+  let brandMarkSvg = '';
+  if (brandMark) {
+    const { x, y, size } = brandMark;
+    const sq = size * 0.4;
+    const gap = size * 0.14;
+    brandMarkSvg = `
+      <g transform="translate(${x}, ${y})">
+        <rect x="0" y="0" width="${sq}" height="${sq}" rx="4" fill="#e48900" />
+        <rect x="${sq + gap}" y="0" width="${sq}" height="${sq}" rx="4" fill="#e48900" />
+        <rect x="0" y="${sq + gap}" width="${sq}" height="${sq}" rx="4" fill="#e48900" />
+        <rect x="${sq + gap}" y="${sq + gap}" width="${sq}" height="${sq}" rx="4" fill="#e48900" />
+      </g>
     `;
-  }).join('\n');
-  cursorY += gapAfterStats;
-
-  const seriousY = cursorY + 30;
-  cursorY += seriousRowHeight + gapAfterSerious;
-
-  // Premarket brand mark — the same 2x2 rounded-square grid as
-  // src/app/components/BrandMark.js, scaled down and placed bottom-left,
-  // last in reading order so it reads as a subtle sign-off, not a header.
-  const brandSize = 34;
-  const brandY = cursorY;
-  const sq = brandSize * 0.4;
-  const brandGap = brandSize * 0.14;
-  const brandMark = `
-    <g transform="translate(${leftMargin}, ${brandY - brandSize * 0.72})">
-      <rect x="0" y="0" width="${sq}" height="${sq}" rx="4" fill="#e48900" />
-      <rect x="${sq + brandGap}" y="0" width="${sq}" height="${sq}" rx="4" fill="#e48900" />
-      <rect x="0" y="${sq + brandGap}" width="${sq}" height="${sq}" rx="4" fill="#e48900" />
-      <rect x="${sq + brandGap}" y="${sq + brandGap}" width="${sq}" height="${sq}" rx="4" fill="#e48900" />
-    </g>
-  `;
+  }
 
   return `
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#000000" stop-opacity="0" />
-      <stop offset="30%" stop-color="#000000" stop-opacity="0.5" />
-      <stop offset="100%" stop-color="#000000" stop-opacity="0.92" />
+      <stop offset="45%" stop-color="#000000" stop-opacity="0.55" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.9" />
     </linearGradient>
   </defs>
-  <rect x="0" y="${gradientTop}" width="${width}" height="${height - gradientTop}" fill="url(#fade)" />
-  ${addressText}
-  ${statLines}
-  <text x="${leftMargin}" y="${seriousY}" font-family="Helvetica, Arial, sans-serif" font-size="32" font-weight="600" fill="#ffffff">${escapeXml(String(seriousBuyersCount ?? 0))} ${escapeXml(seriousLabel)}</text>
-  ${brandMark}
-  <text x="${leftMargin + brandSize + 16}" y="${brandY + 6}" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="700" fill="#ffffff">Premarket</text>
+  <rect x="0" y="${top}" width="${width}" height="${height - top}" fill="url(#fade)" />
+  ${brandMarkSvg}
 </svg>
 `;
 }
