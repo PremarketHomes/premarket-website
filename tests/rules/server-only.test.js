@@ -23,6 +23,7 @@ const SERVER_ONLY_COLLECTIONS = [
   'docLinks',
   'docSessions',
   'phiVerifications',
+  'integrationCredentials',
 ];
 
 describe.each(

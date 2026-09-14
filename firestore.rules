@@ -322,6 +322,10 @@ service cloud.firestore {
     match /docLinks/{docId} { allow read, write: if false; }
     match /docSessions/{docId} { allow read, write: if false; }
     match /phiVerifications/{docId} { allow read, write: if false; }
+    // Third-party integration credentials (Rex, Agentbox client IDs/API
+    // keys/secrets). Deliberately kept out of the `users` document, which
+    // is publicly readable — see docs/SECURITY.md.
+    match /integrationCredentials/{userId} { allow read, write: if false; }
 
     // ═══════════════════════════════════════════════════════════
     // DEFAULT DENY

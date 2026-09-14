@@ -8,8 +8,6 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { useRequireAgent } from '../../hooks/useRequireAgent';
 import { authFetch } from '../../utils/authFetch';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../../firebase/clientApp';
 import {
   ArrowLeft,
   Plug,
@@ -504,18 +502,27 @@ export default function IntegrationsPage() {
     }
   }, [user, loading, router]);
 
-  // Listen for realtime updates to integration status
-  useEffect(() => {
+  // Load integration connection status via an authenticated API route
+  // rather than reading the users document directly — credentials now
+  // live in a server-only collection, so there's nothing for the client
+  // SDK to read here even for the account owner (see security audit,
+  // Finding 3). Re-fetched after every connect/disconnect/sync action.
+  const fetchIntegrationStatus = useCallback(async () => {
     if (!user) return;
-    const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setIntegration(data?.integrations?.agentbox || null);
-        setRexIntegration(data?.integrations?.rex || null);
-      }
-    });
-    return () => unsub();
+    try {
+      const res = await authFetch('/api/integrations/status');
+      if (!res.ok) return;
+      const data = await res.json();
+      setIntegration(data.agentbox || null);
+      setRexIntegration(data.rex || null);
+    } catch (err) {
+      console.error('Failed to load integration status:', err);
+    }
   }, [user]);
+
+  useEffect(() => {
+    fetchIntegrationStatus();
+  }, [fetchIntegrationStatus]);
 
   // Fetch Agentbox listings when connected and viewing agentbox
   const fetchListings = useCallback(async () => {
@@ -588,6 +595,7 @@ export default function IntegrationsPage() {
       setShowConnectModal(false);
       setView('agentbox');
       showToast('Connected to Agentbox successfully');
+      fetchIntegrationStatus();
     } catch (err) {
       console.error(err);
       setConnectError('Connection failed. Please check your credentials.');
@@ -615,6 +623,7 @@ export default function IntegrationsPage() {
       setShowConnectModal(false);
       setView('agentbox');
       showToast('Connected with demo data');
+      fetchIntegrationStatus();
     } catch (err) {
       console.error(err);
       setConnectError('Demo connection failed.');
@@ -634,6 +643,7 @@ export default function IntegrationsPage() {
       if (!res.ok) throw new Error('Failed to disconnect');
       setView('hub');
       showToast('Disconnected from Agentbox');
+      fetchIntegrationStatus();
     } catch (err) {
       console.error(err);
       showToast('Failed to disconnect', 'error');
@@ -715,6 +725,7 @@ export default function IntegrationsPage() {
 
       showToast(`Synced ${data.updated} properties`);
       await fetchListings();
+      fetchIntegrationStatus();
     } catch (err) {
       console.error(err);
       showToast('Sync failed', 'error');
@@ -743,6 +754,7 @@ export default function IntegrationsPage() {
       setShowRexConnectModal(false);
       setView('rex');
       showToast('Connected to Rex successfully');
+      fetchIntegrationStatus();
     } catch (err) {
       console.error(err);
       setRexConnectError('Connection failed. Please check your credentials.');
@@ -770,6 +782,7 @@ export default function IntegrationsPage() {
       setShowRexConnectModal(false);
       setView('rex');
       showToast('Connected to Rex with demo data');
+      fetchIntegrationStatus();
     } catch (err) {
       console.error(err);
       setRexConnectError('Demo connection failed.');
@@ -789,6 +802,7 @@ export default function IntegrationsPage() {
       if (!res.ok) throw new Error('Failed to disconnect');
       setView('hub');
       showToast('Disconnected from Rex');
+      fetchIntegrationStatus();
     } catch (err) {
       console.error(err);
       showToast('Failed to disconnect', 'error');
@@ -870,6 +884,7 @@ export default function IntegrationsPage() {
 
       showToast(`Synced ${data.updated} properties`);
       await fetchRexListings();
+      fetchIntegrationStatus();
     } catch (err) {
       console.error(err);
       showToast('Sync failed', 'error');

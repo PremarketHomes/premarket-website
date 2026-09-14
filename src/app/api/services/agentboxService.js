@@ -332,12 +332,21 @@ export function mapListingToProperty(listing, userId) {
   };
 }
 
+// Credentials live in the server-only `integrationCredentials` collection
+// (allow read, write: if false in firestore.rules) — never on the `users`
+// document, which is publicly readable and was being fetched in full by
+// ordinary public property-page loads (see security audit, Finding 3).
+const CREDENTIALS_COLLECTION = 'integrationCredentials';
+
 /**
- * Store Agentbox integration credentials for a user.
+ * Store Agentbox integration credentials for a user. Also clears any
+ * legacy copy left on the (publicly-readable) users document, so any
+ * agent who (re)connects is immediately fully migrated off the exposed
+ * location.
  */
 export async function storeCredentials(userId, clientId, apiKey, offices) {
-  await adminDb.collection('users').doc(userId).update({
-    'integrations.agentbox': {
+  await adminDb.collection(CREDENTIALS_COLLECTION).doc(userId).set({
+    agentbox: {
       clientId,
       apiKey,
       status: 'connected',
@@ -347,27 +356,40 @@ export async function storeCredentials(userId, clientId, apiKey, offices) {
       autoSync: true,
       offices: offices || [],
     },
-  });
+  }, { merge: true });
+
+  await clearLegacyUsersField(userId, 'agentbox');
 }
 
 /**
  * Remove Agentbox integration credentials for a user.
  */
 export async function removeCredentials(userId) {
-  await adminDb.collection('users').doc(userId).update({
-    'integrations.agentbox': {
+  await adminDb.collection(CREDENTIALS_COLLECTION).doc(userId).set({
+    agentbox: {
       status: 'disconnected',
       clientId: null,
       apiKey: null,
       disconnectedAt: FieldValue.serverTimestamp(),
     },
-  });
+  }, { merge: true });
+
+  await clearLegacyUsersField(userId, 'agentbox');
 }
 
 /**
- * Get stored credentials for a user.
+ * Get stored credentials for a user. Reads the secure collection first;
+ * if nothing's there yet (not migrated off the legacy location), falls
+ * back to the old `users/{uid}.integrations.agentbox` field so existing
+ * connected agents keep working without interruption until migrated.
+ * This fallback read is server-side (Admin SDK) only — it does not
+ * reintroduce any client/public exposure.
  */
 export async function getCredentials(userId) {
+  const credDoc = await adminDb.collection(CREDENTIALS_COLLECTION).doc(userId).get();
+  const fromSecureLocation = credDoc.exists ? credDoc.data()?.agentbox : null;
+  if (fromSecureLocation) return fromSecureLocation;
+
   const userDoc = await adminDb.collection('users').doc(userId).get();
   if (!userDoc.exists) return null;
   return userDoc.data()?.integrations?.agentbox || null;
@@ -377,9 +399,27 @@ export async function getCredentials(userId) {
  * Update sync status for a user.
  */
 export async function updateSyncStatus(userId, status, errors = []) {
-  await adminDb.collection('users').doc(userId).update({
-    'integrations.agentbox.lastSync': FieldValue.serverTimestamp(),
-    'integrations.agentbox.lastSyncStatus': status,
-    ...(errors.length > 0 ? { 'integrations.agentbox.syncErrors': errors } : {}),
-  });
+  await adminDb.collection(CREDENTIALS_COLLECTION).doc(userId).set({
+    agentbox: {
+      lastSync: FieldValue.serverTimestamp(),
+      lastSyncStatus: status,
+      ...(errors.length > 0 ? { syncErrors: errors } : {}),
+    },
+  }, { merge: true });
+}
+
+/** Removes any legacy credential copy left on the public users document. */
+async function clearLegacyUsersField(userId, key) {
+  try {
+    const userDoc = await adminDb.collection('users').doc(userId).get();
+    if (userDoc.exists && userDoc.data()?.integrations?.[key] !== undefined) {
+      await adminDb.collection('users').doc(userId).update({
+        [`integrations.${key}`]: FieldValue.delete(),
+      });
+    }
+  } catch (err) {
+    // Non-fatal — the secure copy is already written; legacy cleanup can
+    // be retried by the migration script if this ever fails.
+    console.error(`Failed to clear legacy integrations.${key} for ${userId}:`, err);
+  }
 }

@@ -9,7 +9,8 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore 'npx vitest run tests/rules/'",
-    "emulators": "firebase emulators:start --only firestore"
+    "emulators": "firebase emulators:start --only firestore",
+    "migrate:integration-credentials": "node scripts/migrate-integration-credentials.js"
   },
   "dependencies": {
     "@react-google-maps/api": "^2.20.7",

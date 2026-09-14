@@ -66,8 +66,16 @@ final response = await AuthHttp.post(
 - **Public read**: `users`, `properties`, `offers`, `likes`, `settings`, `campaigns`, `displays`
 - **Owner-only**: `agents`, `draftProperties`, `image_edits`, `notifications`, `stripeTransactions`, `inAppPurchases`
 - **Authenticated**: `propertyEngagement`, `priceOpinions`, `propertyStats`, `xpNotifications`
-- **Server-only**: `marketScores`, `marketTrends`, `propertyScores`, `invoiceRuns`, `contacts`, etc.
+- **Server-only**: `marketScores`, `marketTrends`, `propertyScores`, `invoiceRuns`, `contacts`, `integrationCredentials`, etc.
 - **SuperAdmin**: `contacts`, `displays` (write)
+
+## Third-Party Integration Credentials (Rex, Agentbox)
+
+Client IDs, API keys/secrets, and access tokens for connected CRM integrations live in the server-only `integrationCredentials/{uid}` collection — **never** on the `users` document. `users` is publicly readable (`allow read: if true`) for legitimate reasons (property cards need agent name/avatar without requiring login), so anything written under `users/{uid}` should be treated as public, even for a logged-in-only feature.
+
+`rexService.js` and `agentboxService.js`'s `getCredentials()` read `integrationCredentials/{uid}` first and fall back (read-only, server-side) to the legacy `users/{uid}.integrations.*` field for any agent not yet migrated off it. `storeCredentials()`/`removeCredentials()` write only to the new location and proactively delete the legacy field, so any agent who (re)connects or disconnects is immediately fully migrated.
+
+The dashboard reads connection status via `GET /api/integrations/status`, which returns only non-secret metadata (`status`, `mode`, `connectedAt`, `lastSync`, `lastSyncStatus`, `offices`) — never the credential values, even to the account owner, since the UI never needs to display them back.
 
 ## Security Headers
 
