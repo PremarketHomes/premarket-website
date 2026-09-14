@@ -69,6 +69,29 @@ describe('users collection', () => {
     await assertFails(updateDoc(doc(db, 'users', 'user1'), { name: 'Hacker' }));
   });
 
+  // --- agencyBrandId (agency branding) ---
+  // Only the server (Admin SDK, via /api/branding/confirm) may set this —
+  // never the client, even the account owner — so an agent can't
+  // self-assign another agency's brand (logo/colours) onto their own
+  // public campaigns.
+  it('denies the owner setting their own agencyBrandId directly', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { name: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { agencyBrandId: 'harcourts-property-hub' }));
+  });
+
+  it('denies changing agencyBrandId even alongside an otherwise-valid field', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { name: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { name: 'Bob', agencyBrandId: 'someone-elses-brand' }));
+  });
+
+  it('still allows updating unrelated fields when agencyBrandId is untouched', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { name: 'Alice', agencyBrandId: 'existing-brand' });
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { name: 'Bob' }));
+  });
+
   // --- delete ---
   it('denies delete even for own user doc', async () => {
     const db = getAuthedDb('user1');

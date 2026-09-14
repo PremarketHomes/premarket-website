@@ -91,7 +91,7 @@ export default function PriceOpinionSlider({
           background: white;
           cursor: pointer;
           box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-          border: 4px solid #ea580c;
+          border: 4px solid var(--brand-primary, #ea580c);
         }
         .ipad-slider::-moz-range-thumb {
           width: 40px;
@@ -100,7 +100,7 @@ export default function PriceOpinionSlider({
           background: white;
           cursor: pointer;
           box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-          border: 4px solid #ea580c;
+          border: 4px solid var(--brand-primary, #ea580c);
         }
 
         .slider-thumb::-webkit-slider-thumb {
@@ -111,7 +111,7 @@ export default function PriceOpinionSlider({
           background: white;
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          border: 3px solid #ea580c;
+          border: 3px solid var(--brand-primary, #ea580c);
         }
         .slider-thumb::-moz-range-thumb {
           width: 24px;
@@ -120,7 +120,7 @@ export default function PriceOpinionSlider({
           background: white;
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          border: 3px solid #ea580c;
+          border: 3px solid var(--brand-primary, #ea580c);
         }
 
         .sticky-slider::-webkit-slider-thumb {
@@ -128,7 +128,7 @@ export default function PriceOpinionSlider({
           width: 20px;
           height: 20px;
           border-radius: 50%;
-          background: linear-gradient(to right, #e48900, #c64500);
+          background: linear-gradient(to right, var(--brand-primary, #e48900), var(--brand-primary-dark, #c64500));
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(228, 137, 0, 0.4);
           border: 2px solid white;
@@ -137,7 +137,7 @@ export default function PriceOpinionSlider({
           width: 20px;
           height: 20px;
           border-radius: 50%;
-          background: linear-gradient(to right, #e48900, #c64500);
+          background: linear-gradient(to right, var(--brand-primary, #e48900), var(--brand-primary-dark, #c64500));
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(228, 137, 0, 0.4);
           border: 2px solid white;

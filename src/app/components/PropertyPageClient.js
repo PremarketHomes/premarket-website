@@ -13,6 +13,7 @@ import Nav from '../components/Nav';
 import LikeButton from './LikeButton';
 import { usePropertyEngagement } from '../hooks/usePropertyEngagement';
 import PriceOpinionSlider, { roundToStep } from './PriceOpinionSlider';
+import { computeBrandStyle, computeDisplayLogoUrl } from '../utils/brandStyle';
 
 // Generate a session ID for tracking price opinions
 const getSessionId = () => {
@@ -26,9 +27,9 @@ const getSessionId = () => {
   return sessionId;
 };
 
-export default function PropertyPageClient() {
+export default function PropertyPageClient({ previewBrand, previewPropertyId } = {}) {
   const searchParams = useSearchParams();
-  const propertyId = searchParams.get('propertyId');
+  const propertyId = previewPropertyId || searchParams.get('propertyId');
   const initialMode = searchParams.get('mode');
   const auth = getAuth();
   const { user: currentAuthUser } = useAuth();
@@ -79,6 +80,13 @@ export default function PropertyPageClient() {
 
   // Agent data state
   const [agentData, setAgentData] = useState(null);
+  // Agency branding (optional — null for the ~all existing agents who
+  // haven't opted in, in which case every colour below falls back to the
+  // existing default Premarket theme via the CSS var(--x, <default>)
+  // fallbacks already baked into the JSX/CSS below. Nothing here changes
+  // price opinions, views, registrations, or any other product logic —
+  // this is presentation only.
+  const [brand, setBrand] = useState(null);
 
   // Sticky price bar visibility
   const [showStickyPrice, setShowStickyPrice] = useState(false);
@@ -166,6 +174,14 @@ export default function PropertyPageClient() {
   useEffect(() => {
     if (!property?.userId) return;
 
+    // Clear any previously-loaded brand before fetching this property's
+    // agent — without this, switching propertyId (e.g. the dashboard
+    // preview swapping properties, or in-app navigation between two
+    // property pages without a full remount) could briefly, or
+    // permanently if the new agent has no brand, keep showing the
+    // previous agent's branded colours/logo on the new property.
+    setBrand(null);
+
     const fetchAgentData = async () => {
       try {
         const userDoc = await getDoc(doc(db, 'users', property.userId));
@@ -203,6 +219,21 @@ export default function PropertyPageClient() {
           }
 
           setAgentData(data);
+
+          // Agency branding is entirely optional — if the owning agent
+          // hasn't opted in (no agencyBrandId), or the linked brand can't
+          // be read for any reason, `brand` simply stays null and every
+          // colour on this page falls back to the existing default theme.
+          if (userData.agencyBrandId) {
+            try {
+              const brandDoc = await getDoc(doc(db, 'agencyBrands', userData.agencyBrandId));
+              if (brandDoc.exists()) {
+                setBrand({ id: brandDoc.id, ...brandDoc.data() });
+              }
+            } catch (err) {
+              console.error('Error fetching agency brand (non-fatal):', err);
+            }
+          }
         }
       } catch (error) {
         console.error('Error fetching agent data:', error);
@@ -725,7 +756,7 @@ export default function PropertyPageClient() {
         <div className="space-y-3">
           <button
             onClick={confirmPriceOpinion}
-            className="w-full bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all"
+            className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all"
           >
             Yes, confirm my opinion
           </button>
@@ -740,12 +771,23 @@ export default function PropertyPageClient() {
     </div>
   );
 
+  // Agency branding CSS variables — undefined (no inline style at all)
+  // when there's no linked brand, so every var(--brand-x, <default>)
+  // reference throughout this component and PriceOpinionSlider.js falls
+  // through to the exact existing Premarket colours unchanged.
+  // previewBrand (dashboard-only) lets the branding setup page render this
+  // exact same component with proposed, not-yet-saved colours, so agents
+  // see precisely what buyers will see before confirming anything.
+  const effectiveBrand = previewBrand || brand;
+  const brandStyle = computeBrandStyle(effectiveBrand);
+  const displayLogoUrl = computeDisplayLogoUrl({ brand: effectiveBrand, agentData });
+
   // ═══════════════════════════════════════════════════════════════
   // iPad Open Home Mode - Fullscreen price opinion kiosk
   // ═══════════════════════════════════════════════════════════════
   if (isIpadMode) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-b from-slate-50 to-white flex flex-col items-center justify-between overflow-hidden z-50">
+      <div style={brandStyle} className="fixed inset-0 bg-gradient-to-b from-slate-50 to-white flex flex-col items-center justify-between overflow-hidden z-50">
         {/* Background decoration */}
         <div className="absolute inset-0 z-0 pointer-events-none">
           <div className="absolute top-0 left-1/4 w-96 h-96 bg-orange-100 rounded-full blur-3xl opacity-60" />
@@ -800,9 +842,9 @@ export default function PropertyPageClient() {
                     </svg>
                   </div>
                 )}
-                {agentData.logoUrl && (
+                {displayLogoUrl && (
                   <Image
-                    src={agentData.logoUrl}
+                    src={displayLogoUrl}
                     alt="Agency logo"
                     width={56}
                     height={56}
@@ -829,7 +871,7 @@ export default function PropertyPageClient() {
         <div className="relative z-10 w-full max-w-xl mx-auto px-8 text-center flex-1 flex flex-col justify-center">
           {/* Property info */}
           <div className="mb-8">
-            <span className="px-3 py-1 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white text-xs font-bold rounded-full mb-4 inline-block">
+            <span className="px-3 py-1 bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white text-xs font-bold rounded-full mb-4 inline-block">
               OPEN HOME
             </span>
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{title}</h1>
@@ -846,7 +888,7 @@ export default function PropertyPageClient() {
               What&apos;s your price opinion?
             </p>
             <motion.div
-              className="text-6xl md:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#e48900] to-[#c64500]"
+              className="text-6xl md:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)]"
               key={priceOpinion}
               initial={{ scale: 1.05 }}
               animate={{ scale: 1 }}
@@ -1004,7 +1046,7 @@ export default function PropertyPageClient() {
                     <button
                       onClick={handleQualificationSubmit}
                       disabled={!qualificationData.buyerType || !qualificationData.seriousnessLevel}
-                      className="w-full bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-bold py-4 rounded-xl transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-4 rounded-xl transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Next
                     </button>
@@ -1088,7 +1130,7 @@ export default function PropertyPageClient() {
                     <button
                       onClick={handleIpadContactSubmit}
                       disabled={!firstName.trim() || !lastName.trim() || !email.trim() || !phone.trim()}
-                      className="w-full bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-bold py-4 rounded-xl transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+                      className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-4 rounded-xl transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed mt-2"
                     >
                       Register Interest
                     </button>
@@ -1110,7 +1152,7 @@ export default function PropertyPageClient() {
   }
 
   return (
-    <div className="min-h-screen bg-white overflow-x-hidden">
+    <div style={brandStyle} className="min-h-screen bg-white overflow-x-hidden">
       <Nav />
 
       {/* Hero Section with Full-Width Gradient */}
@@ -1128,7 +1170,7 @@ export default function PropertyPageClient() {
               <span className={`px-3 py-1 text-white text-xs font-bold rounded-full ${
                 property?.listingStatus === 'on-market'
                   ? 'bg-gradient-to-r from-emerald-500 to-emerald-700'
-                  : 'bg-gradient-to-r from-[#e48900] to-[#c64500]'
+                  : 'bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)]'
               }`}>
                 {property?.listingStatus === 'on-market' ? 'ON MARKET' : 'PRE-MARKET'}
               </span>
@@ -1189,7 +1231,7 @@ export default function PropertyPageClient() {
                   </div>
                 )}
                 <div className="absolute bottom-4 left-4 flex items-center gap-2">
-                  <span className="px-3 py-1.5 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white text-xs font-bold rounded-lg shadow-lg">
+                  <span className="px-3 py-1.5 bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white text-xs font-bold rounded-lg shadow-lg">
                     {displayPropertyType}
                   </span>
                   {displayVideoUrl && (
@@ -1302,7 +1344,7 @@ export default function PropertyPageClient() {
               {/* What is Premarket Info Box */}
               <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-2xl p-6 border border-orange-200 mb-8">
                 <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 bg-gradient-to-br from-[#e48900] to-[#c64500] rounded-xl flex items-center justify-center flex-shrink-0">
+                  <div className="w-12 h-12 bg-gradient-to-br from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] rounded-xl flex items-center justify-center flex-shrink-0">
                     <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
                       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                     </svg>
@@ -1357,10 +1399,10 @@ export default function PropertyPageClient() {
                     </div>
 
                     {/* Agency Logo */}
-                    {agentData.logoUrl && (
+                    {displayLogoUrl && (
                       <div className="flex-shrink-0">
                         <Image
-                          src={agentData.logoUrl}
+                          src={displayLogoUrl}
                           alt="Agency logo"
                           width={48}
                           height={48}
@@ -1531,7 +1573,7 @@ export default function PropertyPageClient() {
                   </p>
                   <button
                     onClick={handleRegisterInterest}
-                    className="w-full bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-bold py-3 rounded-xl hover:shadow-lg transition-all"
+                    className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-3 rounded-xl hover:shadow-lg transition-all"
                   >
                     Register My Interest
                   </button>
@@ -1697,7 +1739,7 @@ export default function PropertyPageClient() {
                         </span>
                       )}
                     </div>
-                    <div className="w-full text-center py-2 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white text-sm font-semibold rounded-lg">
+                    <div className="w-full text-center py-2 bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white text-sm font-semibold rounded-lg">
                       View Property
                     </div>
                   </div>
@@ -1807,7 +1849,7 @@ export default function PropertyPageClient() {
                 </div>
                 <button
                   onClick={handleRegisterInterest}
-                  className="w-full bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-bold py-3 rounded-xl"
+                  className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-3 rounded-xl"
                 >
                   Register Interest
                 </button>
@@ -1847,7 +1889,7 @@ export default function PropertyPageClient() {
                   onClick={handleRegisterInterest}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.98 }}
-                  className="flex-shrink-0 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-bold px-6 py-3 rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all"
+                  className="flex-shrink-0 bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold px-6 py-3 rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all"
                 >
                   Register Interest
                 </motion.button>
@@ -1901,7 +1943,7 @@ export default function PropertyPageClient() {
                 </p>
                 <button
                   onClick={handleRegisterInterest}
-                  className="w-full bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-bold py-4 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
+                  className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-4 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -2113,7 +2155,7 @@ export default function PropertyPageClient() {
 
                 <a
                   href="/listings"
-                  className="inline-flex items-center justify-center w-full px-6 py-4 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-bold rounded-xl hover:shadow-lg transition-all"
+                  className="inline-flex items-center justify-center w-full px-6 py-4 bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold rounded-xl hover:shadow-lg transition-all"
                 >
                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -2204,7 +2246,7 @@ export default function PropertyPageClient() {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-bold py-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Submitting...' : 'Register Interest'}
                   </button>

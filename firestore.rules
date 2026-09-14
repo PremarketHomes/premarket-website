@@ -29,7 +29,14 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true;
       allow create: if isUser(userId);
-      allow update: if isUser(userId);
+      // agencyBrandId links an account to an agencyBrands document, which
+      // controls that account's public-facing branding. It must only ever
+      // be set by the server (see /api/branding/confirm, Admin SDK) after
+      // validating the requester actually owns/created that brand — never
+      // client-writable, or an agent could self-assign someone else's
+      // brand (e.g. a competing agency's colours/logo) directly.
+      allow update: if isUser(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['agencyBrandId']);
       allow delete: if false;
 
       match /adminNotes/{noteId} {
@@ -209,6 +216,21 @@ service cloud.firestore {
     // Write: server-managed only.
     // ═══════════════════════════════════════════════════════════
     match /campaigns/{campaignId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // AGENCY BRANDS
+    // Public read: the public property page reads an agent's linked
+    //   brand (logo + colours) without requiring the buyer to be logged
+    //   in — same reasoning as public reads on `users`/`properties`.
+    // Write: server-managed only (see /api/branding/confirm). Contains
+    //   no secrets — logo URL and colour hex values only. Third-party
+    //   integration credentials live separately in
+    //   `integrationCredentials` and must never be merged into this.
+    // ═══════════════════════════════════════════════════════════
+    match /agencyBrands/{brandId} {
       allow read: if true;
       allow write: if false;
     }

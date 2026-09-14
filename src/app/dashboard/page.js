@@ -640,6 +640,45 @@ function LogoNudge({ onClick }) {
   );
 }
 
+// --- Agency Branding Nudge ---
+// Optional, dismissible, account-upgrade prompt — never blocks normal
+// Premarket use. Copy varies depending on whether this agent already has
+// a personal logo uploaded (userData.logoUrl), per the two variants
+// specified for this feature.
+function BrandingNudge({ hasLogo, onDismiss }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col sm:flex-row sm:items-center gap-4"
+    >
+      <div className="flex-1">
+        <p className="font-semibold text-slate-900 mb-1">Personalise your Premarket campaigns</p>
+        <p className="text-sm text-slate-500">
+          {hasLogo
+            ? 'We found your agency logo. Create a branded Premarket experience using your agency colours.'
+            : 'Upload your agency logo and we\'ll create a branded campaign experience using your agency colours.'}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={onDismiss}
+          className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm hover:bg-slate-200 transition-colors"
+        >
+          Not now
+        </button>
+        <Link
+          href="/dashboard/branding"
+          className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold text-sm hover:shadow-lg transition-all whitespace-nowrap"
+        >
+          {hasLogo ? 'Create Branding' : 'Set Up Branding'}
+        </Link>
+      </div>
+    </motion.div>
+  );
+}
+
 // --- Main Dashboard ---
 export default function DashboardPageWrapper() {
   return (
@@ -666,6 +705,7 @@ function DashboardPage() {
   const [archiving, setArchiving] = useState(false);
   const [successModal, setSuccessModal] = useState(null); // 'created' | 'updated' | null
   const [showLogoModal, setShowLogoModal] = useState(false);
+  const [brandingNudgeDismissed, setBrandingNudgeDismissed] = useState(true);
   const [teamAgents, setTeamAgents] = useState([]);
   const [filterAgentId, setFilterAgentId] = useState('');
 
@@ -676,6 +716,19 @@ function DashboardPage() {
       setShowLogoModal(true);
     }
   }, [userData]);
+
+  // Agency branding nudge — optional, dismissible, never blocks normal
+  // use. Doesn't show at all once the agent already has branding set up
+  // (userData.agencyBrandId), or after they've dismissed it once.
+  useEffect(() => {
+    if (!localStorage.getItem('branding_nudge_dismissed')) {
+      setBrandingNudgeDismissed(false);
+    }
+  }, []);
+  const dismissBrandingNudge = () => {
+    setBrandingNudgeDismissed(true);
+    localStorage.setItem('branding_nudge_dismissed', 'true');
+  };
 
   // Show success modal from URL params
   useEffect(() => {
@@ -933,6 +986,11 @@ function DashboardPage() {
               <StatCard label="Total Views" value={propertiesLoading ? '...' : totalViews} icon={Eye} />
               <StatCard label="Buyer Opinions" value={propertiesLoading ? '...' : opinionsCount} icon={MessageSquare} />
             </div>
+          )}
+
+          {/* Agency Branding Nudge (overview only) */}
+          {activeTab === 'overview' && !brandingNudgeDismissed && userData && !userData.agencyBrandId && (userData.isAgent || userData.agent) && (
+            <BrandingNudge hasLogo={!!userData.logoUrl} onDismiss={dismissBrandingNudge} />
           )}
 
           {/* Quick Actions (overview only) */}
