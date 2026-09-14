@@ -32,3 +32,9 @@ export function computeBrandStyle(brand) {
 export function computeDisplayLogoUrl({ brand, agentData }) {
   return brand?.logoUrl || agentData?.logoUrl || null;
 }
+
+/** The premium redesign's property-info eyebrow label — real
+ * `listingStatus` data only, never fabricated marketing copy. */
+export function computeListingEyebrow(listingStatus) {
+  return listingStatus === 'on-market' ? 'On-Market Opportunity' : 'Off-Market Opportunity';
+}

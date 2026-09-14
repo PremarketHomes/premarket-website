@@ -64,15 +64,35 @@ describe('PropertyPageClient.js / PriceOpinionSlider.js — default fallback val
   // drifting: every var(--brand-x, ...) fallback must be the exact
   // hex values Premarket has always used, and the old bare literals
   // must not remain anywhere outside of those fallbacks.
-  it('PropertyPageClient.js only references the brand gradient via var() with the original hex as fallback', async () => {
+  it('PropertyPageClient.js only references the old orange gradient via var() with the original hex as fallback, and only in the untouched iPad kiosk mode', async () => {
     const fs = await import('node:fs');
     const source = fs.readFileSync(
       new URL('../../src/app/components/PropertyPageClient.js', import.meta.url),
       'utf-8'
     );
     expect(source).not.toContain('from-[#e48900] to-[#c64500]');
+    // The premium redesign (default, non-iPad branch) intentionally moved
+    // off this old two-tone orange gradient to a single, more restrained
+    // accent colour (see the redesigned-page assertion below). The 5
+    // remaining references are the iPad open-home kiosk mode's own JSX
+    // (4) plus the confirmOpinionModal variable it alone still uses (1) —
+    // both deliberately left untouched by the redesign.
     const matches = source.match(/from-\[var\(--brand-primary,#e48900\)\] to-\[var\(--brand-primary-dark,#c64500\)\]/g) || [];
-    expect(matches.length).toBe(15);
+    expect(matches.length).toBe(5);
+  });
+
+  it('the redesigned (non-iPad) property page uses a single restrained brand-primary accent, with the original orange as its own distinct default fallback', async () => {
+    const fs = await import('node:fs');
+    const source = fs.readFileSync(
+      new URL('../../src/app/components/PropertyPageClient.js', import.meta.url),
+      'utf-8'
+    );
+    // Every redesigned accent (price figure, primary buttons) must flow
+    // through var(--brand-primary, ...) — never a bare hardcoded colour —
+    // so agency branding (e.g. Harcourts navy) still overrides it exactly
+    // like the rest of the app.
+    expect(source).toContain('var(--brand-primary,#c2410c)');
+    expect(source).not.toMatch(/bg-\[#c2410c\]/);
   });
 
   it('PriceOpinionSlider.js only references the thumb colour via var() with the original hex as fallback', async () => {
