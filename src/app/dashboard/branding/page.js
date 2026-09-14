@@ -249,7 +249,7 @@ export default function BrandingPage() {
                 value={agencyName}
                 onChange={(e) => setAgencyName(e.target.value)}
                 placeholder="e.g. Harcourts Property Hub"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm"
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400"
               />
             </div>
 
@@ -281,14 +281,14 @@ export default function BrandingPage() {
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">Primary Colour</label>
                 <div className="flex items-center gap-2">
                   <input type="color" value={primary} onChange={(e) => setPrimary(e.target.value)} className="w-10 h-10 rounded-lg border border-slate-200" />
-                  <input type="text" value={primary} onChange={(e) => setPrimary(e.target.value)} className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
+                  <input type="text" value={primary} onChange={(e) => setPrimary(e.target.value)} className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono text-slate-900 placeholder:text-slate-400" />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">Secondary / Accent</label>
                 <div className="flex items-center gap-2">
                   <input type="color" value={secondary || '#ffffff'} onChange={(e) => setSecondary(e.target.value)} className="w-10 h-10 rounded-lg border border-slate-200" />
-                  <input type="text" value={secondary} onChange={(e) => setSecondary(e.target.value)} placeholder="optional" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
+                  <input type="text" value={secondary} onChange={(e) => setSecondary(e.target.value)} placeholder="optional" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono text-slate-900 placeholder:text-slate-400" />
                 </div>
               </div>
             </div>
