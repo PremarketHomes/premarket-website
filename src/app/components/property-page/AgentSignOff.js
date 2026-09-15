@@ -25,8 +25,15 @@ export default function AgentSignOff({ agentData, displayLogoUrl }) {
 
   return (
     <div className="border-t border-slate-200 pt-10 sm:pt-14">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-6 sm:gap-8">
-        <div className="flex items-center gap-4 flex-1 min-w-0">
+      {/*
+        Mobile: a single centred column — avatar, then "Presented by" /
+        name / agency all centred beneath it, then the phone+logo group
+        centred as its own unit. Desktop/tablet (sm: and up) is completely
+        unchanged from before: a left-aligned row with the avatar+text
+        block on the left and the phone+logo group on the right.
+      */}
+      <div className="flex flex-col items-center text-center gap-6 sm:flex-row sm:items-center sm:text-left sm:gap-8">
+        <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-4 sm:flex-1 sm:min-w-0">
           {agentData.avatar ? (
             <Image
               src={agentData.avatar}
@@ -43,16 +50,16 @@ export default function AgentSignOff({ agentData, displayLogoUrl }) {
               </svg>
             </div>
           )}
-          <div className="min-w-0">
+          <div className="sm:min-w-0">
             <p className="text-xs text-slate-400 uppercase tracking-wide font-medium mb-0.5">Presented by</p>
-            <p className="font-semibold text-slate-900 text-lg truncate">{fullName || 'Your Agent'}</p>
+            <p className="font-semibold text-slate-900 text-lg sm:truncate">{fullName || 'Your Agent'}</p>
             {agentData.companyName && (
-              <p className="text-sm text-slate-500 truncate">{agentData.companyName}</p>
+              <p className="text-sm text-slate-500 sm:truncate">{agentData.companyName}</p>
             )}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center justify-center gap-3 sm:justify-start">
           {phone && (
             <a
               href={`tel:${agentData.phone}`}
