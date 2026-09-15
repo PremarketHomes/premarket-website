@@ -1,25 +1,108 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import { computeListingEyebrow } from '../../src/app/utils/brandStyle';
+import { getMarketStatusCopy, isOnMarket } from '../../src/app/utils/marketStatusCopy';
 
 // This project has no @testing-library/react / jsdom, so — matching the
 // pattern already established for brand-style.js — these tests cover the
-// one genuinely pure piece of new logic directly, and use source
-// inspection to guard the architectural rules the redesign brief called
-// out explicitly: never hard-code Harcourts (or any other agency) into
-// the reusable components, and always route the accent colour through
-// the existing var(--brand-primary, ...) mechanism so agency branding
-// keeps flowing through unchanged.
+// genuinely pure pieces of logic directly, and use source inspection to
+// guard the architectural rules the redesign brief called out explicitly:
+// never hard-code Harcourts (or any other agency) into the reusable
+// components, and always route the accent colour through the existing
+// var(--brand-primary, ...) mechanism so agency branding keeps flowing
+// through unchanged.
 
-describe('computeListingEyebrow', () => {
-  it('labels an on-market property correctly', () => {
-    expect(computeListingEyebrow('on-market')).toBe('On-Market Opportunity');
+const FORBIDDEN_ON_ON_MARKET_COPY = [
+  'before it hits the market',
+  'before launching',
+  'before it launches',
+  'off-market opportunity',
+  'pre-market opportunity',
+  'secure it pre-market',
+  'secure a pre-market deal',
+  'hits the market',
+];
+
+describe('isOnMarket', () => {
+  it('is true only for the exact existing listingStatus value "on-market"', () => {
+    expect(isOnMarket('on-market')).toBe(true);
   });
 
-  it('defaults to off-market for any other value, including missing data', () => {
-    expect(computeListingEyebrow('pre-market')).toBe('Off-Market Opportunity');
-    expect(computeListingEyebrow(undefined)).toBe('Off-Market Opportunity');
-    expect(computeListingEyebrow(null)).toBe('Off-Market Opportunity');
+  it('is false for the pre-market default and any other/missing value', () => {
+    expect(isOnMarket('premarket')).toBe(false);
+    expect(isOnMarket(undefined)).toBe(false);
+    expect(isOnMarket(null)).toBe(false);
+    expect(isOnMarket('')).toBe(false);
+  });
+});
+
+describe('getMarketStatusCopy — pre-market (off-market) properties', () => {
+  const copy = getMarketStatusCopy('premarket');
+
+  it('keeps the required price-opinion heading', () => {
+    expect(copy.priceOpinionHeading).toBe('What do you think this property is worth?');
+  });
+
+  it('communicates the pre-launch opportunity in the price-opinion subcopy', () => {
+    expect(copy.priceOpinionSubcopy.toLowerCase()).toContain('before it launches');
+  });
+
+  it('communicates the pre-market registration opportunity', () => {
+    expect(copy.interestHeading).toBe('Interested in securing it before it hits the market?');
+    expect(copy.interestSubcopy).toBe(
+      'Register your interest directly with the agent and explore the opportunity to secure a pre-market deal.'
+    );
+  });
+
+  it('flags itself as not on-market', () => {
+    expect(copy.isOnMarket).toBe(false);
+  });
+});
+
+describe('getMarketStatusCopy — on-market properties', () => {
+  const copy = getMarketStatusCopy('on-market');
+
+  it('keeps the same required price-opinion heading as pre-market', () => {
+    expect(copy.priceOpinionHeading).toBe('What do you think this property is worth?');
+  });
+
+  it('uses price-education / buyer-sentiment framing, not a launch-timing pitch', () => {
+    expect(copy.priceOpinionSubcopy.toLowerCase()).toContain('where buyers see value');
+  });
+
+  it('uses simple, neutral registration copy', () => {
+    expect(copy.interestHeading).toBe('Interested in this property?');
+    expect(copy.interestSubcopy).toBe('Register your interest directly with the agent.');
+  });
+
+  it('flags itself as on-market', () => {
+    expect(copy.isOnMarket).toBe(true);
+  });
+
+  it('never uses pre-market-only phrasing anywhere in its own copy', () => {
+    const allText = Object.values(copy).join(' ').toLowerCase();
+    for (const phrase of FORBIDDEN_ON_ON_MARKET_COPY) {
+      expect(allText).not.toContain(phrase);
+    }
+  });
+});
+
+describe('the public property page never contradicts an on-market property\'s status', () => {
+  it('PropertyPageClient.js and PriceOpinionCard.js contain no hard-coded pre-market-only phrasing outside of marketStatusCopy.js', () => {
+    const fs2 = fs;
+    const files = [
+      '../../src/app/components/PropertyPageClient.js',
+      '../../src/app/components/property-page/PriceOpinionCard.js',
+      '../../src/app/components/property-page/PropertyInfoCard.js',
+      '../../src/app/components/property-page/PropertyHero.js',
+      '../../src/app/components/property-page/PropertyHeader.js',
+      '../../src/app/components/property-page/AgentSignOff.js',
+    ];
+    for (const relPath of files) {
+      const source = fs2.readFileSync(new URL(relPath, import.meta.url), 'utf-8').toLowerCase();
+      for (const phrase of FORBIDDEN_ON_ON_MARKET_COPY) {
+        expect(source, `${relPath} must not hard-code "${phrase}" — it must come from marketStatusCopy.js so on-market properties never see it`).not.toContain(phrase);
+      }
+    }
   });
 });
 
@@ -46,6 +129,16 @@ describe('redesigned property-page components never hard-code a specific agency'
     expect(source.toLowerCase()).not.toContain('harcourts');
     // The known Harcourts brand hex values must never appear as a bare
     // literal — only ever as data flowing through props/CSS vars.
+    expect(source).not.toContain('#011d47');
+    expect(source).not.toContain('#01a8ec');
+  });
+
+  it('PropertyPageClient.js itself contains no hard-coded Harcourts branding either', () => {
+    const source = fs.readFileSync(
+      new URL('../../src/app/components/PropertyPageClient.js', import.meta.url),
+      'utf-8'
+    );
+    expect(source.toLowerCase()).not.toContain('harcourts');
     expect(source).not.toContain('#011d47');
     expect(source).not.toContain('#01a8ec');
   });

@@ -29,23 +29,30 @@ export default function PriceOpinionCard({
   onRegisterInterest,
   formatMoney,
   formatCompact,
+  heading,
+  subcopy,
+  interestHeading,
+  interestSubcopy,
 }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8">
-      <div className="flex items-start justify-between gap-4 mb-2">
-        <h2
-          className="text-slate-900 text-xl sm:text-2xl font-semibold"
-          style={{ fontFamily: 'var(--font-playfair, serif)' }}
-        >
-          Help the seller price this property
-        </h2>
-        {propertyId && <LikeButton propertyId={propertyId} size="sm" />}
-      </div>
-      <p className="text-slate-500 text-sm leading-relaxed mb-6 sm:mb-8">
-        Submit your private price opinion to help the seller understand current buyer sentiment.
+    <div className="relative bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 text-center">
+      {propertyId && (
+        <div className="absolute top-5 right-5 sm:top-6 sm:right-6">
+          <LikeButton propertyId={propertyId} size="sm" />
+        </div>
+      )}
+
+      <h2
+        className="text-slate-900 text-xl sm:text-2xl font-semibold px-8"
+        style={{ fontFamily: 'var(--font-playfair, serif)' }}
+      >
+        {heading}
+      </h2>
+      <p className="text-slate-500 text-sm leading-relaxed mt-2 mb-6 sm:mb-8 max-w-md mx-auto">
+        {subcopy}
       </p>
 
-      <div className="text-center mb-5">
+      <div className="mb-5">
         <motion.div
           key={priceOpinion}
           initial={{ scale: 1.04 }}
@@ -95,15 +102,22 @@ export default function PriceOpinionCard({
         <div className="h-px flex-1 bg-slate-200" />
       </div>
 
+      {interestHeading && (
+        <p className="font-semibold text-slate-900 text-[15px] mb-3">
+          {interestHeading}
+        </p>
+      )}
       <button
         onClick={onRegisterInterest}
         className="w-full py-3.5 rounded-xl border border-slate-300 text-slate-800 font-semibold text-[15px] hover:border-slate-400 transition-colors"
       >
         Register formal interest
       </button>
-      <p className="mt-2.5 text-center text-xs text-slate-400">
-        Be the first to know when this property hits the market.
-      </p>
+      {interestSubcopy && (
+        <p className="mt-2.5 text-center text-xs text-slate-400">
+          {interestSubcopy}
+        </p>
+      )}
     </div>
   );
 }

@@ -94,6 +94,10 @@ export default function AgentSignup() {
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
         phone: fullPhone,
+        // Onboarding just captured and validated this number, so there's
+        // nothing to re-confirm later — prevents the dashboard's mobile
+        // confirmation prompt from firing for brand-new agents.
+        mobileConfirmedAt: Timestamp.now(),
         pro: true,
         agent: true,
         active: true,

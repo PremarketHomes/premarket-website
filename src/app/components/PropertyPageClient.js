@@ -10,7 +10,8 @@ import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { usePropertyEngagement } from '../hooks/usePropertyEngagement';
 import PriceOpinionSlider, { roundToStep } from './PriceOpinionSlider';
-import { computeBrandStyle, computeDisplayLogoUrl, computeListingEyebrow } from '../utils/brandStyle';
+import { computeBrandStyle, computeDisplayLogoUrl } from '../utils/brandStyle';
+import { getMarketStatusCopy } from '../utils/marketStatusCopy';
 import { isPreviewDeployment } from '../utils/previewEnvironment';
 import PreviewModeBanner from './property-page/PreviewModeBanner';
 import { playfairDisplay } from './property-page/fonts';
@@ -197,7 +198,6 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
             avatar: userData.avatar,
             logoUrl: userData.logoUrl,
             phone: userData.phone,
-            email: userData.email,
           };
 
           // If property has an assigned agent, override name/avatar
@@ -1155,7 +1155,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
     );
   }
 
-  const infoEyebrow = computeListingEyebrow(property?.listingStatus);
+  const marketCopy = getMarketStatusCopy(property?.listingStatus);
   const yearBuilt = propertyData?.year_built;
   const landSize = propertyData?.land_size;
   const heroAddress = property?.showSuburbOnly ? (address || 'Suburb unavailable') : (formattedAddress || address);
@@ -1223,7 +1223,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
       />
 
       <div className="max-w-6xl mx-auto px-5 sm:px-8 py-10 sm:py-16">
-        <div className="grid md:grid-cols-2 gap-5 sm:gap-6 items-stretch mb-10 sm:mb-14">
+        <div className="grid md:grid-cols-2 gap-5 sm:gap-6 items-start mb-10 sm:mb-14">
           <PriceOpinionCard
             propertyId={propertyId}
             priceOpinion={priceOpinion}
@@ -1236,9 +1236,12 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
             onRegisterInterest={handleRegisterInterest}
             formatMoney={formatMoney}
             formatCompact={formatCompact}
+            heading={marketCopy.priceOpinionHeading}
+            subcopy={marketCopy.priceOpinionSubcopy}
+            interestHeading={marketCopy.interestHeading}
+            interestSubcopy={marketCopy.interestSubcopy}
           />
           <PropertyInfoCard
-            eyebrow={infoEyebrow}
             description={description}
             showFullDescription={showFullDescription}
             onToggleDescription={() => setShowFullDescription(!showFullDescription)}
@@ -1310,10 +1313,10 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
             </div>
 
             <div className="space-y-4">
-              <div className="bg-slate-50 rounded-xl p-6 border border-slate-200">
-                <h4 className="font-semibold text-slate-900 mb-2">Seriously interested in this property?</h4>
+              <div className="bg-slate-50 rounded-xl p-6 border border-slate-200 text-center">
+                <h4 className="font-semibold text-slate-900 mb-2">{marketCopy.interestHeading}</h4>
                 <p className="text-sm text-slate-500 mb-4">
-                  Register your interest and let the agent know you&apos;re serious.
+                  {marketCopy.interestSubcopy}
                 </p>
                 <button
                   onClick={handleRegisterInterest}

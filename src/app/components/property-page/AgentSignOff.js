@@ -4,13 +4,18 @@ import PremarketBadge from './PremarketBadge';
 
 /**
  * Elegant closing section for the redesigned property page: listing
- * agent, their agency, and real contact options — replacing the removed
+ * agent, their agency, and a real contact option — replacing the removed
  * "nearby properties" grid and generic marketing CTA section.
  *
  * Per the product decision to stop advertising other agents' listings at
  * the bottom of a given agent's own campaign, this section intentionally
  * introduces no other property content — only this listing's own agent
  * and a subtle Premarket sign-off.
+ *
+ * Public presentation shows the agent's mobile number only, not their
+ * email — a deliberate, presentation-only decision (their email address
+ * is untouched in Firestore/Authentication; it's simply not surfaced on
+ * the public page).
  */
 export default function AgentSignOff({ agentData, displayLogoUrl }) {
   if (!agentData) return null;
@@ -59,17 +64,6 @@ export default function AgentSignOff({ agentData, displayLogoUrl }) {
               {phone}
             </a>
           )}
-          {agentData.email && (
-            <a
-              href={`mailto:${agentData.email}`}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-800 text-sm font-semibold hover:border-slate-400 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              Email {agentData.firstName || 'agent'}
-            </a>
-          )}
           {displayLogoUrl && (
             <Image
               src={displayLogoUrl}
@@ -84,7 +78,7 @@ export default function AgentSignOff({ agentData, displayLogoUrl }) {
       </div>
 
       <div className="mt-10 sm:mt-14 pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-        <p className="text-sm text-slate-400">A smarter way to sell.</p>
+        <p className="text-sm text-slate-400">A smarter way to understand the market before you sell.</p>
         <PremarketBadge variant="footer" />
       </div>
     </div>

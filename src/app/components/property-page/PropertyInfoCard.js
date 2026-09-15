@@ -23,13 +23,22 @@ function Stat({ icon, label, value }) {
   );
 }
 
+// Below this length, the full description is short enough to just show in
+// full — clamping it would save almost no space while still forcing an
+// unnecessary "View more details" click.
+const DESCRIPTION_CLAMP_THRESHOLD = 520;
+
 /**
  * Companion card to PriceOpinionCard — real property details only (no
  * fabricated marketing tags like "pool" / "water views" unless that data
  * genuinely exists on the property record).
+ *
+ * Sized to its own content (no forced height/margin-top-auto trick to
+ * match the price card's height) — a short description with few stats is
+ * allowed to be a shorter card. The two-column grid this sits in uses
+ * `items-start`, not `items-stretch`, for exactly this reason.
  */
 export default function PropertyInfoCard({
-  eyebrow,
   description,
   showFullDescription,
   onToggleDescription,
@@ -51,19 +60,20 @@ export default function PropertyInfoCard({
     propertyType ? { icon: STAT_ICONS.type, label: '', value: propertyType } : null,
   ].filter(Boolean);
 
-  const isLong = (description || '').length > 320;
+  const isLong = (description || '').length > DESCRIPTION_CLAMP_THRESHOLD;
 
   return (
-    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 sm:p-8 h-full flex flex-col">
-      {eyebrow && (
-        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 mb-3">
-          {eyebrow}
-        </p>
-      )}
+    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 sm:p-8">
+      <h2
+        className="text-slate-900 text-xl sm:text-2xl font-semibold mb-4"
+        style={{ fontFamily: 'var(--font-playfair, serif)' }}
+      >
+        Property Overview
+      </h2>
 
       {description && (
-        <div className="mb-6">
-          <div className={`text-slate-600 text-[15px] leading-relaxed whitespace-pre-line ${!showFullDescription && isLong ? 'line-clamp-6' : ''}`}>
+        <div className={stats.length > 0 ? 'mb-6' : ''}>
+          <div className={`text-slate-600 text-[15px] leading-relaxed whitespace-pre-line ${!showFullDescription && isLong ? 'line-clamp-[10]' : ''}`}>
             {description}
           </div>
           {isLong && (
@@ -78,7 +88,7 @@ export default function PropertyInfoCard({
       )}
 
       {stats.length > 0 && (
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 mt-auto pt-5 border-t border-slate-200">
+        <div className={`grid grid-cols-2 gap-x-4 gap-y-3 ${description ? 'pt-5 border-t border-slate-200' : ''}`}>
           {stats.map((s, i) => (
             <Stat key={i} icon={s.icon} label={s.label} value={s.value} />
           ))}
