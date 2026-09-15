@@ -208,6 +208,43 @@ describe('Gallery UX refinement round', () => {
     expect(source).not.toMatch(/fetch\(|writeFile|sharp\(/);
   });
 
+  // Real-device iPhone testing (Safari/WebKit) showed gallery tiles with
+  // visible dark gaps even with plain object-cover — reproduced via
+  // Playwright against the actual production build, but only in a way
+  // that pointed at the tile wrapper element itself, not any object-fit
+  // logic. Fixed by (1) using a plain div instead of <button> — native
+  // form controls carry UA-stylesheet sizing rules that can conflict
+  // with aspect-ratio in WebKit — and (2) pinning the image to its
+  // parent via real top/right/bottom/left:0 (Tailwind's inset-0) rather
+  // than relying solely on a height:100% percentage resolving against
+  // an aspect-ratio-computed (not an explicit pixel) parent height.
+  it('the gallery tile wrapper is a div (not a button) with proper keyboard-accessible button semantics', () => {
+    const gallery = readComponent('PropertyGallery.js');
+    expect(gallery).toContain('role="button"');
+    expect(gallery).toContain('tabIndex={0}');
+    expect(gallery).toContain('onKeyDown');
+    // The div (with role="button") must be what actually opens the image
+    // — the two remaining real <button> elements in this file are only
+    // the desktop scroll arrows, which don't call onOpenImage.
+    const tileBlockStart = gallery.indexOf('rest.map');
+    const tileBlockEnd = gallery.indexOf('rest.length > 1');
+    const tileBlock = gallery
+      .slice(tileBlockStart, tileBlockEnd)
+      .split('\n')
+      // Strip comment lines — the explanatory comment above legitimately
+      // mentions "<button>" by name, which isn't real JSX.
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    expect(tileBlock).not.toContain('<button');
+    expect(tileBlock).toContain('<div');
+    expect(tileBlock).toContain('onOpenImage');
+  });
+
+  it('the gallery image is pinned to its tile via real inset-0 (not just a height:100% percentage)', () => {
+    const gallery = readComponent('PropertyGallery.js');
+    expect(gallery).toMatch(/className="inset-0 w-full h-full object-cover/);
+  });
+
   it('the gallery preserves existing image ordering (skips only the hero/first image, does not reorder or filter the rest)', () => {
     const source = readComponent('PropertyGallery.js');
     expect(source).toContain('imageUrls.slice(1)');

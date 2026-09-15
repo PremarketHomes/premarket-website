@@ -43,19 +43,36 @@ export default function PropertyGallery({ imageUrls = [], title, onOpenImage }) 
         className="flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
       >
         {rest.map((url, i) => (
-          <button
+          // A plain div (not <button>) deliberately — native form controls
+          // carry browser-specific UA-stylesheet sizing/appearance rules
+          // that can interact unpredictably with modern layout properties
+          // like aspect-ratio (a real, documented category of WebKit
+          // quirks). A div has none of that baggage. role="button" +
+          // tabIndex + onKeyDown keep it just as keyboard/screen-reader
+          // accessible as the button it replaces.
+          <div
             key={i}
+            role="button"
+            tabIndex={0}
             onClick={() => onOpenImage(i + 1)}
-            className="relative flex-shrink-0 w-[78%] sm:w-[340px] aspect-[4/3] rounded-xl overflow-hidden snap-start group"
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenImage(i + 1); } }}
+            className="relative block flex-shrink-0 w-[78%] sm:w-[340px] aspect-[4/3] rounded-xl overflow-hidden snap-start group cursor-pointer"
           >
             <Image
               src={url}
               alt={`${title || 'Property'} photo ${i + 2}`}
               fill
               unoptimized
-              className="object-cover group-hover:scale-[1.03] transition-transform duration-300"
+              // inset-0 (real top/right/bottom/left:0 rules) alongside
+              // `fill`'s own injected inline height:100%/width:100% —
+              // belt-and-braces so the image's box is pinned directly to
+              // the tile's edges rather than relying solely on a
+              // percentage-height calculation against an aspect-ratio-
+              // computed parent height, which some WebKit versions have
+              // historically resolved inconsistently.
+              className="inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
             />
-          </button>
+          </div>
         ))}
       </div>
 
