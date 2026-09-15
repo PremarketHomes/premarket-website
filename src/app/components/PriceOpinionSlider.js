@@ -105,22 +105,22 @@ export default function PriceOpinionSlider({
 
         .slider-thumb::-webkit-slider-thumb {
           appearance: none;
-          width: 24px;
-          height: 24px;
+          width: 26px;
+          height: 26px;
           border-radius: 50%;
           background: white;
           cursor: pointer;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          border: 3px solid var(--brand-primary, #ea580c);
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+          border: 3px solid var(--brand-primary, #c2410c);
         }
         .slider-thumb::-moz-range-thumb {
-          width: 24px;
-          height: 24px;
+          width: 26px;
+          height: 26px;
           border-radius: 50%;
           background: white;
           cursor: pointer;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          border: 3px solid var(--brand-primary, #ea580c);
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+          border: 3px solid var(--brand-primary, #c2410c);
         }
 
         .sticky-slider::-webkit-slider-thumb {

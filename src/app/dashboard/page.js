@@ -9,8 +9,10 @@ import { useAuth } from '../context/AuthContext';
 import { authFetch } from '../utils/authFetch';
 import { isBuyerOnly } from '../utils/roles';
 import { db } from '../firebase/clientApp';
-import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, orderBy, deleteField } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, orderBy, deleteField, serverTimestamp } from 'firebase/firestore';
 import { formatPrice, formatDate } from '../utils/formatters';
+import { normalizeE164, formatDisplayPhone } from '../utils/phone';
+import { shouldShowMobilePrompt } from '../utils/mobileConfirmation';
 import {
   LayoutDashboard,
   Home,
@@ -679,6 +681,120 @@ function BrandingNudge({ hasLogo, onDismiss }) {
   );
 }
 
+// --- Mobile Number Confirmation Prompt ---
+// Shown once per account until the agent confirms or updates their
+// number (see utils/mobileConfirmation.js for exactly what gates this).
+// Writes only `phone` and `mobileConfirmedAt` on the agent's own
+// users/{uid} document — both already writable by the agent under the
+// existing Firestore rules, no rules change needed.
+function MobileNumberPrompt({ userData, uid, onConfirmed }) {
+  const [editing, setEditing] = useState(!userData?.phone);
+  const [value, setValue] = useState(userData?.phone ? formatDisplayPhone(userData.phone) : '');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const confirmExisting = async () => {
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, 'users', uid), { mobileConfirmedAt: serverTimestamp() });
+      onConfirmed({ mobileConfirmedAt: new Date() });
+    } catch (err) {
+      console.error('Error confirming mobile number:', err);
+      setError('Something went wrong — please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveNewNumber = async () => {
+    const normalized = normalizeE164(value);
+    if (!normalized) {
+      setError('Please enter a valid mobile number.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await updateDoc(doc(db, 'users', uid), { phone: normalized, mobileConfirmedAt: serverTimestamp() });
+      onConfirmed({ phone: normalized, mobileConfirmedAt: new Date() });
+    } catch (err) {
+      console.error('Error updating mobile number:', err);
+      setError('Something went wrong — please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      className="bg-white rounded-xl border border-slate-200 p-5"
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="flex-1">
+          <p className="font-semibold text-slate-900 mb-1">
+            {userData?.phone ? 'Is your mobile number up to date?' : 'Add your mobile number'}
+          </p>
+          <p className="text-sm text-slate-500">
+            Your mobile number is now displayed on your Premarket property campaigns.
+          </p>
+        </div>
+
+        {!editing && userData?.phone && (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-sm font-medium text-slate-700 mr-1">{formatDisplayPhone(userData.phone)}</span>
+            <button
+              onClick={confirmExisting}
+              disabled={saving}
+              className="px-4 py-2.5 rounded-xl bg-slate-900 text-white font-semibold text-sm hover:bg-slate-800 transition-colors disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Yes, this is correct'}
+            </button>
+            <button
+              onClick={() => setEditing(true)}
+              className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm hover:bg-slate-200 transition-colors"
+            >
+              Update number
+            </button>
+          </div>
+        )}
+      </div>
+
+      {editing && (
+        <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3">
+          <input
+            type="tel"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="04XX XXX XXX"
+            className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400"
+          />
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={saveNewNumber}
+              disabled={saving}
+              className="px-4 py-2.5 rounded-xl bg-slate-900 text-white font-semibold text-sm hover:bg-slate-800 transition-colors disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save number'}
+            </button>
+            {userData?.phone && (
+              <button
+                onClick={() => { setEditing(false); setError(''); }}
+                className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+    </motion.div>
+  );
+}
+
 // --- Main Dashboard ---
 export default function DashboardPageWrapper() {
   return (
@@ -991,6 +1107,15 @@ function DashboardPage() {
           {/* Agency Branding Nudge (overview only) */}
           {activeTab === 'overview' && !brandingNudgeDismissed && userData && !userData.agencyBrandId && (userData.isAgent || userData.agent) && (
             <BrandingNudge hasLogo={!!userData.logoUrl} onDismiss={dismissBrandingNudge} />
+          )}
+
+          {/* Mobile Number Confirmation Prompt (overview only) */}
+          {activeTab === 'overview' && user && shouldShowMobilePrompt(userData) && (
+            <MobileNumberPrompt
+              userData={userData}
+              uid={user.uid}
+              onConfirmed={(patch) => setUserData({ ...userData, ...patch })}
+            />
           )}
 
           {/* Quick Actions (overview only) */}

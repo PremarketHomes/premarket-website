@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase/clientApp';
 import { useAuth } from '../context/AuthContext';
+import { isPreviewDeployment } from '../utils/previewEnvironment';
 
 const SIZES = {
   sm: 'w-8 h-8 text-base',
@@ -72,6 +73,14 @@ export default function LikeButton({
 
     setLoading(true);
     try {
+      // Vercel Preview deployments share the same production Firestore
+      // project as premarket.homes (no separate staging project exists —
+      // see utils/previewEnvironment.js) — simulate the toggle visually
+      // rather than writing a real like record for a preview build.
+      if (isPreviewDeployment()) {
+        setLiked(!liked);
+        return;
+      }
       const ref = doc(db, 'likes', likeDocId);
       if (liked) {
         await deleteDoc(ref);
