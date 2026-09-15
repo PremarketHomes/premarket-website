@@ -180,7 +180,7 @@ describe('GET /api/branding/mine', () => {
     expect(body.suggestion).toBeNull();
   });
 
-  it('suggests an existing brand on an exact companyName match, without applying it', async () => {
+  it('automatically joins an existing brand on an exact companyName match — no separate approval step required', async () => {
     setupValidAuth('agent1');
     state.agencyBrands['harcourts-property-hub'] = { name: 'Harcourts Property Hub', colors: { primary: '#011d47' } };
     state.users.agent2 = { companyName: 'Harcourts Property Hub' };
@@ -190,10 +190,41 @@ describe('GET /api/branding/mine', () => {
     const res = await GET(makeRequest(undefined, 'Bearer valid', 'GET'));
     const body = await res.json();
 
+    // Simply loading /api/branding/mine (e.g. on dashboard mount) is now
+    // enough to establish branding — no "Apply Branding" click required.
+    expect(body.brand?.name).toBe('Harcourts Property Hub');
+    expect(body.suggestion).toBeNull();
+    expect(state.users.agent2.agencyBrandId).toBe('harcourts-property-hub');
+  });
+
+  it('automatically creates a brand from an agent\'s own logo when no existing brand matches their company', async () => {
+    setupValidAuth('agent1');
+    state.users.agent1 = { companyName: 'Brand New Agency', logoUrl: 'https://example.com/logo.png' };
+    const sharp = (await import('sharp')).default;
+    const buffer = await sharp(Buffer.from(
+      '<svg width="120" height="120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" fill="#ffffff"/><rect x="20" y="20" width="80" height="80" fill="#7a1f2b"/></svg>'
+    )).png().toBuffer();
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => buffer });
+
+    const { GET } = await import('../../src/app/api/branding/mine/route');
+    const res = await GET(makeRequest(undefined, 'Bearer valid', 'GET'));
+    const body = await res.json();
+
+    expect(body.brand?.name).toBe('Brand New Agency');
+    expect(state.users.agent1.agencyBrandId).toBeTruthy();
+  });
+
+  it('does not auto-establish anything for an agent with no logo and no matching existing brand — stays on default branding', async () => {
+    setupValidAuth('agent1');
+    state.users.agent1 = { companyName: 'Nobody Else Here Agency' };
+
+    const { GET } = await import('../../src/app/api/branding/mine/route');
+    const res = await GET(makeRequest(undefined, 'Bearer valid', 'GET'));
+    const body = await res.json();
+
     expect(body.brand).toBeNull();
-    expect(body.suggestion?.name).toBe('Harcourts Property Hub');
-    // Crucially: suggesting it must not have set agencyBrandId.
-    expect(state.users.agent2.agencyBrandId).toBeUndefined();
+    expect(body.suggestion).toBeNull();
+    expect(state.users.agent1.agencyBrandId).toBeUndefined();
   });
 
   it('returns the resolved brand once an agent has confirmed one', async () => {

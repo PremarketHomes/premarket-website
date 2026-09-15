@@ -16,7 +16,7 @@
 
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
-import { pickTextColor } from './brandColorExtractor';
+import { pickTextColor, extractBrandColors } from './brandColorExtractor';
 
 const BRANDS_COLLECTION = 'agencyBrands';
 
@@ -133,11 +133,13 @@ export async function getBrandForUser(uid) {
 }
 
 /**
- * Suggests existing brands whose name closely matches the given company
+ * Finds an existing brand whose name closely matches the given company
  * name — an exact (case/whitespace-normalized) match only, never a fuzzy
  * one, per the "do not silently assign on a weak match" requirement.
- * Always just a suggestion for the UI to offer with an explicit confirm
- * step — never applied automatically.
+ * Used two ways: as a suggestion for the dashboard UI to offer with an
+ * explicit confirm step, and as the dedup check inside
+ * autoEstablishBrandForUser below (so two agents at the same company
+ * always end up sharing one brand instead of each getting their own).
  */
 export async function findBrandByExactName(companyName) {
   const normalized = String(companyName || '').trim().toLowerCase();
@@ -145,4 +147,73 @@ export async function findBrandByExactName(companyName) {
   const snap = await adminDb.collection(BRANDS_COLLECTION).where('status', '==', 'active').get();
   const match = snap.docs.find((d) => (d.data().name || '').trim().toLowerCase() === normalized);
   return match ? { id: match.id, ...match.data() } : null;
+}
+
+/**
+ * Automatically establishes (or reuses) agency branding for an existing
+ * agent who already has a `logoUrl` on their profile, without requiring
+ * them to visit the branding dashboard first. Called lazily (see
+ * /api/branding/mine and the dashboard's own mount effect) — never a
+ * background cron, so it only ever runs in the context of a request from
+ * that specific authenticated agent.
+ *
+ * Safe by construction:
+ *   - No-ops entirely if the account already has a brand (never
+ *     overwrites/reruns for an already-branded account).
+ *   - No-ops if there's no logoUrl or no companyName — falls through to
+ *     the existing default Premarket branding, exactly as today.
+ *   - Reuses findBrandByExactName first, so a second agent at a company
+ *     that already has a brand (from this function or a manual confirm)
+ *     links to the same one rather than creating a duplicate.
+ *   - Only creates a new brand when colour extraction is confident
+ *     (`usable: true`) — an unsupervised path should decline rather than
+ *     publish a low-confidence guess; the agent can still do this
+ *     manually via the dashboard, where they get to see and adjust it
+ *     before confirming.
+ *   - Reuses createBrand/buildColorSet exactly as the manual flow does,
+ *     so contrast is still always recomputed server-side.
+ */
+export async function autoEstablishBrandForUser(uid) {
+  const userDoc = await adminDb.collection('users').doc(uid).get();
+  if (!userDoc.exists) return { status: 'skipped', reason: 'no-user' };
+  const u = userDoc.data();
+
+  if (u.agencyBrandId) return { status: 'skipped', reason: 'already-branded' };
+  if (!u.companyName || !u.companyName.trim()) return { status: 'skipped', reason: 'no-company-name' };
+
+  // Checked before the logo requirement, deliberately: a colleague at an
+  // already-branded company should join by name match alone, exactly
+  // like the existing manual "join" flow (linkExistingBrand) — that one
+  // never required the joining agent to have their own logo either. A
+  // logo is only needed below, to CREATE a brand from scratch.
+  const existing = await findBrandByExactName(u.companyName);
+  if (existing) {
+    await linkExistingBrand({ uid, brandId: existing.id });
+    return { status: 'linked', brandId: existing.id };
+  }
+
+  if (!u.logoUrl) return { status: 'skipped', reason: 'no-logo' };
+
+  let extraction;
+  try {
+    const res = await fetch(u.logoUrl);
+    if (!res.ok) return { status: 'skipped', reason: 'logo-fetch-failed' };
+    const buffer = Buffer.from(await res.arrayBuffer());
+    extraction = await extractBrandColors(buffer);
+  } catch (err) {
+    return { status: 'skipped', reason: 'extraction-error' };
+  }
+
+  if (!extraction.usable) {
+    return { status: 'skipped', reason: 'low-confidence-extraction' };
+  }
+
+  const { brandId } = await createBrand({
+    uid,
+    name: u.companyName,
+    logoUrl: u.logoUrl,
+    primary: extraction.primary.hex,
+    secondary: extraction.secondary ? extraction.secondary.hex : undefined,
+  });
+  return { status: 'created', brandId };
 }

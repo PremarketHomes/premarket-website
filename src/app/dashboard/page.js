@@ -846,6 +846,32 @@ function DashboardPage() {
     localStorage.setItem('branding_nudge_dismissed', 'true');
   };
 
+  // Automatically establish (or join) agency branding for an existing
+  // agent who already has a logo on file — no separate login/approval
+  // step required. Simply calling GET /api/branding/mine is enough to
+  // trigger it (see autoEstablishBrandForUser); this just does so once,
+  // silently, the first time the dashboard loads for an agent who has a
+  // logo but no brand yet, and reflects the result immediately without
+  // needing a page refresh. No-ops entirely (server-side) for anyone who
+  // already has a brand, has no logo, or has no company name — the
+  // dashboard branding page remains available either way for manual
+  // review/adjustment.
+  useEffect(() => {
+    if (!userData) return;
+    if (!(userData.isAgent || userData.agent)) return;
+    if (userData.agencyBrandId || !userData.logoUrl) return;
+    let cancelled = false;
+    authFetch('/api/branding/mine')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.brand?.id) {
+          setUserData((prev) => (prev ? { ...prev, agencyBrandId: data.brand.id } : prev));
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [userData?.id, userData?.agencyBrandId, userData?.logoUrl, userData?.isAgent, userData?.agent]);
+
   // Show success modal from URL params
   useEffect(() => {
     const created = searchParams.get('created');
