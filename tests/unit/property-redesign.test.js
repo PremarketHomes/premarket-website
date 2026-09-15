@@ -176,14 +176,29 @@ describe('PropertyInfoCard never fabricates property data', () => {
 });
 
 describe('Gallery UX refinement round', () => {
-  it('the hero and gallery thumbnails use SmartPropertyImage (odd-aspect-ratio aware), not a raw always-object-cover Image', () => {
+  it('the hero uses SmartPropertyImage (odd-aspect-ratio aware)', () => {
     const hero = readComponent('PropertyHero.js');
     expect(hero).toContain('SmartPropertyImage');
-    expect(hero).not.toMatch(/<Image[\s\S]*?object-cover/);
+  });
 
+  // Real-device testing on iPhone showed SmartPropertyImage's contain/
+  // letterbox behaviour producing visible black bands on legitimate wide
+  // aerial photos in the gallery strip — explicitly rejected. The normal
+  // scrolling gallery must always fill its frame edge-to-edge with plain
+  // object-cover, full stop, regardless of the source image's aspect
+  // ratio. This is a deliberate, permanent product decision for this
+  // component, not a temporary regression.
+  it('the gallery thumbnails always use plain object-cover — never SmartPropertyImage\'s contain/letterbox behaviour', () => {
     const gallery = readComponent('PropertyGallery.js');
-    expect(gallery).toContain('SmartPropertyImage');
-    expect(gallery).not.toMatch(/<Image[\s\S]*?object-cover/);
+    // Not imported/rendered as a component (the explanatory comment above
+    // is allowed to mention it by name — only an actual import or JSX
+    // usage would re-introduce the rejected behaviour).
+    expect(gallery).not.toMatch(/^import SmartPropertyImage/m);
+    expect(gallery).not.toContain('<SmartPropertyImage');
+    expect(gallery).not.toContain('shouldContainImage');
+    expect(gallery).toMatch(/<Image[\s\S]*?object-cover/);
+    expect(gallery).not.toContain('object-contain');
+    expect(gallery).not.toMatch(/className="[^"]*bg-black/);
   });
 
   it('SmartPropertyImage defaults to object-cover (no visual change for normal photos) and never mutates the source image', () => {

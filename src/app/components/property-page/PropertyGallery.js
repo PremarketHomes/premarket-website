@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
-import SmartPropertyImage from './SmartPropertyImage';
+import Image from 'next/image';
 
 /**
  * Horizontally-scrollable photo strip beneath the price-opinion/info
@@ -9,6 +9,18 @@ import SmartPropertyImage from './SmartPropertyImage';
  * opens the existing full-screen lightbox (same lightbox/keyboard nav
  * logic already in PropertyPageClient — this component only renders
  * thumbnails and calls the passed-in open handler).
+ *
+ * Deliberately always object-cover, regardless of the photo's source
+ * aspect ratio — a premium real-estate gallery reads as broken when
+ * tiles are inconsistently sized or letterboxed, so every tile fills
+ * its frame edge-to-edge with a small amount of cropping where needed.
+ * This intentionally does NOT use SmartPropertyImage's odd-aspect-ratio
+ * contain/letterbox behaviour — that was tried here and explicitly
+ * rejected after real-device testing (it produced visible black bands
+ * on legitimate wide/aerial photos). SmartPropertyImage is still used
+ * by the hero, and remains available for any future spot where showing
+ * a complete image matters more than a full, consistent frame — just
+ * not here.
  */
 export default function PropertyGallery({ imageUrls = [], title, onOpenImage }) {
   const scrollRef = useRef(null);
@@ -36,10 +48,12 @@ export default function PropertyGallery({ imageUrls = [], title, onOpenImage }) 
             onClick={() => onOpenImage(i + 1)}
             className="relative flex-shrink-0 w-[78%] sm:w-[340px] aspect-[4/3] rounded-xl overflow-hidden snap-start group"
           >
-            <SmartPropertyImage
+            <Image
               src={url}
               alt={`${title || 'Property'} photo ${i + 2}`}
-              className="group-hover:scale-[1.03] transition-transform duration-300"
+              fill
+              unoptimized
+              className="object-cover group-hover:scale-[1.03] transition-transform duration-300"
             />
           </button>
         ))}
