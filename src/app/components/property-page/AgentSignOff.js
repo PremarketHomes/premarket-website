@@ -78,7 +78,7 @@ export default function AgentSignOff({ agentData, displayLogoUrl }) {
       </div>
 
       <div className="mt-10 sm:mt-14 pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-        <p className="text-sm text-slate-400">A smarter way to understand the market before you sell.</p>
+        <p className="text-sm text-slate-400">A smarter way to sell.</p>
         <PremarketBadge variant="footer" />
       </div>
     </div>

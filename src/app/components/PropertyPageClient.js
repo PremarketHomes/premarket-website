@@ -1,7 +1,7 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { getAuth } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase/clientApp';
@@ -13,6 +13,7 @@ import PriceOpinionSlider, { roundToStep } from './PriceOpinionSlider';
 import { computeBrandStyle, computeDisplayLogoUrl } from '../utils/brandStyle';
 import { getMarketStatusCopy } from '../utils/marketStatusCopy';
 import { isPreviewDeployment } from '../utils/previewEnvironment';
+import { getSwipeDirection } from '../utils/swipeGesture';
 import PreviewModeBanner from './property-page/PreviewModeBanner';
 import { playfairDisplay } from './property-page/fonts';
 import PropertyHeader from './property-page/PropertyHeader';
@@ -548,6 +549,28 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
   const prevImage = () => {
     setCurrentImageIndex((prev) => (prev - 1 + imageUrls.length) % imageUrls.length);
     trackPhotoView();
+  };
+
+  // Lightbox swipe (Instagram-style): tracked via a ref, not state, since
+  // it fires on every pointer move and shouldn't trigger re-renders.
+  // Pointer Events (not separate touch/mouse handlers) cover iPhone
+  // Safari touch and desktop mouse-drag with one code path. See
+  // utils/swipeGesture.js for exactly what counts as a swipe vs a tap or
+  // vertical scroll.
+  const lightboxSwipe = useRef({ x: 0, y: 0, active: false });
+
+  const handleLightboxPointerDown = (e) => {
+    lightboxSwipe.current = { x: e.clientX, y: e.clientY, active: true };
+  };
+
+  const handleLightboxPointerUp = (e) => {
+    if (!lightboxSwipe.current.active) return;
+    lightboxSwipe.current.active = false;
+    const dx = e.clientX - lightboxSwipe.current.x;
+    const dy = e.clientY - lightboxSwipe.current.y;
+    const direction = getSwipeDirection(dx, dy);
+    if (direction === 'next') nextImage();
+    else if (direction === 'prev') prevImage();
   };
 
   const handleQualificationSubmit = async () => {
@@ -1223,7 +1246,17 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
       />
 
       <div className="max-w-6xl mx-auto px-5 sm:px-8 py-10 sm:py-16">
-        <div className="grid md:grid-cols-2 gap-5 sm:gap-6 items-start mb-10 sm:mb-14">
+        {/*
+          items-stretch (not items-start): on mobile this grid is a single
+          column, so "stretching to match the row" has no visible effect —
+          each card is naturally just its own content height either way.
+          At the md: two-column breakpoint, it makes both card OUTER
+          borders/backgrounds extend to the same height as their taller
+          sibling, while each card's own internal content still sits
+          naturally near the top (no mt-auto / forced internal spacing —
+          see PropertyInfoCard.js).
+        */}
+        <div className="grid md:grid-cols-2 gap-5 sm:gap-6 items-stretch mb-10 sm:mb-14">
           <PriceOpinionCard
             propertyId={propertyId}
             priceOpinion={priceOpinion}
@@ -1615,16 +1648,20 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
           )}
 
           <div
-            className="relative max-w-7xl max-h-[90vh] w-full h-full flex items-center justify-center p-4"
+            className="relative max-w-7xl max-h-[90vh] w-full h-full flex items-center justify-center p-4 select-none"
+            style={{ touchAction: 'pan-y' }}
             onClick={(e) => e.stopPropagation()}
+            onPointerDown={handleLightboxPointerDown}
+            onPointerUp={handleLightboxPointerUp}
           >
             <Image
               src={imageUrls[currentImageIndex]}
               alt={`${title} - Image ${currentImageIndex + 1}`}
               width={1200}
               height={800}
-              className="max-w-full max-h-full object-contain"
+              className="max-w-full max-h-full object-contain select-none pointer-events-none"
               unoptimized
+              draggable={false}
             />
           </div>
 

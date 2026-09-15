@@ -114,6 +114,7 @@ const PROPERTY_PAGE_COMPONENTS = [
   'PropertyGallery.js',
   'AgentSignOff.js',
   'PremarketBadge.js',
+  'SmartPropertyImage.js',
 ];
 
 function readComponent(name) {
@@ -171,5 +172,80 @@ describe('PropertyInfoCard never fabricates property data', () => {
     expect(source).not.toMatch(/>\s*Pool\s*</);
     expect(source).not.toMatch(/>\s*Water views\s*</);
     expect(source).not.toMatch(/>\s*Multiple living areas\s*</);
+  });
+});
+
+describe('Gallery UX refinement round', () => {
+  it('the hero and gallery thumbnails use SmartPropertyImage (odd-aspect-ratio aware), not a raw always-object-cover Image', () => {
+    const hero = readComponent('PropertyHero.js');
+    expect(hero).toContain('SmartPropertyImage');
+    expect(hero).not.toMatch(/<Image[\s\S]*?object-cover/);
+
+    const gallery = readComponent('PropertyGallery.js');
+    expect(gallery).toContain('SmartPropertyImage');
+    expect(gallery).not.toMatch(/<Image[\s\S]*?object-cover/);
+  });
+
+  it('SmartPropertyImage defaults to object-cover (no visual change for normal photos) and never mutates the source image', () => {
+    const source = readComponent('SmartPropertyImage.js');
+    expect(source).toContain('object-cover');
+    expect(source).toContain('object-contain');
+    expect(source).not.toMatch(/fetch\(|writeFile|sharp\(/);
+  });
+
+  it('the gallery preserves existing image ordering (skips only the hero/first image, does not reorder or filter the rest)', () => {
+    const source = readComponent('PropertyGallery.js');
+    expect(source).toContain('imageUrls.slice(1)');
+    expect(source).not.toMatch(/\.sort\(/);
+  });
+
+  it('the lightbox still shows the complete image (object-contain), unchanged by this round', () => {
+    const source = fs.readFileSync(
+      new URL('../../src/app/components/PropertyPageClient.js', import.meta.url),
+      'utf-8'
+    );
+    expect(source).toContain('max-w-full max-h-full object-contain');
+  });
+
+  it('the lightbox swipe handlers call the existing next/prevImage functions — no new navigation/index logic was introduced', () => {
+    const source = fs.readFileSync(
+      new URL('../../src/app/components/PropertyPageClient.js', import.meta.url),
+      'utf-8'
+    );
+    expect(source).toContain('const direction = getSwipeDirection(dx, dy);');
+    expect(source).toMatch(/if \(direction === 'next'\) nextImage\(\);/);
+    expect(source).toMatch(/else if \(direction === 'prev'\) prevImage\(\);/);
+  });
+
+  it('desktop equal-height cards use CSS grid stretch, not a duplicated height-forcing system', () => {
+    const source = fs.readFileSync(
+      new URL('../../src/app/components/PropertyPageClient.js', import.meta.url),
+      'utf-8'
+    );
+    expect(source).toContain('items-stretch');
+    // The dead-space anti-pattern this was previously fixed to avoid
+    // (mt-auto forcing internal content apart) must not have returned.
+    const infoCard = readComponent('PropertyInfoCard.js');
+    expect(infoCard).not.toContain('mt-auto');
+    expect(infoCard).not.toContain('h-full flex flex-col');
+  });
+
+  it('the footer tagline is exactly restored to the original wording', () => {
+    const source = readComponent('AgentSignOff.js');
+    expect(source).toContain('A smarter way to sell.');
+    expect(source).not.toContain('understand the market before you sell');
+  });
+});
+
+describe('Preview Mode protections remain intact after the gallery refinement', () => {
+  it('every previously-guarded write path still checks isPreviewDeployment()', () => {
+    const source = fs.readFileSync(
+      new URL('../../src/app/components/PropertyPageClient.js', import.meta.url),
+      'utf-8'
+    );
+    const matches = source.match(/isPreviewDeployment\(\)/g) || [];
+    // incrementPropertyViews + savePriceOpinion + saveIpadPriceOpinion
+    expect(matches.length).toBeGreaterThanOrEqual(3);
+    expect(source).toContain('<PreviewModeBanner />');
   });
 });

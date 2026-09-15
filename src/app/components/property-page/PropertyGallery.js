@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
-import Image from 'next/image';
+import SmartPropertyImage from './SmartPropertyImage';
 
 /**
  * Horizontally-scrollable photo strip beneath the price-opinion/info
@@ -36,12 +36,10 @@ export default function PropertyGallery({ imageUrls = [], title, onOpenImage }) 
             onClick={() => onOpenImage(i + 1)}
             className="relative flex-shrink-0 w-[78%] sm:w-[340px] aspect-[4/3] rounded-xl overflow-hidden snap-start group"
           >
-            <Image
+            <SmartPropertyImage
               src={url}
               alt={`${title || 'Property'} photo ${i + 2}`}
-              fill
-              unoptimized
-              className="object-cover group-hover:scale-[1.03] transition-transform duration-300"
+              className="group-hover:scale-[1.03] transition-transform duration-300"
             />
           </button>
         ))}
