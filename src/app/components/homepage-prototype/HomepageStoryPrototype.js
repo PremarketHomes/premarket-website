@@ -9,14 +9,16 @@ import EngageSection from './EngageSection';
 import OpinionSection from './OpinionSection';
 import InterestSection from './InterestSection';
 import IntelligenceSection from './IntelligenceSection';
-import ProofSection from './ProofSection';
 import FinalCtaSection from './FinalCtaSection';
 import PrototypeFooter from './PrototypeFooter';
 
 /**
  * VISUAL PROTOTYPE — homepage redesign concept.
  * Approved sequence: Hero -> Send -> Engage -> Opinion -> Interest ->
- * Intelligence -> Proof -> Final CTA -> Footer.
+ * Intelligence -> Final CTA -> Footer. (The Proof section was removed —
+ * it only ever held an unverified "agents are already using it this way"
+ * placeholder, and the brief was to cut it rather than replace it with
+ * another unverified claim.)
  *
  * Reuses real product pieces where sensible (PriceOpinionSlider,
  * PremarketBadge, BrandMark, the property page's scoped Playfair Display
@@ -39,7 +41,6 @@ export default function HomepageStoryPrototype() {
       <OpinionSection />
       <InterestSection />
       <IntelligenceSection />
-      <ProofSection />
       <FinalCtaSection />
       <PrototypeFooter />
     </div>

@@ -28,7 +28,7 @@ export default function FinalCtaSection() {
           >
             Your database already has the buyers.
           </h2>
-          <p className="text-white/85 text-lg sm:text-xl mb-8">Show them what they&rsquo;re thinking.</p>
+          <p className="text-white/85 text-lg sm:text-xl mb-8">Show the sellers what they&rsquo;re thinking.</p>
           <Link
             href="/join"
             className="inline-block px-7 py-3.5 rounded-xl bg-[#e48900] text-white font-semibold hover:opacity-90 transition-opacity"

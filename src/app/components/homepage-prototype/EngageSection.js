@@ -12,7 +12,7 @@ import PremarketBadge from '../property-page/PremarketBadge';
  */
 export default function EngageSection() {
   return (
-    <section id="engage" className="relative bg-slate-50 py-24 sm:py-32">
+    <section id="engage" className="relative bg-[#F8F5F0] py-24 sm:py-32">
       <div className="max-w-6xl mx-auto px-5 sm:px-8">
         <Reveal className="max-w-xl mx-auto text-center mb-14">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold mb-4">Engage</p>
