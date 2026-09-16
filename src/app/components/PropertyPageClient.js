@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from 'react';
 import { getAuth } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase/clientApp';
-import { doc, getDoc, addDoc, collection, serverTimestamp, updateDoc, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { doc, getDoc, addDoc, collection, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { usePropertyEngagement } from '../hooks/usePropertyEngagement';
@@ -304,26 +304,24 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
   const fetchPreviousOffer = async (propId, min, max) => {
     try {
       const sessionId = getSessionId();
-      
-      // First try to find a session-based offer
-      const sessionQuery = query(
-        collection(db, 'offers'),
-        where('propertyId', '==', propId),
-        where('sessionId', '==', sessionId),
-        orderBy('updatedAt', 'desc'),
-        limit(1)
-      );
-      
-      const sessionSnapshot = await getDocs(sessionQuery);
-      
-      if (!sessionSnapshot.empty) {
-        const previousOffer = sessionSnapshot.docs[0];
-        setSavedOfferId(previousOffer.id);
-        if (previousOffer.data().offerAmount) {
-          const roundedOffer = roundToStep(previousOffer.data().offerAmount);
-          setPriceOpinion(roundedOffer);
-          return;
-        }
+
+      // Looked up server-side (not a direct Firestore read) — `offers`
+      // is no longer publicly readable, since it holds buyer PII once
+      // someone registers interest. See
+      // docs/security-finding-offers-public-read-pii.md and
+      // /api/offers/session-lookup, which returns only an id + amount.
+      const res = await fetch('/api/offers/session-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ propertyId: propId, sessionId }),
+      });
+      const data = res.ok ? await res.json() : { offerId: null, offerAmount: null };
+
+      if (data.offerId && data.offerAmount) {
+        setSavedOfferId(data.offerId);
+        const roundedOffer = roundToStep(data.offerAmount);
+        setPriceOpinion(roundedOffer);
+        return;
       }
 
       // If no session offer found, use midpoint
