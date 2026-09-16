@@ -221,7 +221,7 @@ export default function PriceOpinionsClient() {
 
       <ClosingCTA
         title="Give your next seller conversation real evidence"
-        subtitle="$200 per campaign, no subscription. Anonymous buyer opinions your vendor can't argue with."
+        subtitle="$200 vendor-paid campaign fee, no subscription. Anonymous buyer opinions your vendor can't argue with."
         primaryHref="/join"
         primaryLabel="Start a campaign"
         secondaryHref="/contact"
