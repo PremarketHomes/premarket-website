@@ -44,8 +44,10 @@ export default function IntelligenceSection() {
           >
             You walk back into the conversation with proof.
           </h2>
-          <p className="text-slate-500 text-base sm:text-lg">
-            Real price opinions. Real interest. All in one view.
+          <p className="text-slate-500 text-base sm:text-lg max-w-xl mx-auto">
+            Take the pressure out of the pricing conversation. Real buyer price opinions gathered
+            before launch give you and your vendor another layer of evidence to set realistic
+            expectations &mdash; and protect the campaign&rsquo;s critical opening days.
           </p>
         </Reveal>
 
@@ -176,7 +178,17 @@ export default function IntelligenceSection() {
           </div>
         </Reveal>
 
-        <Reveal delay={0.2} className="text-center mt-10">
+        <Reveal delay={0.15} className="text-center mt-10 max-w-lg mx-auto">
+          <p
+            className="text-lg sm:text-xl text-slate-700 leading-snug"
+            style={{ fontFamily: 'var(--font-playfair, serif)', fontWeight: 500, fontStyle: 'italic' }}
+          >
+            &ldquo;When enough buyers have their say, it&rsquo;s no longer just the agent&rsquo;s
+            opinion. The market starts to speak.&rdquo;
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.2} className="text-center mt-8">
           <Link
             href="/join"
             className="inline-block px-6 py-3.5 rounded-xl bg-[#e48900] text-white font-semibold text-[15px] hover:opacity-90 transition-opacity"
