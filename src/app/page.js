@@ -50,22 +50,26 @@ export const metadata = {
 };
 
 // FAQ data for Schema markup - Buyer/Public focused
+// Rewritten in the release audit — the previous copy described Premarket
+// as a browsable public listings platform ("browse pre-market property
+// listings... across Australia"), which contradicts the agent-led,
+// link-distributed positioning the redesigned site now describes.
 const buyerFAQs = [
   {
     question: "What is Premarket and how does it work?",
-    answer: "Premarket is a free platform where you can browse pre-market property listings from verified agents across Australia. You can share your price opinion on any property — telling agents what you think it's worth — and register interest to stay informed. It's completely anonymous and zero obligation."
+    answer: "Premarket is how real estate agents share a property with the buyers already in their own database. An agent sends a direct link, and the buyer can share an anonymous price opinion or register genuine interest — no account required."
   },
   {
-    question: "Is it free to browse and share my price opinion?",
-    answer: "Yes — Premarket is 100% free for buyers and browsers. There are no fees, no sign-up required to browse, and no obligation whatsoever. You can share your price opinion on any property without creating an account."
+    question: "Do I need an account to share a price opinion?",
+    answer: "No. Anyone with a property link from their agent can share a price opinion or register interest without creating an account. Buyers who want to keep track of what they've been sent can optionally create a free account."
   },
   {
     question: "What are buyer price opinions?",
-    answer: "Buyer price opinions are anonymous submissions from real people sharing what they think a property is worth. Unlike algorithm-generated estimates, these are genuine opinions from actual buyers in the market, giving a more accurate picture of real demand."
+    answer: "Buyer price opinions are anonymous submissions from real people sharing what they think a property is worth. Unlike algorithm-generated estimates, these are genuine opinions from actual buyers, giving the agent and vendor real evidence before a campaign launches."
   },
   {
     question: "How is Premarket different from other property sites?",
-    answer: "Traditional property sites show listings with asking prices set by agents. Premarket shows properties with real buyer price data instead of algorithmic estimates — whether they're pre-market or already listed. You see what buyers actually think a property is worth, not what an algorithm predicts."
+    answer: "Premarket isn't a property portal you browse. Properties are shared privately by an agent with their own buyers — the value is in the real, anonymous buyer evidence a campaign generates, not in public listings or algorithmic estimates."
   }
 ];
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { FileBarChart, Activity, TrendingUp, Tablet, Sparkles } from 'lucide-react';
+import { FileBarChart, TrendingUp, Tablet } from 'lucide-react';
 import PublicSiteNav from '../components/public-site/PublicSiteNav';
 import { playfairDisplay } from '../components/property-page/fonts';
 import PublicSiteFooter from '../components/public-site/PublicSiteFooter';
@@ -19,14 +19,6 @@ const features = [
       'Vendor reports built from real buyer evidence — price opinions, opinion median and registered interest, accurate the moment you generate them.',
     href: '/features/reports',
     accent: 'orange',
-  },
-  {
-    icon: Activity,
-    title: 'Data Metrics',
-    description:
-      'Eight PHI scores per suburb, computed daily — buyer demand, seller motivation, price realism, supply pressure and more.',
-    href: '/features/data-metrics',
-    accent: 'blue',
   },
   {
     icon: TrendingUp,
@@ -54,9 +46,9 @@ export default function FeaturesHubClient() {
         eyebrow="Features"
         title={
           <>
-            A purpose-built{' '}
+            Real buyer{' '}
             <span className="bg-gradient-to-r from-[#e48900] to-[#c64500] bg-clip-text text-transparent">
-              data layer
+              evidence
             </span>{' '}
             for real estate.
           </>
@@ -71,13 +63,13 @@ export default function FeaturesHubClient() {
         <div className="text-center mb-16 max-w-3xl mx-auto">
           <SectionHeading
             align="center"
-            eyebrow="Four products. One platform."
+            eyebrow="Three products. One platform."
             title="Everything Premarket offers, in one place"
-            subtitle="Each feature is good on its own. Used together, they create something the rest of the industry simply can't replicate — a forward-looking view of buyer intent in your suburb, right now."
+            subtitle="Each feature is good on its own. Used together, they turn the buyers already in your database into evidence for your next vendor conversation."
           />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           {features.map((f) => (
             <FeatureCard
               key={f.title}

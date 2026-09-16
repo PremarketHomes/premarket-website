@@ -7,7 +7,6 @@ import {
   TrendingUp,
   Users,
   ShieldCheck,
-  Sparkles,
   ArrowRight,
   CheckCircle2,
   XCircle,
@@ -23,8 +22,6 @@ import {
   FeatureCard,
   ClosingCTA,
   PullQuote,
-  TwoColumn,
-  BulletList,
   fadeUp,
   stagger,
 } from '../components/marketing/MarketingShell';
@@ -226,56 +223,6 @@ export default function PremarketExplainerClient() {
             title="No public footprint"
             description="Your home doesn't appear on the public portals unless you choose. No nosy neighbours. No price-history damage if you change your mind."
             accent="emerald"
-          />
-        </div>
-      </section>
-
-      {/* The data engine */}
-      <section className="bg-slate-50 border-y border-slate-200/70">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-24 sm:py-32">
-          <TwoColumn
-            left={
-              <div>
-                <SectionHeading
-                  eyebrow="The data engine"
-                  title="Real buyers. Real evidence."
-                  subtitle="Premarket is built around eight indicators — the Premarket Health Indicators (PHI) — computed daily from real buyer activity across Premarket's active campaigns and suburbs."
-                />
-                <div className="mt-8 inline-flex items-center gap-2 px-4 py-2 bg-orange-50 border border-orange-200/70 rounded-full">
-                  <Sparkles className="w-3.5 h-3.5 text-[#c64500]" />
-                  <span className="text-xs font-bold text-[#c64500] uppercase tracking-wider">
-                    Forward-looking, not backward-looking
-                  </span>
-                </div>
-              </div>
-            }
-            right={
-              <BulletList
-                accent="violet"
-                items={[
-                  {
-                    title: 'Buyer Demand Index',
-                    body: 'Aggregated price opinions, registered interest and engagement signals from real buyers.',
-                  },
-                  {
-                    title: 'Seller Motivation Index',
-                    body: 'How quickly properties are coming to market and how willing vendors are to engage.',
-                  },
-                  {
-                    title: 'Price Validity Index',
-                    body: 'Compares median buyer opinions against listing prices to flag overpriced and underpriced stock.',
-                  },
-                  {
-                    title: 'Market Heat Index',
-                    body: 'A composite headline number per suburb — your Premarket "is it hot or not" reading.',
-                  },
-                  {
-                    title: 'And four more',
-                    body: 'Engagement Velocity, Buyer Quality, Forward Pipeline and Supply-Demand Balance — explained on the Data Metrics page.',
-                  },
-                ]}
-              />
-            }
           />
         </div>
       </section>

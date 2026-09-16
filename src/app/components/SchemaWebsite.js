@@ -1,17 +1,15 @@
+// Note: previously declared a Google Sitelinks SearchAction pointing at
+// /find-property?search={term} — removed as part of the release audit.
+// That declaration told Google this site is a searchable property
+// marketplace, which contradicts the agent-led, link-distributed
+// positioning the redesigned public site now describes. Premarket has
+// no public search UI at that URL to back the claim.
 export default function SchemaWebsite() {
   const schema = {
     "@context": "https://schema.org",
     "@type": "WebSite",
     "name": "Premarket",
-    "url": "https://premarket.homes",
-    "potentialAction": {
-      "@type": "SearchAction",
-      "target": {
-        "@type": "EntryPoint",
-        "urlTemplate": "https://premarket.homes/find-property?search={search_term_string}"
-      },
-      "query-input": "required name=search_term_string"
-    }
+    "url": "https://premarket.homes"
   };
 
   return (

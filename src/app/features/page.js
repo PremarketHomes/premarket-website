@@ -1,22 +1,20 @@
 import FeaturesHubClient from './FeaturesHubClient';
 
 export const metadata = {
-  title: 'Features — Reports, Data Metrics, Reminders, Price Opinions, Agent iPad | Premarket',
+  title: 'Features — Reports, Price Opinions, Agent iPad | Premarket',
   description:
-    'Explore everything that makes Premarket the most data-rich way to test, list and sell property in Australia. Live reports, eight PHI metrics, smart reminders, and a purpose-built iPad app.',
+    'What Premarket gives agents: vendor reports built from real buyer evidence, anonymous buyer price opinions, and a purpose-built field kiosk for the open home.',
   keywords: [
     'premarket features',
-    'live vendor report',
-    'real estate phi metrics',
+    'vendor report real estate',
     'price opinions software',
-    'agent ipad app',
-    'real estate data analytics',
+    'agent ipad kiosk',
   ],
   alternates: { canonical: 'https://premarket.homes/features' },
   openGraph: {
-    title: 'Features — Reports, Data Metrics, Reminders & More | Premarket',
+    title: 'Features — Reports, Price Opinions & Agent iPad | Premarket',
     description:
-      'A purpose-built data layer for real estate. Reports, metrics, reminders, price opinions and the Agent iPad app.',
+      'Vendor reports, anonymous buyer price opinions, and the Agent iPad kiosk.',
     url: 'https://premarket.homes/features',
     type: 'website',
   },

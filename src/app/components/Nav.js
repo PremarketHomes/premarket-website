@@ -16,7 +16,6 @@ import {
   Users,
   Briefcase,
   FileBarChart,
-  Activity,
   BellRing,
   TrendingUp,
   Tablet,
@@ -58,19 +57,13 @@ const SOLUTIONS = [
 const FEATURES = [
   {
     title: 'Reports',
-    description: 'Live vendor reports built from real buyer evidence. Update in real time.',
+    description: 'Vendor reports built from real buyer evidence, accurate the moment you open them.',
     href: '/features/reports',
     icon: FileBarChart,
   },
   {
-    title: 'Data Metrics',
-    description: 'PHI scores — eight live indicators that quantify a suburb in real time.',
-    href: '/features/data-metrics',
-    icon: Activity,
-  },
-  {
     title: 'Reminders',
-    description: 'Smart nudges that re-engage buyers and keep campaigns moving forward.',
+    description: 'A scheduled check-in at 14 and 30 days, sent to the agent.',
     href: '/features/reminders',
     icon: BellRing,
   },
@@ -82,7 +75,7 @@ const FEATURES = [
   },
   {
     title: 'Agent iPad',
-    description: 'A purpose-built iPad app for capturing buyer feedback in the field.',
+    description: 'A kiosk mode for capturing buyer feedback in the field — opens in Safari, nothing to install.',
     href: '/features/agent-ipad',
     icon: Tablet,
   },
