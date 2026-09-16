@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { motion, useInView } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
 import BrandMark from '../BrandMark';
+import { playfairFontStyle } from './typography';
 import { GradientMesh, HeroFloatingDecor, TiltCard } from './WowFactor';
 
 // ---------- Motion variants ----------
@@ -80,7 +81,8 @@ export function SectionHeading({ eyebrow, title, subtitle, align = 'left', child
         whileInView="visible"
         viewport={{ once: true, amount: 0.4 }}
         custom={0.05}
-        className="mt-6 text-4xl sm:text-5xl lg:text-[3.5rem] font-bold tracking-tight text-slate-900 leading-[1.04]"
+        className="mt-6 text-4xl sm:text-5xl lg:text-[3.5rem] tracking-tight text-slate-900 leading-[1.04]"
+        style={playfairFontStyle}
       >
         {title}
       </motion.h2>
@@ -301,7 +303,7 @@ export function PrimaryButton({ href, children, className = '' }) {
   return (
     <Link
       href={href}
-      className={`inline-flex items-center gap-2 px-7 py-3.5 bg-[#e48900] text-white text-sm font-semibold rounded-full hover:bg-[#c64500] active:scale-[0.98] transition-all shadow-[0_8px_24px_-12px_rgba(228,137,0,0.6)] ${className}`}
+      className={`inline-flex items-center gap-2 px-7 py-3.5 bg-[#e48900] text-white text-sm font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all ${className}`}
     >
       {children}
       <ArrowRight className="w-4 h-4" />
@@ -313,7 +315,7 @@ export function GhostButton({ href, children, className = '' }) {
   return (
     <Link
       href={href}
-      className={`inline-flex items-center gap-2 px-7 py-3.5 bg-white border border-slate-200 text-slate-900 text-sm font-semibold rounded-full hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98] transition-all ${className}`}
+      className={`inline-flex items-center gap-2 px-7 py-3.5 bg-white border border-slate-300 text-slate-800 text-sm font-semibold rounded-xl hover:border-slate-400 active:scale-[0.98] transition-all ${className}`}
     >
       {children}
     </Link>
@@ -355,7 +357,10 @@ export function ClosingCTA({
 
         <div className="relative">
           <Eyebrow>{eyebrow}</Eyebrow>
-          <h2 className="mt-6 text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 tracking-tight leading-[1.04]">
+          <h2
+            className="mt-6 text-4xl sm:text-5xl lg:text-6xl tracking-tight text-slate-900 leading-[1.04]"
+            style={playfairFontStyle}
+          >
             {title}
           </h2>
           {subtitle && (
@@ -404,7 +409,8 @@ export function MarketingHero({ eyebrow, title, subtitle, primaryCta, secondaryC
           initial="hidden"
           animate="visible"
           custom={0.05}
-          className="mt-7 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-slate-900 leading-[1.02]"
+          className="mt-7 text-5xl sm:text-6xl lg:text-7xl tracking-tight text-slate-900 leading-[1.02]"
+          style={playfairFontStyle}
         >
           {title}
         </motion.h1>

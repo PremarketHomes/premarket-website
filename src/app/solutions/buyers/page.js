@@ -1,22 +1,20 @@
 import BuyersClient from './BuyersClient';
 
 export const metadata = {
-  title: 'For Buyers — Early Access, Price Opinions & Smart Alerts | Premarket',
+  title: 'For Buyers — Price Opinions & Registering Interest | Premarket',
   description:
-    'Save the homes you love, share an honest price opinion, and get notified the moment new properties — including premarket exclusives — hit the platform.',
+    'When an agent shares a property with you through Premarket, share an honest price opinion and register genuine interest — no account required.',
   keywords: [
-    'early access property listings australia',
-    'premarket properties',
     'buyer price opinions',
-    'house hunting australia',
     'register interest property',
-    'off market home buyers',
+    'anonymous property price opinion',
+    'premarket buyer experience',
   ],
   alternates: { canonical: 'https://premarket.homes/solutions/buyers' },
   openGraph: {
-    title: 'For Buyers — Early Access & Real Price Opinions | Premarket',
+    title: 'For Buyers — Price Opinions & Registering Interest | Premarket',
     description:
-      'Get notified the moment new properties hit the platform — including premarket exclusives you won\'t find on the portals.',
+      'When an agent shares a property with you through Premarket, share an honest price opinion and register genuine interest — no account required.',
     url: 'https://premarket.homes/solutions/buyers',
     type: 'website',
   },

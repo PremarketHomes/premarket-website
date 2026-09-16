@@ -10,8 +10,9 @@ import {
   RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
-import Nav from '../../components/Nav';
-import FooterLarge from '../../components/FooterLarge';
+import PublicSiteNav from '../../components/public-site/PublicSiteNav';
+import { playfairDisplay } from '../../components/property-page/fonts';
+import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -23,8 +24,8 @@ import {
 
 export default function ReportsClient() {
   return (
-    <div className="bg-white text-slate-900">
-      <Nav />
+    <div className={`bg-white text-slate-900 ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Reports"
         title={
@@ -37,7 +38,7 @@ export default function ReportsClient() {
           </>
         }
         subtitle="Every Premarket campaign builds a live vendor report from the buyer evidence as it arrives. Open it Tuesday. It's already updated by Friday."
-        primaryCta={{ href: '/signup', label: 'Try Premarket free' }}
+        primaryCta={{ href: '/join', label: 'Try Premarket free' }}
         secondaryCta={{ href: '/features', label: 'All features' }}
       />
 
@@ -183,13 +184,13 @@ export default function ReportsClient() {
       <ClosingCTA
         title="Have your next vendor meeting with evidence"
         subtitle="Live reports built from the buyers themselves — not from a market estimate."
-        primaryHref="/signup"
+        primaryHref="/join"
         primaryLabel="Start free"
         secondaryHref="/contact"
         secondaryLabel="Book a walkthrough"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

@@ -11,8 +11,9 @@ import {
   Sparkles,
   Zap,
 } from 'lucide-react';
-import Nav from '../../components/Nav';
-import FooterLarge from '../../components/FooterLarge';
+import PublicSiteNav from '../../components/public-site/PublicSiteNav';
+import { playfairDisplay } from '../../components/property-page/fonts';
+import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -24,8 +25,8 @@ import {
 
 export default function AgentIpadClient() {
   return (
-    <div className="bg-white text-slate-900">
-      <Nav />
+    <div className={`bg-white text-slate-900 ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Agent iPad"
         title={
@@ -38,7 +39,7 @@ export default function AgentIpadClient() {
           </>
         }
         subtitle="A purpose-built iPad app for capturing buyer price opinions, feedback and contact details in the field. Walk in. Hand it to the buyer. Watch the data flow into your campaign live."
-        primaryCta={{ href: '/signup', label: 'Get the app' }}
+        primaryCta={{ href: '/join', label: 'Get the app' }}
         secondaryCta={{ href: '/features', label: 'All features' }}
       />
 
@@ -177,13 +178,13 @@ export default function AgentIpadClient() {
       <ClosingCTA
         title="Take Premarket into the field"
         subtitle="Free with every Premarket account. Available on the App Store for iPad and iPad Mini."
-        primaryHref="/signup"
+        primaryHref="/join"
         primaryLabel="Create free account"
         secondaryHref="/contact"
         secondaryLabel="Talk to us"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

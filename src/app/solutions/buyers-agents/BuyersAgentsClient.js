@@ -12,8 +12,9 @@ import {
   Activity,
   Target,
 } from 'lucide-react';
-import Nav from '../../components/Nav';
-import FooterLarge from '../../components/FooterLarge';
+import PublicSiteNav from '../../components/public-site/PublicSiteNav';
+import { playfairDisplay } from '../../components/property-page/fonts';
+import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -25,8 +26,8 @@ import {
 
 export default function BuyersAgentsClient() {
   return (
-    <div className="bg-white text-slate-900">
-      <Nav />
+    <div className={`bg-white text-slate-900 ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="For buyer's agents"
         title={
@@ -113,8 +114,8 @@ export default function BuyersAgentsClient() {
                 accent="violet"
                 items={[
                   {
-                    title: '1 · Set your watched suburbs',
-                    body: 'Track every postcode you operate in. We\'ll alert you the second new properties or premarket campaigns appear.',
+                    title: '1 · Keep your active clients in view',
+                    body: 'Listing agents share campaigns directly with you when they match a brief you\'re working on — no need to browse.',
                   },
                   {
                     title: '2 · Match new listings to clients',
@@ -192,7 +193,7 @@ export default function BuyersAgentsClient() {
         secondaryLabel="Talk to our team"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

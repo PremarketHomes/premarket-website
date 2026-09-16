@@ -12,8 +12,9 @@ import {
   ArrowDownUp,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import Nav from '../../components/Nav';
-import FooterLarge from '../../components/FooterLarge';
+import PublicSiteNav from '../../components/public-site/PublicSiteNav';
+import { playfairDisplay } from '../../components/property-page/fonts';
+import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -91,8 +92,8 @@ const PHI_METRICS = [
 
 export default function DataMetricsClient() {
   return (
-    <div className="bg-white text-slate-900">
-      <Nav />
+    <div className={`bg-white text-slate-900 ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Data Metrics"
         title={
@@ -105,7 +106,7 @@ export default function DataMetricsClient() {
           </>
         }
         subtitle="Eight live indicators tell you what every suburb in Australia is doing right now — built from real buyer evidence, not historical settlements."
-        primaryCta={{ href: '/signup', label: 'Explore the data' }}
+        primaryCta={{ href: '/join', label: 'Explore the data' }}
         secondaryCta={{ href: '/features', label: 'All features' }}
       />
 
@@ -197,14 +198,14 @@ export default function DataMetricsClient() {
 
       <ClosingCTA
         title="See PHI scores for your suburb"
-        subtitle="Free buyer accounts get full access to the live data layer — for every Australian suburb."
-        primaryHref="/signup"
+        subtitle="Every Premarket agent gets full access to the live data layer — for every Australian suburb."
+        primaryHref="/join"
         primaryLabel="Create free account"
         secondaryHref="/features"
         secondaryLabel="Explore all features"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

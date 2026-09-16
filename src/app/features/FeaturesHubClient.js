@@ -1,8 +1,9 @@
 'use client';
 
 import { FileBarChart, Activity, BellRing, TrendingUp, Tablet, Sparkles } from 'lucide-react';
-import Nav from '../components/Nav';
-import FooterLarge from '../components/FooterLarge';
+import PublicSiteNav from '../components/public-site/PublicSiteNav';
+import { playfairDisplay } from '../components/property-page/fonts';
+import PublicSiteFooter from '../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -55,8 +56,8 @@ const features = [
 
 export default function FeaturesHubClient() {
   return (
-    <div className="bg-white text-slate-900">
-      <Nav />
+    <div className={`bg-white text-slate-900 ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Features"
         title={
@@ -69,7 +70,7 @@ export default function FeaturesHubClient() {
           </>
         }
         subtitle="Premarket isn't a CRM. It isn't a portal. It's an evidence engine that runs alongside everything you already use."
-        primaryCta={{ href: '/signup', label: 'Get started free' }}
+        primaryCta={{ href: '/join', label: 'Get started free' }}
         secondaryCta={{ href: '/premarket', label: 'What is Premarket?' }}
       />
 
@@ -101,13 +102,13 @@ export default function FeaturesHubClient() {
       <ClosingCTA
         title="See every feature in action"
         subtitle="Spin up a free account in two minutes. No credit card. No commitment. Just real evidence."
-        primaryHref="/signup"
+        primaryHref="/join"
         primaryLabel="Create free account"
         secondaryHref="/contact"
         secondaryLabel="Talk to us"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

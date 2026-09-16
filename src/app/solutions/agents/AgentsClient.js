@@ -12,8 +12,9 @@ import {
   Zap,
   TrendingUp,
 } from 'lucide-react';
-import Nav from '../../components/Nav';
-import FooterLarge from '../../components/FooterLarge';
+import PublicSiteNav from '../../components/public-site/PublicSiteNav';
+import { playfairDisplay } from '../../components/property-page/fonts';
+import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -25,8 +26,8 @@ import {
 
 export default function AgentsClient() {
   return (
-    <div className="bg-white text-slate-900">
-      <Nav />
+    <div className={`bg-white text-slate-900 ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="For listing agents"
         title={
@@ -226,7 +227,7 @@ export default function AgentsClient() {
         secondaryLabel="Talk to our team"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

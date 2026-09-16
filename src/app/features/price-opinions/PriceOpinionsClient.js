@@ -11,8 +11,9 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import Nav from '../../components/Nav';
-import FooterLarge from '../../components/FooterLarge';
+import PublicSiteNav from '../../components/public-site/PublicSiteNav';
+import { playfairDisplay } from '../../components/property-page/fonts';
+import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -26,8 +27,8 @@ import {
 
 export default function PriceOpinionsClient() {
   return (
-    <div className="bg-white text-slate-900">
-      <Nav />
+    <div className={`bg-white text-slate-900 ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Price Opinions"
         title={
@@ -40,7 +41,7 @@ export default function PriceOpinionsClient() {
           </>
         }
         subtitle="Real buyers tell agents what they'd pay — anonymously, honestly, and without the awkwardness of an offer. Sometimes sellers drop their expectations because of it."
-        primaryCta={{ href: '/signup', label: 'Submit your first opinion' }}
+        primaryCta={{ href: '/join', label: 'Start a campaign' }}
         secondaryCta={{ href: '/features', label: 'All features' }}
       />
 
@@ -219,15 +220,15 @@ export default function PriceOpinionsClient() {
       </section>
 
       <ClosingCTA
-        title="Submit your first opinion in under a minute"
-        subtitle="Free buyer accounts. Unlimited price opinions. Real influence on the market you actually buy in."
-        primaryHref="/signup"
-        primaryLabel="Create free account"
-        secondaryHref="/listings"
-        secondaryLabel="Browse properties"
+        title="Give your next seller conversation real evidence"
+        subtitle="$200 per campaign, no subscription. Anonymous buyer opinions your vendor can't argue with."
+        primaryHref="/join"
+        primaryLabel="Start a campaign"
+        secondaryHref="/contact"
+        secondaryLabel="Talk to us"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

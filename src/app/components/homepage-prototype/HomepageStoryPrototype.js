@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { playfairDisplay } from '../property-page/fonts';
-import PrototypeNav from './PrototypeNav';
+import PublicSiteNav from '../public-site/PublicSiteNav';
+import PublicSiteFooter from '../public-site/PublicSiteFooter';
 import HeroSection from './HeroSection';
 import SendSection from './SendSection';
 import EngageSection from './EngageSection';
@@ -10,7 +11,6 @@ import OpinionSection from './OpinionSection';
 import InterestSection from './InterestSection';
 import IntelligenceSection from './IntelligenceSection';
 import FinalCtaSection from './FinalCtaSection';
-import PrototypeFooter from './PrototypeFooter';
 
 /**
  * VISUAL PROTOTYPE — homepage redesign concept.
@@ -34,7 +34,7 @@ export default function HomepageStoryPrototype() {
 
   return (
     <div className={playfairDisplay.variable}>
-      <PrototypeNav solid={scrolledPastHero} />
+      <PublicSiteNav solid={scrolledPastHero} howItWorksHref="#send" howItWorksLabel="How it works" />
       <HeroSection onPastHero={setScrolledPastHero} />
       <SendSection />
       <EngageSection />
@@ -42,7 +42,7 @@ export default function HomepageStoryPrototype() {
       <InterestSection />
       <IntelligenceSection />
       <FinalCtaSection />
-      <PrototypeFooter />
+      <PublicSiteFooter />
     </div>
   );
 }

@@ -10,8 +10,9 @@ import {
   Calendar,
   Sparkles,
 } from 'lucide-react';
-import Nav from '../../components/Nav';
-import FooterLarge from '../../components/FooterLarge';
+import PublicSiteNav from '../../components/public-site/PublicSiteNav';
+import { playfairDisplay } from '../../components/property-page/fonts';
+import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -23,8 +24,8 @@ import {
 
 export default function RemindersClient() {
   return (
-    <div className="bg-white text-slate-900">
-      <Nav />
+    <div className={`bg-white text-slate-900 ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Reminders"
         title={
@@ -37,7 +38,7 @@ export default function RemindersClient() {
           </>
         }
         subtitle="Premarket reminders nudge buyers, re-engage cold campaigns, and surface the next best action — automatically. You stop chasing. The platform does it for you."
-        primaryCta={{ href: '/signup', label: 'Start free' }}
+        primaryCta={{ href: '/join', label: 'Start free' }}
         secondaryCta={{ href: '/features', label: 'All features' }}
       />
 
@@ -136,13 +137,13 @@ export default function RemindersClient() {
       <ClosingCTA
         title="Stop chasing. Start closing."
         subtitle="Smart reminders are on by default. Unlimited buyer follow-ups. Free for every agent on the platform."
-        primaryHref="/signup"
+        primaryHref="/join"
         primaryLabel="Create free account"
         secondaryHref="/contact"
         secondaryLabel="Talk to us"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

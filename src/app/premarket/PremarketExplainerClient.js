@@ -14,8 +14,9 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Nav from '../components/Nav';
-import FooterLarge from '../components/FooterLarge';
+import PublicSiteNav from '../components/public-site/PublicSiteNav';
+import { playfairDisplay } from '../components/property-page/fonts';
+import PublicSiteFooter from '../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -55,7 +56,7 @@ const FAQ = [
   },
   {
     q: 'How do buyers find premarket properties?',
-    a: 'Buyers create a free account, follow their suburbs, and get notified the moment new properties — including premarket exclusives — match their criteria. Email, push notification, and an in-app feed.',
+    a: "They don't browse for them — an agent sends a direct link, usually by email, SMS or through their own database. Buyers open the property, share a price opinion or register interest, and don't need to create an account to do either.",
   },
   {
     q: 'Is Premarket available across Australia?',
@@ -101,8 +102,8 @@ function FAQItem({ item, index }) {
 
 export default function PremarketExplainerClient() {
   return (
-    <div className="bg-white text-slate-900">
-      <Nav />
+    <div className={`bg-white text-slate-900 ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="What is Premarket?"
         title={
@@ -115,7 +116,7 @@ export default function PremarketExplainerClient() {
           </>
         }
         subtitle="A home is worth what a buyer would pay for it — not what the house across the street sold for two months ago. Premarket is how Australian property gets priced honestly."
-        primaryCta={{ href: '/signup', label: 'Create free account' }}
+        primaryCta={{ href: '/join', label: 'Start a campaign' }}
         secondaryCta={{ href: '/contact', label: 'Talk to us' }}
       />
 
@@ -299,7 +300,7 @@ export default function PremarketExplainerClient() {
           <FeatureCard
             icon={Users}
             title="Buyers"
-            description="Save listings, share price opinions, and get early access to premarket exclusives in your watched suburbs."
+            description="Open the property your agent sends you, share a price opinion, and register interest — no account needed."
             href="/solutions/buyers"
             accent="blue"
           />
@@ -337,14 +338,14 @@ export default function PremarketExplainerClient() {
 
       <ClosingCTA
         title="See what real evidence looks like"
-        subtitle="Buyers join free in under a minute. Home owners can ask their agent. Buyer's agents can start submitting opinions today."
-        primaryHref="/signup"
-        primaryLabel="Create free account"
+        subtitle="Agents can start their first campaign today. Home owners can ask their agent. Buyers open the link their agent sends them."
+        primaryHref="/join"
+        primaryLabel="Start a campaign"
         secondaryHref="/contact"
         secondaryLabel="Talk to us"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

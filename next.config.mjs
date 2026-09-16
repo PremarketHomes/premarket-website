@@ -41,6 +41,22 @@ const nextConfig = {
     ],
   },
 
+  // /v2 was a second, competing homepage from before the redesign. Audit
+  // confirmed no live code references it (only two fully-orphaned, unused
+  // components did) and it isn't part of any product/integration flow —
+  // see the redesign report for the dependency check. Temporary redirect
+  // (not permanent) since this is a preview-branch decision, not yet a
+  // confirmed production change.
+  async redirects() {
+    return [
+      {
+        source: '/v2',
+        destination: '/',
+        permanent: false,
+      },
+    ];
+  },
+
   // Generate metadata for all pages
   async headers() {
     return [

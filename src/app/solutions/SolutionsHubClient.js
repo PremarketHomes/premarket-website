@@ -1,8 +1,9 @@
 'use client';
 
 import { Home, Users, Briefcase, Building2, ArrowRight, ShieldCheck, Eye, TrendingUp } from 'lucide-react';
-import Nav from '../components/Nav';
-import FooterLarge from '../components/FooterLarge';
+import PublicSiteNav from '../components/public-site/PublicSiteNav';
+import { playfairDisplay } from '../components/property-page/fonts';
+import PublicSiteFooter from '../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -24,7 +25,7 @@ const solutions = [
     icon: Users,
     title: 'Buyers',
     description:
-      'Save the listings you love, share an honest price opinion, and get notified the moment new properties — including premarket exclusives — hit the platform.',
+      'Open the property your agent sends you, share an honest price opinion, and register your interest — no account needed.',
     href: '/solutions/buyers',
     accent: 'blue',
   },
@@ -48,8 +49,8 @@ const solutions = [
 
 export default function SolutionsHubClient() {
   return (
-    <div className="bg-white text-slate-900">
-      <Nav />
+    <div className={`bg-white text-slate-900 ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Solutions"
         title={
@@ -62,8 +63,8 @@ export default function SolutionsHubClient() {
           </>
         }
         subtitle="Premarket replaces guesswork with live buyer data — for the people selling, the people buying, and the agents who represent both sides of every transaction."
-        primaryCta={{ href: '/signup', label: 'Create free account' }}
-        secondaryCta={{ href: '/premarket', label: 'What is Premarket?' }}
+        primaryCta={{ href: '/join', label: 'Start a campaign' }}
+        secondaryCta={{ href: '/contact', label: 'Talk to us' }}
       />
 
 
@@ -143,14 +144,14 @@ export default function SolutionsHubClient() {
 
       <ClosingCTA
         title="Pick the path that fits you"
-        subtitle="Buyers join free in under a minute. Home owners can ask their agent. Agents can start their first campaign today."
-        primaryHref="/signup"
-        primaryLabel="Create free account"
+        subtitle="Agents can start their first campaign today. Home owners can ask their agent. Buyers open the link their agent sends them — no account required."
+        primaryHref="/join"
+        primaryLabel="Start a campaign"
         secondaryHref="/contact"
         secondaryLabel="Talk to us"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

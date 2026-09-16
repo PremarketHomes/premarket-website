@@ -133,10 +133,10 @@ export function SkeletonCard() {
 // ---------- Button primitives with isLoading ----------
 
 const PRIMARY_BASE =
-  'inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-[#e48900] text-white text-sm font-semibold rounded-full hover:bg-[#c64500] active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed';
+  'inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-[#e48900] text-white text-sm font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed';
 
 const GHOST_BASE =
-  'inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-white border border-slate-200 text-slate-900 text-sm font-semibold rounded-full hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed';
+  'inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-white border border-slate-300 text-slate-800 text-sm font-semibold rounded-xl hover:border-slate-400 active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed';
 
 /**
  * ButtonPrimary — solid orange CTA. Renders <button>, <a>, or Link.
