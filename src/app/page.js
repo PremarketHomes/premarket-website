@@ -1,7 +1,9 @@
 // app/page.js - Public Homepage
-import Nav from './components/Nav';
-import PublicHomepage from './components/PublicHomepage';
-import PublicFooter from './components/PublicFooter';
+// PROTOTYPE BRANCH: homepage body swapped for the visual-concept prototype
+// (HomepageStoryPrototype). Nothing else on this page — metadata, schema,
+// FAQ markup — has been changed. Not intended to be merged as-is; see
+// src/app/components/homepage-prototype/ for the isolated prototype code.
+import HomepageStoryPrototype from './components/homepage-prototype/HomepageStoryPrototype';
 import SchemaOrganization from './components/SchemaOrganization';
 import SchemaWebsite from './components/SchemaWebsite';
 
@@ -93,13 +95,9 @@ export default function Home() {
         }}
       />
 
-      <Nav isHomepage={true} />
-
       <main>
-        <PublicHomepage />
+        <HomepageStoryPrototype />
       </main>
-
-      <PublicFooter />
     </>
   );
 }
