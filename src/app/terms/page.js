@@ -37,10 +37,10 @@ export default function Terms() {
                         <div>
                             <h3 className="text-lg font-interBold text-gray-800 mb-2">1.1 Introduction</h3>
                             <p className="text-gray-700 leading-relaxed mb-4">
-                                These Terms and Conditions ("Terms") govern your access to and use of the Premarket platform, products, and services (collectively, the "Platform") operated by Premarket Australia ("Premarket", "we", "us", or "our"). By accessing or using any part of the Platform, you agree to be bound by these Terms. If you do not agree with any part of these Terms, you must not access or use the Platform.
+                                These Terms and Conditions ("Terms") govern your access to and use of the Premarket platform, products, and services (collectively, the "Platform") operated by Premarket Group ("Premarket", "we", "us", or "our"). By accessing or using any part of the Platform, you agree to be bound by these Terms. If you do not agree with any part of these Terms, you must not access or use the Platform.
                             </p>
                             <p className="text-gray-700 leading-relaxed mb-4">
-                                These Terms constitute a legal agreement between you and Premarket Australia. It is your responsibility to read them carefully before using the Platform. These Terms apply to all users, including but not limited to homeowners, property buyers, agents, and service providers.
+                                These Terms constitute a legal agreement between you and Premarket Group. It is your responsibility to read them carefully before using the Platform. These Terms apply to all users, including but not limited to homeowners, property buyers, agents, and service providers.
                             </p>
                             <p className="text-gray-700 leading-relaxed">
                                 Premarket is <span className="font-semibold">not</span> a licensed real estate agency, broker, or financial advisory service. We do not represent parties in property transactions and do not guarantee, warrant, or facilitate the actual sale of real estate. Our role is limited to providing a digital interface that facilitates connections between interested parties and optional third-party services.
@@ -51,7 +51,7 @@ export default function Terms() {
                             <h3 className="text-lg font-interBold text-gray-800 mb-2">1.2 Definitions</h3>
                             <ul className="space-y-3 text-gray-700 leading-relaxed list-none pl-0">
                                 <li>
-                                    <span className="font-semibold">“Premarket”</span> refers to the platform developed and operated by Premarket Australia, including all associated websites, mobile applications, features, tools, and services.
+                                    <span className="font-semibold">“Premarket”</span> refers to the platform developed and operated by Premarket Group, including all associated websites, mobile applications, features, tools, and services.
                                 </li>
                                 <li>
                                     <span className="font-semibold">“Platform”</span> includes all digital interfaces provided by Premarket, including campaign tools, profile features, messaging functionality, and access to third-party referrals.
@@ -99,16 +99,13 @@ export default function Terms() {
 
                         <div className="text-gray-700 leading-relaxed space-y-4">
                             <p>
-                                <span className="inter text-smBold">Legal Entity Name:</span> Premarket Australia Pty Ltd
+                                <span className="inter text-smBold">Legal Entity Name:</span> Premarket Group Pty Ltd
                             </p>
                             <p>
-                                <span className="inter text-smBold">ABN:</span> 62 685 776 943 (registered and active from 1 April 2025)
+                                <span className="inter text-smBold">ABN:</span> 13 697 446 398
                             </p>
                             <p>
-                                <span className="inter text-smBold">ACN:</span> 685 776 943
-                            </p>
-                            <p>
-                                <span className="inter text-smBold">GST Status:</span> Registered for GST from 1 April 2025
+                                <span className="inter text-smBold">ACN:</span> 697 446 398
                             </p>
                             <p>
                                 <span className="inter text-smBold">Registered Office / Principal Place of Business:</span><br />
@@ -126,7 +123,7 @@ export default function Terms() {
 
                         <div className="text-gray-700 leading-relaxed space-y-4">
                             <p>
-                                Premarket is a digital platform operated by <span className="font-semibold">Premarket Australia Pty Ltd</span> that enables homeowners, buyers, and agents to engage in early-stage property discovery and interest gathering. It allows homeowners to explore interest in their property before deciding whether to formally list it for sale.
+                                Premarket is a digital platform operated by <span className="font-semibold">Premarket Group Pty Ltd</span> that enables homeowners, buyers, and agents to engage in early-stage property discovery and interest gathering. It allows homeowners to explore interest in their property before deciding whether to formally list it for sale.
                             </p>
 
                             <p>
@@ -291,7 +288,7 @@ export default function Terms() {
 
                         <div className="text-gray-700 leading-relaxed space-y-4">
                             <p>
-                                All intellectual property rights in and to the Platform, including but not limited to software code, branding, visual design, layout, trademarks, service marks, logos, icons, text, images, videos, databases, algorithms, and any content created or provided by Premarket, are and remain the exclusive property of <span className="font-semibold">Premarket Australia Pty Ltd</span>, unless otherwise explicitly stated.
+                                All intellectual property rights in and to the Platform, including but not limited to software code, branding, visual design, layout, trademarks, service marks, logos, icons, text, images, videos, databases, algorithms, and any content created or provided by Premarket, are and remain the exclusive property of <span className="font-semibold">Premarket Group Pty Ltd</span>, unless otherwise explicitly stated.
                             </p>
 
                             <p>
@@ -303,7 +300,7 @@ export default function Terms() {
                             </p>
 
                             <p>
-                                You also grant Premarket Australia Pty Ltd an irrevocable, worldwide, royalty-free, perpetual license to use, display, reproduce, modify, distribute, and publish this content in any form or channel we choose — including but not limited to marketing, advertising, social media, commercial use, or platform improvements — without any further notice, approval, or compensation.
+                                You also grant Premarket Group Pty Ltd an irrevocable, worldwide, royalty-free, perpetual license to use, display, reproduce, modify, distribute, and publish this content in any form or channel we choose — including but not limited to marketing, advertising, social media, commercial use, or platform improvements — without any further notice, approval, or compensation.
                             </p>
 
                             <p>
@@ -432,7 +429,7 @@ export default function Terms() {
 
                         <div className="text-gray-700 leading-relaxed space-y-4">
                             <p>
-                                To the fullest extent permitted by law, Premarket Australia Pty Ltd, including its directors, employees, contractors, affiliates, and representatives, shall not be liable to you or any third party for any loss, damage, or liability (whether direct, indirect, incidental, special, punitive, or consequential) arising out of or in connection with your access to or use of the Platform, its features, or any third-party services accessed through it.
+                                To the fullest extent permitted by law, Premarket Group Pty Ltd, including its directors, employees, contractors, affiliates, and representatives, shall not be liable to you or any third party for any loss, damage, or liability (whether direct, indirect, incidental, special, punitive, or consequential) arising out of or in connection with your access to or use of the Platform, its features, or any third-party services accessed through it.
                             </p>
 
                             <p>
@@ -478,7 +475,7 @@ export default function Terms() {
 
                         <div className="text-gray-700 leading-relaxed space-y-4">
                             <p>
-                                Premarket Australia Pty Ltd reserves the right to suspend, restrict, or permanently terminate your access to the Platform — in full or in part — at any time, with or without notice, if we determine, at our sole discretion, that:
+                                Premarket Group Pty Ltd reserves the right to suspend, restrict, or permanently terminate your access to the Platform — in full or in part — at any time, with or without notice, if we determine, at our sole discretion, that:
                             </p>
 
                             <ul className="list-disc list-inside space-y-2">
@@ -516,7 +513,7 @@ export default function Terms() {
                             </p>
 
                             <p>
-                                You irrevocably agree that the courts of New South Wales — and where applicable, the Federal Court of Australia — shall have exclusive jurisdiction to settle any dispute or claim arising out of or in connection with these Terms, your use of the Platform, or any services provided by Premarket Australia Pty Ltd.
+                                You irrevocably agree that the courts of New South Wales — and where applicable, the Federal Court of Australia — shall have exclusive jurisdiction to settle any dispute or claim arising out of or in connection with these Terms, your use of the Platform, or any services provided by Premarket Group Pty Ltd.
                             </p>
 
                             <p>
@@ -534,7 +531,7 @@ export default function Terms() {
 
                         <div className="text-gray-700 leading-relaxed space-y-4">
                             <p>
-                                Premarket Australia Pty Ltd reserves the right to modify, update, or replace these Terms at any time, in whole or in part, at our sole discretion. Changes may be made to reflect updates in our business practices, legal obligations, user feedback, service offerings, or platform features.
+                                Premarket Group Pty Ltd reserves the right to modify, update, or replace these Terms at any time, in whole or in part, at our sole discretion. Changes may be made to reflect updates in our business practices, legal obligations, user feedback, service offerings, or platform features.
                             </p>
 
                             <p>
@@ -562,7 +559,7 @@ export default function Terms() {
                             <div className="space-y-2">
                                 <h3 className="inter text-smBold text-lg text-gray-800">18.1 Proprietary Calculations</h3>
                                 <p>
-                                    All Platform Metrics are the result of Premarket&rsquo;s own proprietary calculations, formulas, algorithms, and methodologies developed internally by Premarket Australia Pty Ltd. These calculations are based on data collected and aggregated from user activity on the Platform, including but not limited to buyer engagement, price opinions submitted by users, property listing activity, user interactions, and other behavioural signals captured through the Platform.
+                                    All Platform Metrics are the result of Premarket&rsquo;s own proprietary calculations, formulas, algorithms, and methodologies developed internally by Premarket Group Pty Ltd. These calculations are based on data collected and aggregated from user activity on the Platform, including but not limited to buyer engagement, price opinions submitted by users, property listing activity, user interactions, and other behavioural signals captured through the Platform.
                                 </p>
                                 <p>
                                     Platform Metrics do <span className="font-semibold">not</span> incorporate or rely upon licensed property valuation data, government-certified appraisals, registered valuer assessments, or any other externally audited or independently verified data source unless explicitly stated otherwise.
@@ -616,7 +613,7 @@ export default function Terms() {
                             <div className="space-y-2">
                                 <h3 className="inter text-smBold text-lg text-gray-800">18.6 No Liability for Decisions or Outcomes</h3>
                                 <p>
-                                    To the maximum extent permitted by law, Premarket Australia Pty Ltd, its directors, officers, employees, contractors, agents, and affiliates accept <span className="font-semibold">no responsibility or liability whatsoever</span> for any loss, damage, cost, expense, claim, or liability (whether direct, indirect, consequential, incidental, special, punitive, or otherwise) that you or any third party may suffer or incur as a result of, or in connection with:
+                                    To the maximum extent permitted by law, Premarket Group Pty Ltd, its directors, officers, employees, contractors, agents, and affiliates accept <span className="font-semibold">no responsibility or liability whatsoever</span> for any loss, damage, cost, expense, claim, or liability (whether direct, indirect, consequential, incidental, special, punitive, or otherwise) that you or any third party may suffer or incur as a result of, or in connection with:
                                 </p>
                                 <ul className="list-disc list-inside space-y-2">
                                     <li>Any decision to buy, sell, list, hold, price, finance, or otherwise deal with real property based in whole or in part on any Platform Metric or information displayed on the Platform.</li>
@@ -627,7 +624,7 @@ export default function Terms() {
                                     <li>Any inaccuracy, error, omission, delay, or change in any Platform Metric.</li>
                                 </ul>
                                 <p>
-                                    You irrevocably release and hold harmless Premarket Australia Pty Ltd from any and all claims, demands, actions, suits, or proceedings arising out of or related to your use of or reliance on Platform Metrics. This release applies regardless of whether the loss or damage was foreseeable, and regardless of whether Premarket was advised or ought to have been aware of the possibility of such loss or damage.
+                                    You irrevocably release and hold harmless Premarket Group Pty Ltd from any and all claims, demands, actions, suits, or proceedings arising out of or related to your use of or reliance on Platform Metrics. This release applies regardless of whether the loss or damage was foreseeable, and regardless of whether Premarket was advised or ought to have been aware of the possibility of such loss or damage.
                                 </p>
                             </div>
 
@@ -641,7 +638,7 @@ export default function Terms() {
                             <div className="space-y-2">
                                 <h3 className="inter text-smBold text-lg text-gray-800">18.8 Relationship With Other Sections</h3>
                                 <p>
-                                    This section supplements and operates in addition to &mdash; not in replacement of &mdash; Section 6 (Company Commitments &amp; Disclaimers), Section 12 (Limitation of Liability), and Section 13 (Indemnification) of these Terms. In the event of any conflict, the provision that provides the broadest protection to Premarket Australia Pty Ltd shall prevail.
+                                    This section supplements and operates in addition to &mdash; not in replacement of &mdash; Section 6 (Company Commitments &amp; Disclaimers), Section 12 (Limitation of Liability), and Section 13 (Indemnification) of these Terms. In the event of any conflict, the provision that provides the broadest protection to Premarket Group Pty Ltd shall prevail.
                                 </p>
                             </div>
                         </div>

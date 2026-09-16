@@ -1,6 +1,6 @@
 'use client';
 
-import { FileBarChart, Activity, BellRing, TrendingUp, Tablet, Sparkles } from 'lucide-react';
+import { FileBarChart, Activity, TrendingUp, Tablet, Sparkles } from 'lucide-react';
 import PublicSiteNav from '../components/public-site/PublicSiteNav';
 import { playfairDisplay } from '../components/property-page/fonts';
 import PublicSiteFooter from '../components/public-site/PublicSiteFooter';
@@ -16,7 +16,7 @@ const features = [
     icon: FileBarChart,
     title: 'Reports',
     description:
-      'Live vendor reports built from real buyer evidence. Auto-updating, beautifully formatted, and ready to share the moment a buyer engages.',
+      'Vendor reports built from real buyer evidence — price opinions, opinion median and registered interest, accurate the moment you generate them.',
     href: '/features/reports',
     accent: 'orange',
   },
@@ -24,17 +24,9 @@ const features = [
     icon: Activity,
     title: 'Data Metrics',
     description:
-      'Eight live PHI scores per suburb — buyer demand, seller motivation, price realism, supply pressure and more.',
+      'Eight PHI scores per suburb, computed daily — buyer demand, seller motivation, price realism, supply pressure and more.',
     href: '/features/data-metrics',
     accent: 'blue',
-  },
-  {
-    icon: BellRing,
-    title: 'Reminders',
-    description:
-      'Smart, automated nudges that re-engage buyers, follow up on viewings, and keep every campaign moving forward.',
-    href: '/features/reminders',
-    accent: 'emerald',
   },
   {
     icon: TrendingUp,
@@ -48,7 +40,7 @@ const features = [
     icon: Tablet,
     title: 'Agent iPad',
     description:
-      'A purpose-built iPad app for capturing buyer feedback in the field. Take it to the open home. Take it to the appraisal. Take it everywhere.',
+      'A kiosk mode for capturing buyer feedback in the field. Opens in Safari on any iPad — nothing to install.',
     href: '/features/agent-ipad',
     accent: 'violet',
   },
@@ -79,13 +71,13 @@ export default function FeaturesHubClient() {
         <div className="text-center mb-16 max-w-3xl mx-auto">
           <SectionHeading
             align="center"
-            eyebrow="Five products. One platform."
+            eyebrow="Four products. One platform."
             title="Everything Premarket offers, in one place"
             subtitle="Each feature is good on its own. Used together, they create something the rest of the industry simply can't replicate — a forward-looking view of buyer intent in your suburb, right now."
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           {features.map((f) => (
             <FeatureCard
               key={f.title}

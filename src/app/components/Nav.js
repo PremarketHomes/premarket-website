@@ -49,7 +49,7 @@ const SOLUTIONS = [
   },
   {
     title: 'Listing Agents',
-    description: 'Win more listings with live buyer evidence. $200 per campaign — no subscription.',
+    description: 'Win more listings with live buyer evidence. $200 vendor-paid per campaign — no subscription.',
     href: '/solutions/agents',
     icon: Building2,
   },

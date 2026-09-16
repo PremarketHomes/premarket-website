@@ -98,14 +98,14 @@ export default function DataMetricsClient() {
         eyebrow="Data Metrics"
         title={
           <>
-            A{' '}
+            Suburb signals,{' '}
             <span className="bg-gradient-to-r from-[#e48900] to-[#c64500] bg-clip-text text-transparent">
-              Bloomberg terminal
-            </span>{' '}
-            for property.
+              built from real buyers
+            </span>
+            .
           </>
         }
-        subtitle="Eight live indicators tell you what every suburb in Australia is doing right now — built from real buyer evidence, not historical settlements."
+        subtitle="Eight indicators, computed daily from real buyer price opinions, registered interest and engagement across active Premarket campaigns — not historical settlements."
         primaryCta={{ href: '/join', label: 'Explore the data' }}
         secondaryCta={{ href: '/features', label: 'All features' }}
       />
@@ -184,7 +184,7 @@ export default function DataMetricsClient() {
             {[
               ['CoreLogic & co.', 'Backward-looking', 'Built on settled sales — by the time the data updates, the market has already moved.'],
               ['Portal heatmaps', 'Surface signal only', 'Counts of clicks and saves on a public portal — useful, but heavily diluted by tyre-kickers.'],
-              ['Premarket PHI', 'Live and intent-based', 'Built from real, attributed buyer engagement — including price opinions buyers actually committed to.'],
+              ['Premarket PHI', 'Computed daily, intent-based', 'Built from real, attributed buyer engagement — including price opinions buyers actually committed to.'],
             ].map(([title, badge, body], i) => (
               <motion.div key={i} variants={fadeUp} className="bg-white p-8">
                 <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2">{badge}</p>
@@ -197,12 +197,12 @@ export default function DataMetricsClient() {
       </section>
 
       <ClosingCTA
-        title="See PHI scores for your suburb"
-        subtitle="Every Premarket agent gets full access to the live data layer — for every Australian suburb."
-        primaryHref="/join"
-        primaryLabel="Create free account"
+        title="Curious what your suburb looks like?"
+        subtitle="PHI scores are computed from real buyer activity across Premarket's active campaigns and suburbs."
+        primaryHref="/contact"
+        primaryLabel="Talk to us"
         secondaryHref="/features"
-        secondaryLabel="Explore all features"
+        secondaryLabel="All features"
       />
 
       <PublicSiteFooter />

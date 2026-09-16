@@ -40,7 +40,7 @@ export default function HomeOwnersClient() {
             — before you list it.
           </>
         }
-        subtitle="Your local real estate agent represents your property on Premarket. No open homes. No upfront photography. No public listing risk. Just real buyers, real opinions, and real evidence — collected privately through your agent."
+        subtitle="Your local real estate agent represents your property on Premarket. No open homes required. No public listing risk. Just real buyers, real opinions, and real evidence — collected privately through your agent."
         primaryCta={{ href: '/contact', label: 'Find a Premarket agent' }}
         secondaryCta={{ href: '/premarket', label: 'How does it work?' }}
       />
@@ -106,13 +106,13 @@ export default function HomeOwnersClient() {
             <FeatureCard
               icon={Eye}
               title="See real buyer interest"
-              description="Watch a live dashboard fill up with anonymous price opinions and registered interest from genuine buyers — before you commit to anything."
+              description="Your agent shows you anonymous price opinions and registered interest from genuine buyers — before you commit to anything."
               accent="blue"
             />
             <FeatureCard
               icon={Camera}
-              title="No expensive marketing first"
-              description="Skip the photography, styling, brochures and portal upgrades until you're sure the price you have in mind is achievable."
+              title="Test before you commit"
+              description="Gather real buyer evidence before or during your wider marketing campaign — the photography, styling and marketing spend stay entirely your and your agent's call."
               accent="emerald"
             />
             <FeatureCard
@@ -166,7 +166,7 @@ export default function HomeOwnersClient() {
                 },
                 {
                   title: '4 · Buyers respond with evidence',
-                  body: 'Real buyers submit anonymous price opinions and register interest. Your agent sees the live data populate in real time.',
+                  body: 'Real buyers submit anonymous price opinions and register interest. Your agent sees it the moment they check.',
                 },
                 {
                   title: '5 · Decide with confidence',
@@ -191,8 +191,8 @@ export default function HomeOwnersClient() {
           {[
             ['Median buyer opinion', 'A clear midpoint of what buyers think your home is worth right now.'],
             ['Price distribution', 'See exactly how the opinions are spread — tight cluster or wide range.'],
-            ['Demand signals', 'Watch interest registrations stack up in real time.'],
-            ['Engagement velocity', 'Find out if your home is gathering momentum — or sitting flat.'],
+            ['Demand signals', 'See interest registrations as they come in.'],
+            ['Opinions submitted', 'See how many buyers have shared a price opinion so far.'],
           ].map(([title, body]) => (
             <div
               key={title}

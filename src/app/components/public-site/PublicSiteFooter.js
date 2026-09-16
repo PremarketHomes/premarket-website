@@ -4,10 +4,11 @@ import BrandMark from '../BrandMark';
 /**
  * Canonical footer for the redesigned public site — replaces the old
  * large marketplace-style FooterLarge everywhere. Keeps only: Premarket,
- * Features, Contact, Privacy, Terms. "Browse properties" remains as a
- * quiet secondary link (not a headline proposition) so /listings keeps
- * an internal link for continuity/SEO without being promoted. Buyer
- * signup is deliberately not linked here.
+ * Features, Contact, Privacy, Terms. No "Browse properties" link — the
+ * public nav/footer should not position Premarket as a property
+ * marketplace. /listings itself is untouched and still reachable
+ * directly; it's just not linked from global chrome. Buyer signup is
+ * deliberately not linked here either.
  */
 export default function PublicSiteFooter() {
   return (
@@ -23,7 +24,6 @@ export default function PublicSiteFooter() {
           <Link href="/contact" className="hover:text-slate-800">Contact</Link>
           <Link href="/privacy" className="hover:text-slate-800">Privacy</Link>
           <Link href="/terms" className="hover:text-slate-800">Terms</Link>
-          <Link href="/listings" className="text-slate-400 hover:text-slate-600">Browse properties</Link>
         </div>
 
         <p className="text-xs text-slate-400">&copy; {new Date().getFullYear()} Premarket</p>

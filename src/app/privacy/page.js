@@ -7,7 +7,7 @@ export default function PrivacyPolicy() {
   return (
     <LegalPageShell title="Privacy Policy" meta="Effective Date: July 21, 2025">
       <p>
-        This Privacy Policy describes how Premarket Australia (“we”, “our”, “us”) collects, uses,
+        This Privacy Policy describes how Premarket Group (“we”, “our”, “us”) collects, uses,
         and shares your personal information when you use our website located at{' '}
         <Link href="https://www.premarket.homes" className="text-[#e48900] underline">
           www.premarket.homes
@@ -44,7 +44,7 @@ export default function PrivacyPolicy() {
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mb-2">3. Data Sharing</h2>
         <p>
-          We may share data with Premarket Australia partners and third-party service providers for
+          We may share data with Premarket Group partners and third-party service providers for
           operational, support, marketing, or legal purposes. By using our platform, you consent to
           this data sharing.
         </p>

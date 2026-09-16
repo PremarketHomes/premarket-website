@@ -1,20 +1,18 @@
 import RemindersClient from './RemindersClient';
 
 export const metadata = {
-  title: 'Smart Reminders — Re-engage Buyers Automatically | Premarket',
+  title: 'Reminders — Campaign Check-ins | Premarket',
   description:
-    'Premarket reminders nudge buyers, follow up on viewings, and keep every campaign moving forward — automatically. Less admin, more deals.',
+    'Premarket emails you a check-in at 14 and 30 days to see whether a property has sold — one less thing to track manually.',
   keywords: [
-    'real estate buyer follow up',
-    'automated reminders agent',
-    'campaign automation real estate',
-    'buyer engagement reminders',
+    'real estate campaign reminders',
+    'listing follow up reminder',
   ],
   alternates: { canonical: 'https://premarket.homes/features/reminders' },
   openGraph: {
-    title: 'Smart Reminders | Premarket',
+    title: 'Reminders — Campaign Check-ins | Premarket',
     description:
-      'Smart, automated nudges that re-engage buyers and keep every campaign moving.',
+      'A simple scheduled check-in email at 14 and 30 days, sent to the agent.',
     url: 'https://premarket.homes/features/reminders',
     type: 'website',
   },

@@ -125,15 +125,15 @@ export default function LoginPage() {
         view === 'login' ? (
           <>
             <p className="text-sm text-slate-500">
-              Don&apos;t have an account?{' '}
-              <Link href="/signup" className={AUTH_LINK_CLASS}>
-                Create a buyer account
+              Real estate agent?{' '}
+              <Link href="/join" className={AUTH_LINK_CLASS}>
+                Get started
               </Link>
             </p>
             <p className="text-xs text-slate-400">
-              Real estate agent?{' '}
-              <Link href="/join" className={AUTH_LINK_CLASS}>
-                Join here
+              Buyer?{' '}
+              <Link href="/signup" className={AUTH_LINK_CLASS}>
+                Create a buyer account
               </Link>
             </p>
           </>

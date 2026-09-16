@@ -44,15 +44,15 @@ const FAQ = [
   },
   {
     q: 'How much does it cost an agent to list a property?',
-    a: "Agents pay a small per-campaign fee — currently $200 AUD per listing. There's no subscription, no monthly minimum, and buyers and buyer's agents are completely free.",
+    a: "The campaign fee is $200 AUD, vendor-paid, per listing — not paid by the agent. There's no subscription, no monthly minimum, and buyers and buyer's agents are completely free.",
   },
   {
     q: "What's a 'price opinion'?",
     a: "A price opinion is a single number — what a real buyer says they'd genuinely pay for the property. It's anonymous, takes seconds to submit, and is aggregated with other opinions to form a clear, evidence-based picture of where the market sits.",
   },
   {
-    q: 'Do I really not need photography?',
-    a: "Not to start. You can run a Premarket campaign with just a couple of basic phone photos and a guide price. The goal is to gather buyer evidence first — once the data tells you the price is right, you commission proper marketing with confidence.",
+    q: 'Do I need professional photography?',
+    a: "That's the agent's call. Premarket is about testing buyer response and collecting market feedback — before or during whatever wider marketing campaign you run. Plenty of agents run a Premarket campaign alongside full professional photography and styling.",
   },
   {
     q: 'How do buyers find premarket properties?',
@@ -180,7 +180,7 @@ export default function PremarketExplainerClient() {
               <ul className="mt-6 space-y-4">
                 {[
                   'Your agent sets up a private campaign in two minutes.',
-                  'A few phone photos and a guide price are all you need.',
+                  'Test buyer response before or during your wider marketing campaign.',
                   'Real buyers submit anonymous price opinions and register interest.',
                   'A live report shows you exactly where the market sits.',
                   'You list with confidence — or sell off-market entirely.',
@@ -203,8 +203,8 @@ export default function PremarketExplainerClient() {
           <SectionHeading
             align="center"
             eyebrow="Why it's different"
-            title="No open homes. No photography. No problem."
-            subtitle="The two things every vendor dreads about selling — they're optional with Premarket."
+            title="Test the market before you commit to it"
+            subtitle="Open homes are optional with Premarket — and you can test buyer response before or during whatever wider campaign you run."
           />
         </div>
 
@@ -217,8 +217,8 @@ export default function PremarketExplainerClient() {
           />
           <FeatureCard
             icon={Camera}
-            title="No expensive photography"
-            description="A couple of phone photos and a guide price is all you need to start collecting buyer evidence. Once the data is in, you can commission professional marketing — or you can skip it entirely."
+            title="Test before you commit"
+            description="Gather real buyer evidence before or during a wider marketing campaign. Many agents run Premarket alongside full professional photography and marketing — it's not a substitute for either."
             accent="blue"
           />
           <FeatureCard
@@ -238,8 +238,8 @@ export default function PremarketExplainerClient() {
               <div>
                 <SectionHeading
                   eyebrow="The data engine"
-                  title="Real buyers. Real evidence. Real time."
-                  subtitle="Premarket is built around eight live indicators — the Premarket Health Indicators (PHI) — that quantify every Australian suburb the way Bloomberg quantifies a stock."
+                  title="Real buyers. Real evidence."
+                  subtitle="Premarket is built around eight indicators — the Premarket Health Indicators (PHI) — computed daily from real buyer activity across Premarket's active campaigns and suburbs."
                 />
                 <div className="mt-8 inline-flex items-center gap-2 px-4 py-2 bg-orange-50 border border-orange-200/70 rounded-full">
                   <Sparkles className="w-3.5 h-3.5 text-[#c64500]" />
@@ -307,7 +307,7 @@ export default function PremarketExplainerClient() {
           <FeatureCard
             icon={TrendingUp}
             title="Buyer's agents"
-            description="See premarket properties before the portals do. Submit professional opinions and lock in priority for your clients."
+            description="When a listing agent shares a property with you, submit a price opinion or register interest on behalf of your client — the same tools every buyer has."
             href="/solutions/buyers-agents"
             accent="violet"
           />

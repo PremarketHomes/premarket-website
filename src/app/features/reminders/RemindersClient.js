@@ -1,15 +1,6 @@
 'use client';
 
-import {
-  BellRing,
-  Clock,
-  RefreshCw,
-  MessageSquare,
-  Mail,
-  Smartphone,
-  Calendar,
-  Sparkles,
-} from 'lucide-react';
+import { Mail, Calendar } from 'lucide-react';
 import PublicSiteNav from '../../components/public-site/PublicSiteNav';
 import { playfairDisplay } from '../../components/property-page/fonts';
 import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
@@ -18,8 +9,6 @@ import {
   SectionHeading,
   FeatureCard,
   ClosingCTA,
-  TwoColumn,
-  BulletList,
 } from '../../components/marketing/MarketingShell';
 
 export default function RemindersClient() {
@@ -30,115 +19,49 @@ export default function RemindersClient() {
         eyebrow="Reminders"
         title={
           <>
-            The follow-ups that{' '}
+            A simple{' '}
             <span className="bg-gradient-to-r from-[#e48900] to-[#c64500] bg-clip-text text-transparent">
-              follow themselves up
+              check-in
             </span>
-            .
+            , automatically.
           </>
         }
-        subtitle="Premarket reminders nudge buyers, re-engage cold campaigns, and surface the next best action — automatically. You stop chasing. The platform does it for you."
-        primaryCta={{ href: '/join', label: 'Start free' }}
+        subtitle="Premarket emails you at 14 and 30 days to check whether the property has sold — one less thing to remember to follow up on manually."
+        primaryCta={{ href: '/join', label: 'Get started' }}
         secondaryCta={{ href: '/features', label: 'All features' }}
       />
 
-
-      {/* What gets automated */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 py-24 sm:py-32">
-        <div className="text-center mb-16 max-w-3xl mx-auto">
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 py-24 sm:py-32">
+        <div className="text-center mb-16 max-w-2xl mx-auto">
           <SectionHeading
             align="center"
-            eyebrow="What gets automated"
-            title="Every nudge a great agent would make — without you lifting a finger"
-            subtitle="Premarket watches every campaign and every buyer. It knows when to reach out, what to say, and when silence is the right answer."
+            eyebrow="What it does today"
+            title="One scheduled check-in, sent to you"
+            subtitle="This is deliberately simple — a timed email, not an automated buyer-nudging system."
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <FeatureCard
-            icon={Clock}
-            title="Cold campaign rescue"
-            description="If a campaign goes quiet for more than 72 hours, Premarket re-engages the matched buyer pool with a fresh nudge."
-            accent="orange"
-          />
-          <FeatureCard
-            icon={MessageSquare}
-            title="Post-viewing follow-up"
-            description="After every private inspection, the buyer gets a friendly note asking for a price opinion or thoughts. You see the response in your dashboard."
-            accent="blue"
-          />
-          <FeatureCard
-            icon={RefreshCw}
-            title="Repeat-visit alerts"
-            description="When a buyer comes back to look at a property a second or third time, you're notified instantly — that's a serious signal."
-            accent="emerald"
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <FeatureCard
             icon={Calendar}
-            title="Vendor weekly digest"
-            description="Schedule an automatic Friday-morning email to your vendor with the latest report. They love it. You save the call."
-            accent="violet"
-          />
-          <FeatureCard
-            icon={BellRing}
-            title="New-match alerts"
-            description="Buyers in your database get notified the moment a new property matches their criteria — no manual drip campaigns required."
-            accent="rose"
-          />
-          <FeatureCard
-            icon={Sparkles}
-            title="Smart silence"
-            description="Premarket also knows when not to send. We never spam your buyers. Quiet beats noisy every time."
+            title="Day 14 and day 30"
+            description="If a property is still active two and four weeks after it was added, Premarket emails you a check-in — has it sold yet?"
             accent="orange"
           />
-        </div>
-      </section>
-
-      {/* Channels */}
-      <section className="bg-slate-50 border-y border-slate-200/70">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-24 sm:py-32">
-          <TwoColumn
-            left={
-              <div>
-                <SectionHeading
-                  eyebrow="Channels"
-                  title="Email, SMS, push, in-app"
-                  subtitle="Reminders meet buyers wherever they actually are. Every channel is opt-in for the recipient and respectful by default."
-                />
-              </div>
-            }
-            right={
-              <BulletList
-                accent="blue"
-                items={[
-                  {
-                    title: 'Email',
-                    body: 'Beautifully formatted, mobile-ready emails that look like they came from a thoughtful human.',
-                  },
-                  {
-                    title: 'SMS',
-                    body: 'Concise text alerts for the highest-priority moments — new matches, repeat visits, urgent updates.',
-                  },
-                  {
-                    title: 'Push notifications',
-                    body: 'For buyers who use the Premarket buyer dashboard or have app alerts enabled.',
-                  },
-                  {
-                    title: 'In-app activity feed',
-                    body: 'Every reminder also lands in the buyer\'s personal activity feed inside their dashboard.',
-                  },
-                ]}
-              />
-            }
+          <FeatureCard
+            icon={Mail}
+            title="Sent to the agent"
+            description="This reminder goes to you, the agent — not to buyers. It's a scheduling aid, not a buyer follow-up or re-engagement tool."
+            accent="blue"
           />
         </div>
       </section>
 
       <ClosingCTA
-        title="Stop chasing. Start closing."
-        subtitle="Smart reminders are on by default. Unlimited buyer follow-ups. Free for every agent on the platform."
+        title="One less thing to track"
+        subtitle="A small, honest feature — part of every Premarket campaign."
         primaryHref="/join"
-        primaryLabel="Create free account"
+        primaryLabel="Get started"
         secondaryHref="/contact"
         secondaryLabel="Talk to us"
       />

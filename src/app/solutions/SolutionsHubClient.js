@@ -33,7 +33,7 @@ const solutions = [
     icon: Briefcase,
     title: "Buyer's Agents",
     description:
-      'Win your clients first-mover advantage. See premarket properties, register strong interest, and submit professional pricing before the rest of the market arrives.',
+      'When a listing agent shares a property with you, submit a price opinion or register interest on behalf of your client — the same tools every buyer has.',
     href: '/solutions/buyers-agents',
     accent: 'violet',
   },
@@ -41,7 +41,7 @@ const solutions = [
     icon: Building2,
     title: 'Listing Agents',
     description:
-      'Walk into every appraisal with live buyer evidence. Win more listings, defend your price guide, and convert more vendors — for $200 per campaign, no subscription.',
+      'Walk into every appraisal with live buyer evidence. Win more listings, defend your price guide, and convert more vendors — for a $200 vendor-paid campaign fee, no subscription.',
     href: '/solutions/agents',
     accent: 'emerald',
   },

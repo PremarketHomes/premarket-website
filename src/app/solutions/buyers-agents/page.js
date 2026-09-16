@@ -1,21 +1,19 @@
 import BuyersAgentsClient from './BuyersAgentsClient';
 
 export const metadata = {
-  title: "For Buyer's Agents — Win Deals Before They're Public | Premarket",
+  title: "For Buyer's Agents — Price Opinions & Interest | Premarket",
   description:
-    "See premarket properties before they hit the portals, submit professional pricing on behalf of clients, and register strong interest to lock in first-mover advantage.",
+    "When a listing agent shares a Premarket property with you, submit an anonymous price opinion or register interest on behalf of your client — the same tools every buyer has.",
   keywords: [
     "buyers agent australia",
     "off market property buyers agent",
     "premarket property listings",
-    "buyer agent CRM",
-    "first mover advantage real estate",
   ],
   alternates: { canonical: 'https://premarket.homes/solutions/buyers-agents' },
   openGraph: {
-    title: "For Buyer's Agents — Win Deals Before They're Public | Premarket",
+    title: "For Buyer's Agents — Price Opinions & Interest | Premarket",
     description:
-      "Get clients in front of properties before the rest of the market arrives. Premarket gives buyer's agents the data and access to win.",
+      "The same anonymous price-opinion and registered-interest tools every buyer has, informed by your professional judgement.",
     url: 'https://premarket.homes/solutions/buyers-agents',
     type: 'website',
   },

@@ -4,7 +4,6 @@ import {
   FileBarChart,
   TrendingUp,
   Users,
-  Activity,
   Share2,
   Mail,
   RefreshCw,
@@ -37,7 +36,7 @@ export default function ReportsClient() {
             .
           </>
         }
-        subtitle="Every Premarket campaign builds a live vendor report from the buyer evidence as it arrives. Open it Tuesday. It's already updated by Friday."
+        subtitle="Every Premarket campaign builds a vendor report from real buyer evidence. New price opinions and interest are already there the next time you open it."
         primaryCta={{ href: '/join', label: 'Try Premarket free' }}
         secondaryCta={{ href: '/features', label: 'All features' }}
       />
@@ -54,7 +53,7 @@ export default function ReportsClient() {
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <FeatureCard
             icon={TrendingUp}
             title="Price opinion distribution"
@@ -64,20 +63,8 @@ export default function ReportsClient() {
           <FeatureCard
             icon={Users}
             title="Buyer engagement"
-            description="Total inquiries, registered interest, return visits, and the buyers who came back to look twice."
+            description="Total inquiries and registered interest from real buyers who've opened the campaign."
             accent="blue"
-          />
-          <FeatureCard
-            icon={Activity}
-            title="Engagement velocity"
-            description="How fast the property is gathering momentum — is it heating up, cooling down, or sitting flat?"
-            accent="emerald"
-          />
-          <FeatureCard
-            icon={FileBarChart}
-            title="PHI context"
-            description="Compare the property's traction against the live PHI scores for its suburb. Is the local market hot or cold right now?"
-            accent="violet"
           />
           <FeatureCard
             icon={Share2}
@@ -87,8 +74,8 @@ export default function ReportsClient() {
           />
           <FeatureCard
             icon={RefreshCw}
-            title="Always live"
-            description="Reports never go stale. Every refresh pulls the latest evidence directly from the platform."
+            title="Always current"
+            description="Reports never go stale. Every open pulls the latest evidence directly from the platform."
             accent="orange"
           />
         </div>
@@ -103,7 +90,7 @@ export default function ReportsClient() {
                 <SectionHeading
                   eyebrow="How it works"
                   title="From campaign live to report shared in under a minute"
-                  subtitle="The hard work is done by the platform. You just open the report when your vendor asks for one — or set it to email automatically every Friday."
+                  subtitle="The hard work is done by the platform. You just open the report when your vendor asks for one."
                 />
               </div>
             }
@@ -120,11 +107,11 @@ export default function ReportsClient() {
                   },
                   {
                     title: '3 · Report builds itself',
-                    body: 'Every new signal updates the report instantly. No manual entry. No screenshots. No spreadsheets.',
+                    body: 'Every new signal is already there the next time you open the report. No manual entry, no screenshots, no spreadsheets.',
                   },
                   {
                     title: '4 · Share with the vendor',
-                    body: 'Send a link, send a PDF, or schedule weekly auto-emails. Your call.',
+                    body: 'Send a link or export a PDF for the meeting.',
                   },
                   {
                     title: '5 · Have the price conversation',
@@ -157,8 +144,8 @@ export default function ReportsClient() {
               />
               <FeatureCard
                 icon={RefreshCw}
-                title="Re-run anytime"
-                description="Need a snapshot from last Tuesday? Reports preserve a daily timeline you can scroll through."
+                title="Generate anytime"
+                description="Open the report whenever you need it — it reflects the campaign exactly as it stands right now."
                 accent="blue"
               />
               <FeatureCard
@@ -174,7 +161,7 @@ export default function ReportsClient() {
               <SectionHeading
                 eyebrow="Built for trust"
                 title="Reports your vendor will actually read"
-                subtitle="Premarket reports are designed to be skimmed in two minutes and trusted in five. Designed by ex-investment-bank UI people. Built for property."
+                subtitle="Premarket reports are designed to be skimmed in two minutes and trusted in five."
               />
             </div>
           }

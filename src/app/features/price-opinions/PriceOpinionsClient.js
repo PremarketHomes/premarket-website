@@ -59,7 +59,7 @@ export default function PriceOpinionsClient() {
               <p className="mt-6 text-base text-slate-600 leading-relaxed">
                 Buyers can submit a price opinion on any listing. Buyer's agents can submit on
                 behalf of clients. The opinions stack up over time and form a distribution — a
-                visual, honest picture of where the market sits, in real time.
+                visual, honest picture of where the market sits.
               </p>
             </div>
           }
@@ -141,8 +141,8 @@ export default function PriceOpinionsClient() {
             />
             <FeatureCard
               icon={Sparkles}
-              title="Updates in real time"
-              description="Every new opinion updates the campaign report instantly. Agents and vendors see the picture sharpen as the data fills in."
+              title="Always current"
+              description="Every new opinion is already there the next time the report is opened. Agents and vendors see the picture sharpen as the data fills in."
               accent="orange"
             />
           </div>

@@ -83,8 +83,8 @@ export default function AgentsClient() {
           />
           <FeatureCard
             icon={Activity}
-            title="Live PHI for every suburb"
-            description="Eight live indicators tell you when to push for an auction, when to go private treaty, and when to wait. Your appraisal isn't a guess."
+            title="Median and spread, not a guess"
+            description="See the median buyer opinion and how it's distributed — accurate the moment you check, built from opinions buyers actually submitted."
             accent="rose"
           />
           <FeatureCard
@@ -122,8 +122,8 @@ export default function AgentsClient() {
                     body: 'Real buyers in the area submit anonymous, honest price opinions. No marketing spend. No open homes. No portal listing.',
                   },
                   {
-                    title: '3 · Watch the live vendor report build',
-                    body: 'Your dashboard shows the price range tightening in real time. PHI metrics update daily. Buyer count grows.',
+                    title: '3 · Watch the vendor report build',
+                    body: 'Every new opinion is already there the next time you check — the price range, the median, and the buyer count.',
                   },
                   {
                     title: '4 · Walk into the appraisal armed',
@@ -149,18 +149,18 @@ export default function AgentsClient() {
           <p className="text-5xl sm:text-6xl font-bold tracking-tight text-slate-900">
             $200{' '}
             <span className="text-2xl sm:text-3xl font-semibold text-slate-400">
-              per campaign
+              vendor-paid, per campaign
             </span>
           </p>
           <p className="mt-6 text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            One flat fee per property. No subscription. No setup. No per-buyer charges.
-            Run as many campaigns as you like — pay only for the ones you launch.
+            One flat, vendor-paid fee per property. No subscription. No setup. No per-buyer charges.
+            Run as many campaigns as you like — the vendor pays only for the ones you launch.
           </p>
           <div className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl mx-auto text-left">
             {[
               'Unlimited buyer opinions',
               'Live vendor reports (PDF + in-app)',
-              'PHI suburb data included',
+              'Price opinion median & range',
               'Branded to your agency',
               'No monthly commitment',
               'Cancel any campaign, any time',
@@ -220,7 +220,7 @@ export default function AgentsClient() {
 
       <ClosingCTA
         title="Run your first campaign this week"
-        subtitle="No subscription. No commitment. $200 per listing — pay only when you launch one."
+        subtitle="No subscription. No commitment. $200 per listing, vendor-paid — only when you launch one."
         primaryHref="/join"
         primaryLabel="Start a campaign"
         secondaryHref="/contact"

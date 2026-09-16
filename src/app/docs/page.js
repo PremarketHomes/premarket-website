@@ -1647,7 +1647,7 @@ function DocsContent({ isAdmin, isTokenAccess, linkToken, user }) {
                   Premarket Health Indicators (PHI)
                 </h2>
                 <p className="text-slate-300 leading-relaxed max-w-2xl">
-                  8 proprietary metrics that measure the real-time health of any property market in Australia. Built on live buyer feedback, not historical sales data. Think Bloomberg terminal for real estate.
+                  8 proprietary metrics computed daily from real buyer feedback — price opinions, registered interest and engagement — across Premarket's active campaigns and suburbs, not historical sales data.
                 </p>
               </div>
             </div>
