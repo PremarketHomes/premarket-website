@@ -1,84 +1,22 @@
 import { Suspense } from 'react';
 import PropertyPageClient from '../components/PropertyPageClient';
+import { getPropertyForMetadata, buildPropertyMetadata } from '../utils/getPropertyForMetadata';
 
-// Fetch property data for metadata
-async function getProperty(propertyId) {
-  if (!propertyId) return null;
-
-  try {
-    const response = await fetch(
-      `https://firestore.googleapis.com/v1/projects/premarket-homes/databases/(default)/documents/properties/${propertyId}?key=AIzaSyDuUEafvE_UXtNEpU--AnkO6bh_8l5j0I8`,
-      { next: { revalidate: 60 } } // Cache for 60 seconds
-    );
-
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    if (!data.fields) return null;
-
-    // Parse Firestore response format
-    const fields = data.fields;
-    return {
-      title: fields.title?.stringValue || 'Property',
-      address: fields.address?.stringValue || '',
-      formattedAddress: fields.formattedAddress?.stringValue || '',
-      description: fields.description?.stringValue || '',
-      imageUrls: fields.imageUrls?.arrayValue?.values?.map(v => v.stringValue) || [],
-      showSuburbOnly: fields.showSuburbOnly?.booleanValue || false,
-      location: {
-        suburb: fields.location?.mapValue?.fields?.suburb?.stringValue || '',
-      }
-    };
-  } catch (error) {
-    console.error('Error fetching property for metadata:', error);
-    return null;
-  }
-}
-
+// This route is unchanged and must keep working forever — every property
+// link already sent to a buyer uses this exact URL shape
+// (?propertyId=...). A newer, human-readable /[slug] route exists
+// alongside this one for new shares; it resolves to the same
+// PropertyPageClient rendering path via the same propertyId, it does not
+// replace this route. See src/app/[slug]/page.js and
+// src/app/utils/propertySlug.js.
 export async function generateMetadata({ searchParams }) {
   const params = await searchParams;
   const propertyId = params?.propertyId;
-  const property = await getProperty(propertyId);
-
-  if (!property) {
-    return {
-      title: 'Property | Premarket',
-      description: 'View this property on Premarket \u2014 validate prices with real buyer feedback.',
-    };
-  }
-
-  const displayAddress = property.showSuburbOnly
-    ? (property.address || property.location?.suburb || 'Australia')
-    : (property.formattedAddress || property.address);
-
-  const title = property.title || 'Pre-Market Property';
-  const description = property.description?.slice(0, 160) || `Property in ${displayAddress} on Premarket. See real buyer price opinions and validate the price with genuine feedback.`;
-  const heroImage = property.imageUrls?.[0] || 'https://premarketvideos.b-cdn.net/assets/logo.png';
-
-  return {
-    title: `${title} | Premarket`,
-    description,
-    openGraph: {
-      title: `${title} | Premarket`,
-      description,
-      images: [
-        {
-          url: heroImage,
-          width: 1200,
-          height: 630,
-          alt: title,
-        },
-      ],
-      type: 'website',
-      siteName: 'Premarket',
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title: `${title} | Premarket`,
-      description,
-      images: [heroImage],
-    },
-  };
+  const property = await getPropertyForMetadata(propertyId);
+  const canonicalUrl = propertyId
+    ? `https://premarket.homes/find-property?propertyId=${propertyId}`
+    : undefined;
+  return buildPropertyMetadata(property, canonicalUrl);
 }
 
 export default function FindPropertyPage() {

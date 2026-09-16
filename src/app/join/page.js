@@ -256,7 +256,7 @@ export default function AgentSignup() {
               Creating Account...
             </span>
           ) : (
-            "Get Started — It's Free"
+            "Get Started"
           )}
         </motion.button>
 

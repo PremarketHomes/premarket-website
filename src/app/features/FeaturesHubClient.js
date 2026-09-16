@@ -54,7 +54,7 @@ export default function FeaturesHubClient() {
           </>
         }
         subtitle="Premarket isn't a CRM. It isn't a portal. It's an evidence engine that runs alongside everything you already use."
-        primaryCta={{ href: '/join', label: 'Get started free' }}
+        primaryCta={{ href: '/join', label: 'Get started' }}
         secondaryCta={{ href: '/premarket', label: 'What is Premarket?' }}
       />
 

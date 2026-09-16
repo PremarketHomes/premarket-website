@@ -37,7 +37,7 @@ export default function ReportsClient() {
           </>
         }
         subtitle="Every Premarket campaign builds a vendor report from real buyer evidence. New price opinions and interest are already there the next time you open it."
-        primaryCta={{ href: '/join', label: 'Try Premarket free' }}
+        primaryCta={{ href: '/join', label: 'Get started' }}
         secondaryCta={{ href: '/features', label: 'All features' }}
       />
 
@@ -172,7 +172,7 @@ export default function ReportsClient() {
         title="Have your next vendor meeting with evidence"
         subtitle="Live reports built from the buyers themselves — not from a market estimate."
         primaryHref="/join"
-        primaryLabel="Start free"
+        primaryLabel="Get started"
         secondaryHref="/contact"
         secondaryLabel="Book a walkthrough"
       />
