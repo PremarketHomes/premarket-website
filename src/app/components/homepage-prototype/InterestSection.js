@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { motion, useInView, useReducedMotion } from 'framer-motion';
-import { Heart, DollarSign } from 'lucide-react';
+import { Heart, DollarSign, CheckCircle2 } from 'lucide-react';
 import Reveal from './Reveal';
 
 // Illustrative/demo identities only — first name + last initial, never real
@@ -16,9 +16,10 @@ const ENGAGEMENT_FEED = [
 ];
 
 /**
- * INTEREST — genuine buyer interest, shown as a real "register interest"
- * moment plus a premium, illustrative glimpse of buyer engagement turning
- * into agent intelligence — a small activity feed, not a CRM table.
+ * INTEREST — one continuous card telling a single story: a buyer registers
+ * interest on the property experience, the agent is notified, and that
+ * action becomes part of a running engagement feed. Deliberately one
+ * connected composition rather than two separate demo boxes.
  */
 export default function InterestSection() {
   const [registered, setRegistered] = useState(false);
@@ -34,37 +35,65 @@ export default function InterestSection() {
 
   return (
     <section id="interest" ref={sectionRef} className="relative bg-[#F8F5F0] py-24 sm:py-32">
-      <div className="max-w-4xl mx-auto px-5 sm:px-8">
+      <div className="max-w-2xl mx-auto px-5 sm:px-8">
         <Reveal className="max-w-xl mx-auto text-center mb-14">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold mb-4">Interest</p>
           <h2
             className="text-3xl sm:text-4xl text-slate-900"
             style={{ fontFamily: 'var(--font-playfair, serif)', fontWeight: 600 }}
           >
-            Genuine buyers put their hand up.
+            Genuine buyers register their interest.
           </h2>
         </Reveal>
 
-        <div className="grid sm:grid-cols-2 gap-6 items-center">
-          <Reveal delay={0.1} className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+        <Reveal delay={0.1} className="rounded-2xl border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04),0_24px_60px_-30px_rgba(15,23,42,0.12)] overflow-hidden">
+          {/* Property reference bar — ties this back to the same demo campaign */}
+          <div className="flex items-center justify-between px-6 sm:px-8 py-4 border-b border-slate-100">
+            <p
+              className="text-sm sm:text-base text-slate-800"
+              style={{ fontFamily: 'var(--font-playfair, serif)', fontWeight: 600 }}
+            >
+              14 Ocean Parade
+            </p>
+            <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 border border-slate-200 rounded-full px-2.5 py-1 flex-shrink-0">
+              Illustrative example
+            </span>
+          </div>
+
+          {/* The moment: a buyer registers interest on the property experience */}
+          <div className="px-6 sm:px-8 pt-8 pb-7 text-center">
             {!registered ? (
               <button
                 type="button"
                 disabled
-                className="w-full py-3.5 rounded-xl border border-slate-300 text-slate-800 font-semibold text-[15px] text-center"
+                className="mx-auto px-7 py-3.5 rounded-xl border border-slate-300 text-slate-800 font-semibold text-[15px]"
               >
                 Register formal interest
               </button>
             ) : (
-              <div className="text-center py-2">
-                <p className="text-sm font-semibold text-slate-900">Thanks &mdash; the agent&rsquo;s been notified.</p>
-                <p className="text-xs text-slate-400 mt-1">Illustrative demo</p>
-              </div>
+              <motion.div
+                initial={reduce ? false : { opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col items-center"
+              >
+                <div className="w-11 h-11 rounded-full bg-emerald-50 flex items-center justify-center mb-3">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-600" strokeWidth={2} />
+                </div>
+                <p className="text-sm font-semibold text-slate-900">Interest registered &mdash; the agent&rsquo;s been notified.</p>
+              </motion.div>
             )}
-          </Reveal>
+          </div>
 
-          <Reveal delay={0.2} className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
-            <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-4">
+          {/* Flow connector */}
+          <div className="flex items-center gap-3 px-6 sm:px-8">
+            <span className="h-px flex-1 bg-slate-100" />
+            <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">Becomes engagement intelligence</span>
+            <span className="h-px flex-1 bg-slate-100" />
+          </div>
+
+          {/* The result: engagement accumulating into a feed the agent can see */}
+          <div className="px-6 sm:px-8 pt-6 pb-7">
+            <p className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-4">
               4 buyers engaged with this property
             </p>
             <div className="divide-y divide-slate-100">
@@ -93,8 +122,12 @@ export default function InterestSection() {
                 );
               })}
             </div>
-          </Reveal>
-        </div>
+          </div>
+
+          <div className="px-6 sm:px-8 py-3.5 border-t border-slate-100 text-center">
+            <p className="text-xs text-slate-400">Illustrative demo &mdash; not real buyer data</p>
+          </div>
+        </Reveal>
       </div>
     </section>
   );
