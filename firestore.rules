@@ -336,6 +336,7 @@ service cloud.firestore {
     match /marketTrends/{docId} { allow read, write: if false; }
     match /propertyScores/{docId} { allow read, write: if false; }
     match /propertyViews/{docId} { allow read, write: if false; }
+    match /propertyViewSessions/{docId} { allow read, write: if false; }
     match /agentboxContacts/{docId} { allow read, write: if false; }
     match /rexContacts/{docId} { allow read, write: if false; }
     match /coreProperties/{docId} { allow read, write: if false; }
