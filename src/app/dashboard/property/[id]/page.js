@@ -8,7 +8,6 @@ import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
-import { buildPropertySlug } from '../../../utils/propertySlug';
 import { db } from '../../../firebase/clientApp';
 import {
   doc,
@@ -1330,13 +1329,7 @@ export default function PropertyReportPage() {
 
   if (!user || !property) return null;
 
-  // New shares use the clean, human-readable URL (e.g.
-  // premarket.homes/59-nautilus-way-<id>) — it resolves to the exact same
-  // property via src/app/[slug]/page.js. The legacy
-  // /find-property?propertyId= URL is unchanged and every link already
-  // sent to a buyer keeps working; this only changes what NEW copies/
-  // previews produce going forward.
-  const propertyUrl = `https://premarket.homes/${buildPropertySlug(property, property.id)}`;
+  const propertyUrl = `https://premarket.homes/find-property?propertyId=${property.id}`;
 
   const copyLink = async () => {
     try {
