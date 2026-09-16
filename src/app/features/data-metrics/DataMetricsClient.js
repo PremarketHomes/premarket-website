@@ -12,8 +12,8 @@ import {
   ArrowDownUp,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import Nav from '../../components/Nav';
-import FooterLarge from '../../components/FooterLarge';
+import PublicSiteNav from '../../components/public-site/PublicSiteNav';
+import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -92,7 +92,7 @@ const PHI_METRICS = [
 export default function DataMetricsClient() {
   return (
     <div className="bg-white text-slate-900">
-      <Nav />
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Data Metrics"
         title={
@@ -204,7 +204,7 @@ export default function DataMetricsClient() {
         secondaryLabel="Explore all features"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

@@ -12,8 +12,9 @@ import {
   MessageSquare,
   Sparkles,
 } from 'lucide-react';
-import Nav from '../components/Nav';
-import FooterLarge from '../components/FooterLarge';
+import PublicSiteNav from '../components/public-site/PublicSiteNav';
+import PublicSiteFooter from '../components/public-site/PublicSiteFooter';
+import { playfairDisplay } from '../components/property-page/fonts';
 import {
   Eyebrow,
   fadeUp,
@@ -73,10 +74,10 @@ export default function ContactClient() {
   }
 
   return (
-    <div className="bg-white text-slate-900 min-h-screen">
-      <Nav />
+    <div className={`bg-white text-slate-900 min-h-screen ${playfairDisplay.variable}`}>
+      <PublicSiteNav />
       {/* Hero */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-orange-50/60 via-white to-white pt-20 sm:pt-28 pb-12">
+      <section className="relative overflow-hidden bg-gradient-to-b from-orange-50/60 via-white to-white pt-28 sm:pt-36 pb-12">
         <div className="absolute -top-32 -right-32 w-[520px] h-[520px] bg-gradient-to-br from-orange-200/50 to-amber-200/30 rounded-full blur-3xl pointer-events-none" />
         <div className="relative max-w-4xl mx-auto px-4 sm:px-6 text-center">
           <Eyebrow>Contact</Eyebrow>
@@ -85,7 +86,8 @@ export default function ContactClient() {
             initial="hidden"
             animate="visible"
             custom={0.05}
-            className="mt-6 text-5xl sm:text-6xl font-bold tracking-tight text-slate-900 leading-[1.02]"
+            className="mt-6 text-5xl sm:text-6xl tracking-tight text-slate-900 leading-[1.02]"
+            style={{ fontFamily: 'var(--font-playfair, serif)', fontWeight: 600 }}
           >
             We'd love to{' '}
             <span className="bg-gradient-to-r from-[#e48900] to-[#c64500] bg-clip-text text-transparent">
@@ -363,7 +365,7 @@ export default function ContactClient() {
         </motion.div>
       </section>
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

@@ -6,8 +6,15 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, Timestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase/clientApp';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
+import AuthShell from '../components/public-site/AuthShell';
+import {
+  AUTH_LABEL_CLASS,
+  AUTH_INPUT_CLASS,
+  AUTH_SUBMIT_CLASS,
+  AUTH_ERROR_CLASS,
+  AUTH_LINK_CLASS,
+} from '../components/public-site/authFieldStyles';
 
 export default function AgentSignup() {
   const router = useRouter();
@@ -127,190 +134,139 @@ export default function AgentSignup() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center px-4 py-12">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-        className="w-full max-w-lg"
-      >
-        {/* Logo */}
-        <div className="text-center mb-8">
-          {/* <Image
-            src="https://premarketvideos.b-cdn.net/assets/logo.png"
-            alt="Premarket"
-            width={180}
-            height={45}
-            className="mx-auto mb-6"
-            unoptimized
-          /> */}
-          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-3">
-            Join Premarket
-          </h1>
-          <p className="text-slate-400 text-lg">
-            100% free. Start winning more listings today.
-          </p>
-        </div>
-
-        {/* Form Card */}
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Name Row */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  First Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.firstName}
-                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
-                  placeholder="John"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Last Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.lastName}
-                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
-                  placeholder="Smith"
-                />
-              </div>
-            </div>
-
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Email Address
-              </label>
-              <input
-                type="email"
-                required
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
-                placeholder="john@agency.com.au"
-              />
-            </div>
-
-            {/* Phone */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Phone Number
-              </label>
-              <div className="flex gap-2">
-                <select
-                  value={formData.countryCode}
-                  onChange={(e) => setFormData({ ...formData, countryCode: e.target.value })}
-                  className="px-3 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg bg-white"
-                >
-                  {countryCodes.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.flag} {c.code}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="tel"
-                  required
-                  value={formData.phone}
-                  onChange={handlePhoneChange}
-                  className="flex-1 px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
-                  placeholder="412 345 678"
-                  maxLength={11}
-                />
-              </div>
-            </div>
-
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Password
-              </label>
-              <input
-                type="password"
-                required
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
-                placeholder="Min 6 characters"
-              />
-            </div>
-
-            {/* Confirm Password */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Confirm Password
-              </label>
-              <input
-                type="password"
-                required
-                value={formData.confirmPassword}
-                onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
-                placeholder="Confirm your password"
-              />
-            </div>
-
-            {/* Error Message */}
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm"
-              >
-                {error}
-              </motion.div>
-            )}
-
-            {/* Submit Button */}
-            <motion.button
-              type="submit"
-              disabled={loading}
-              whileHover={{ scale: loading ? 1 : 1.02 }}
-              whileTap={{ scale: loading ? 1 : 0.98 }}
-              className="w-full py-4 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-bold text-xl rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Creating Account...
-                </span>
-              ) : (
-                'Get Started — It\'s Free'
-              )}
-            </motion.button>
-          </form>
-
-          <p className="text-center text-sm text-slate-500 mt-6">
-            By signing up, you agree to our{' '}
-            <a href="/terms" className="text-orange-600 hover:underline">
-              Terms & Conditions
-            </a>{' '}
-            and{' '}
-            <a href="/privacy" className="text-orange-600 hover:underline">
-              Privacy Policy
-            </a>
-          </p>
-        </div>
-
-        <p className="text-center text-sm text-slate-400 mt-6">
+    <AuthShell
+      title="Join Premarket"
+      subtitle="100% free. Start winning more listings today."
+      footer={
+        <p className="text-sm text-slate-500">
           Looking to buy a home?{' '}
-          <Link href="/signup" className="text-orange-400 hover:text-orange-300 font-medium">
-            Create a buyer account →
+          <Link href="/signup" className={AUTH_LINK_CLASS}>
+            Create a buyer account &rarr;
           </Link>
         </p>
-      </motion.div>
-    </div>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={AUTH_LABEL_CLASS}>First Name</label>
+            <input
+              type="text"
+              required
+              value={formData.firstName}
+              onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+              className={AUTH_INPUT_CLASS}
+              placeholder="John"
+            />
+          </div>
+          <div>
+            <label className={AUTH_LABEL_CLASS}>Last Name</label>
+            <input
+              type="text"
+              required
+              value={formData.lastName}
+              onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+              className={AUTH_INPUT_CLASS}
+              placeholder="Smith"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className={AUTH_LABEL_CLASS}>Email Address</label>
+          <input
+            type="email"
+            required
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            className={AUTH_INPUT_CLASS}
+            placeholder="john@agency.com.au"
+          />
+        </div>
+
+        <div>
+          <label className={AUTH_LABEL_CLASS}>Phone Number</label>
+          <div className="flex gap-2">
+            <select
+              value={formData.countryCode}
+              onChange={(e) => setFormData({ ...formData, countryCode: e.target.value })}
+              className="px-3 py-3 rounded-xl border border-slate-300 focus:border-[#e48900] focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-[15px] bg-white"
+            >
+              {countryCodes.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.flag} {c.code}
+                </option>
+              ))}
+            </select>
+            <input
+              type="tel"
+              required
+              value={formData.phone}
+              onChange={handlePhoneChange}
+              className={`flex-1 ${AUTH_INPUT_CLASS}`}
+              placeholder="412 345 678"
+              maxLength={11}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className={AUTH_LABEL_CLASS}>Password</label>
+          <input
+            type="password"
+            required
+            value={formData.password}
+            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+            className={AUTH_INPUT_CLASS}
+            placeholder="Min 6 characters"
+          />
+        </div>
+
+        <div>
+          <label className={AUTH_LABEL_CLASS}>Confirm Password</label>
+          <input
+            type="password"
+            required
+            value={formData.confirmPassword}
+            onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+            className={AUTH_INPUT_CLASS}
+            placeholder="Confirm your password"
+          />
+        </div>
+
+        {error && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className={AUTH_ERROR_CLASS}>
+            {error}
+          </motion.div>
+        )}
+
+        <motion.button
+          type="submit"
+          disabled={loading}
+          whileHover={{ scale: loading ? 1 : 1.01 }}
+          whileTap={{ scale: loading ? 1 : 0.99 }}
+          className={AUTH_SUBMIT_CLASS}
+        >
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              Creating Account...
+            </span>
+          ) : (
+            "Get Started — It's Free"
+          )}
+        </motion.button>
+
+        <p className="text-center text-xs text-slate-500">
+          By signing up, you agree to our{' '}
+          <a href="/terms" className={AUTH_LINK_CLASS}>Terms &amp; Conditions</a>{' '}
+          and{' '}
+          <a href="/privacy" className={AUTH_LINK_CLASS}>Privacy Policy</a>
+        </p>
+      </form>
+    </AuthShell>
   );
 }

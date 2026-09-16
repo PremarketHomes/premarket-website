@@ -2,9 +2,18 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { motion, useInView, useReducedMotion } from 'framer-motion';
+import { Heart, DollarSign } from 'lucide-react';
 import Reveal from './Reveal';
 
-const BUYERS = ['J.', 'M.', 'S.', 'R.'];
+// Illustrative/demo identities only — first name + last initial, never real
+// buyer data. Purpose is to show the shape of the intelligence layer (an
+// agent-facing glimpse of engagement), not to simulate a real CRM record.
+const ENGAGEMENT_FEED = [
+  { name: 'James M.', action: 'Registered interest', icon: Heart },
+  { name: 'Sarah T.', action: 'Price opinion submitted', icon: DollarSign },
+  { name: 'Michael R.', action: 'Registered interest', icon: Heart },
+  { name: 'Rebecca L.', action: 'Price opinion submitted', icon: DollarSign },
+];
 
 /**
  * INTEREST — genuine buyer interest, shown as a real "register interest"
@@ -54,21 +63,35 @@ export default function InterestSection() {
             )}
           </Reveal>
 
-          <Reveal delay={0.2}>
-            <p className="text-sm text-slate-500 mb-4 text-center sm:text-left">4 buyers engaged with this property</p>
-            <div className="flex justify-center sm:justify-start gap-3">
-              {BUYERS.map((initial, i) => (
-                <motion.div
-                  key={initial}
-                  initial={reduce ? false : { opacity: 0, y: 10 }}
-                  whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.15, duration: 0.5 }}
-                  className="w-11 h-11 rounded-full bg-white border border-slate-200 flex items-center justify-center text-sm font-semibold text-slate-600"
-                >
-                  {initial}
-                </motion.div>
-              ))}
+          <Reveal delay={0.2} className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+            <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-4">
+              4 buyers engaged with this property
+            </p>
+            <div className="divide-y divide-slate-100">
+              {ENGAGEMENT_FEED.map((buyer, i) => {
+                const Icon = buyer.icon;
+                return (
+                  <motion.div
+                    key={buyer.name}
+                    initial={reduce ? false : { opacity: 0, y: 8 }}
+                    whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: i * 0.15, duration: 0.5 }}
+                    className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-semibold text-slate-600 flex-shrink-0 mt-0.5">
+                      {buyer.name.charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-800">{buyer.name}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <Icon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" strokeWidth={2} />
+                        <p className="text-xs text-slate-500">{buyer.action}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </div>
           </Reveal>
         </div>

@@ -12,8 +12,8 @@ import {
   Eye,
   Activity,
 } from 'lucide-react';
-import Nav from '../../components/Nav';
-import FooterLarge from '../../components/FooterLarge';
+import PublicSiteNav from '../../components/public-site/PublicSiteNav';
+import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -27,7 +27,7 @@ import {
 export default function BuyersClient() {
   return (
     <div className="bg-white text-slate-900">
-      <Nav />
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="For buyers"
         title={
@@ -218,7 +218,7 @@ export default function BuyersClient() {
         secondaryLabel="Browse properties"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

@@ -10,8 +10,8 @@ import {
   RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
-import Nav from '../../components/Nav';
-import FooterLarge from '../../components/FooterLarge';
+import PublicSiteNav from '../../components/public-site/PublicSiteNav';
+import PublicSiteFooter from '../../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -24,7 +24,7 @@ import {
 export default function ReportsClient() {
   return (
     <div className="bg-white text-slate-900">
-      <Nav />
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Reports"
         title={
@@ -189,7 +189,7 @@ export default function ReportsClient() {
         secondaryLabel="Book a walkthrough"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

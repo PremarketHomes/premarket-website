@@ -14,8 +14,8 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Nav from '../components/Nav';
-import FooterLarge from '../components/FooterLarge';
+import PublicSiteNav from '../components/public-site/PublicSiteNav';
+import PublicSiteFooter from '../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -102,7 +102,7 @@ function FAQItem({ item, index }) {
 export default function PremarketExplainerClient() {
   return (
     <div className="bg-white text-slate-900">
-      <Nav />
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="What is Premarket?"
         title={
@@ -344,7 +344,7 @@ export default function PremarketExplainerClient() {
         secondaryLabel="Talk to us"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

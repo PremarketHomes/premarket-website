@@ -1,8 +1,8 @@
 'use client';
 
 import { FileBarChart, Activity, BellRing, TrendingUp, Tablet, Sparkles } from 'lucide-react';
-import Nav from '../components/Nav';
-import FooterLarge from '../components/FooterLarge';
+import PublicSiteNav from '../components/public-site/PublicSiteNav';
+import PublicSiteFooter from '../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -56,7 +56,7 @@ const features = [
 export default function FeaturesHubClient() {
   return (
     <div className="bg-white text-slate-900">
-      <Nav />
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Features"
         title={
@@ -107,7 +107,7 @@ export default function FeaturesHubClient() {
         secondaryLabel="Talk to us"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

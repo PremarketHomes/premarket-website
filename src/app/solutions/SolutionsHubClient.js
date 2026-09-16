@@ -1,8 +1,8 @@
 'use client';
 
 import { Home, Users, Briefcase, Building2, ArrowRight, ShieldCheck, Eye, TrendingUp } from 'lucide-react';
-import Nav from '../components/Nav';
-import FooterLarge from '../components/FooterLarge';
+import PublicSiteNav from '../components/public-site/PublicSiteNav';
+import PublicSiteFooter from '../components/public-site/PublicSiteFooter';
 import {
   MarketingHero,
   SectionHeading,
@@ -49,7 +49,7 @@ const solutions = [
 export default function SolutionsHubClient() {
   return (
     <div className="bg-white text-slate-900">
-      <Nav />
+      <PublicSiteNav />
       <MarketingHero
         eyebrow="Solutions"
         title={
@@ -150,7 +150,7 @@ export default function SolutionsHubClient() {
         secondaryLabel="Talk to us"
       />
 
-      <FooterLarge />
+      <PublicSiteFooter />
     </div>
   );
 }

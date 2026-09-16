@@ -1,20 +1,10 @@
 // pages/terms.js
-import Head from 'next/head';
-import Header from '../components/Header';
-import FooterLarge from '../components/FooterLarge';
-import Nav from '../components/Nav';
+import LegalPageShell from '../components/public-site/LegalPageShell';
 
 export default function Terms() {
     return (
-        <>
-            <Head>
-                <title>Terms & Conditions – Premarket Australia</title>
-            </Head>
- 
-      <Nav />
-            <main className="inter text-sm px-4 sm:px-6 lg:px-8 py-10">
+        <LegalPageShell title="Terms & Conditions">
                 <div className="max-w-5xl mx-auto space-y-8">
-                    <h1 className="inter text-smBold text-3xl text-gray-900">Terms &amp; Conditions</h1>
 
                     {/* Table of Contents */}
                     <nav className="text-lg space-y-2 inter text-sm">
@@ -332,7 +322,7 @@ export default function Terms() {
                             </p>
 
                             <p>
-                                Premarket respects the intellectual property rights of others and expects users to do the same. If you believe that your copyrighted work has been copied, used, or displayed on the Platform in a way that constitutes infringement, please contact us immediately at <a href="mailto:knockknock@premarket.homes" className="text-blue-600 hover:underline">knockknock@premarket.homes</a> with detailed information so we can investigate and take appropriate action.
+                                Premarket respects the intellectual property rights of others and expects users to do the same. If you believe that your copyrighted work has been copied, used, or displayed on the Platform in a way that constitutes infringement, please contact us immediately at <a href="mailto:knockknock@premarket.homes" className="text-[#e48900] hover:underline">knockknock@premarket.homes</a> with detailed information so we can investigate and take appropriate action.
                             </p>
                         </div>
                     </section>
@@ -398,7 +388,7 @@ export default function Terms() {
                             </p>
 
                             <p>
-                                All purchases are final unless otherwise stated. Refunds may be granted at our sole discretion and only in exceptional circumstances. If you believe you have been charged in error, please contact <a href="mailto:knockknock@premarket.homes" className="text-blue-600 hover:underline">knockknock@premarket.homes</a> within 7 days of the transaction for review.
+                                All purchases are final unless otherwise stated. Refunds may be granted at our sole discretion and only in exceptional circumstances. If you believe you have been charged in error, please contact <a href="mailto:knockknock@premarket.homes" className="text-[#e48900] hover:underline">knockknock@premarket.homes</a> within 7 days of the transaction for review.
                             </p>
 
                             <p>
@@ -512,7 +502,7 @@ export default function Terms() {
                             </p>
 
                             <p>
-                                You may choose to cancel your account at any time by contacting us at <a href="mailto:knockknock@premarket.homes" className="text-blue-600 hover:underline">knockknock@premarket.homes</a>. Account deletion is permanent and cannot be reversed.
+                                You may choose to cancel your account at any time by contacting us at <a href="mailto:knockknock@premarket.homes" className="text-[#e48900] hover:underline">knockknock@premarket.homes</a>. Account deletion is permanent and cannot be reversed.
                             </p>
                         </div>
                     </section>
@@ -659,14 +649,7 @@ export default function Terms() {
 
 
 
-
-
-
-
                 </div>
-            </main>
-
-            <FooterLarge />
-        </>
+        </LegalPageShell>
     );
 }
