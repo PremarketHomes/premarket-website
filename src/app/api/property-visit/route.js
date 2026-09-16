@@ -3,13 +3,32 @@ import { adminDb } from '../../firebase/adminApp';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { computeSessionUpdate } from '../../utils/sessionWindow';
 import { isLikelyScanner } from '../../utils/scannerDetection';
+import { resolveRecipientToken, recordRecipientEngagement } from '../services/recipientLinkService';
 
 const SESSIONS_COLLECTION = 'propertyViewSessions';
+const RECIPIENT_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days — see Phase 2 report "identity persistence"
 
 function toDate(value) {
   if (!value) return null;
   if (typeof value.toDate === 'function') return value.toDate();
   return value;
+}
+
+function recipientCookieName(propertyId) {
+  return `pm_rl_${String(propertyId).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
+
+function parseCookieHeader(cookieHeader) {
+  const out = {};
+  if (!cookieHeader) return out;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    const value = part.slice(idx + 1).trim();
+    if (key) out[key] = decodeURIComponent(value);
+  }
+  return out;
 }
 
 /**
@@ -69,11 +88,13 @@ export async function POST(req) {
       return NextResponse.json({ success: true, skipped: 'preview-environment' });
     }
 
-    const { propertyId, visitorId, isReturn } = await req.json();
+    const { propertyId, visitorId, isReturn, recipientToken } = await req.json();
 
     if (!propertyId) {
       return NextResponse.json({ error: 'propertyId required' }, { status: 400 });
     }
+
+    const now = new Date();
 
     const propertyRef = adminDb.collection('properties').doc(propertyId);
 
@@ -116,7 +137,7 @@ export async function POST(req) {
       // localStorage-based identifier already used for legacy view
       // tracking; no new identity signal is introduced.
       if (!scannerSuspected) {
-        await applySessionUpdate({ propertyId, visitorId, now: new Date() });
+        await applySessionUpdate({ propertyId, visitorId, now });
       } else {
         await adminDb
           .collection(SESSIONS_COLLECTION)
@@ -133,7 +154,54 @@ export async function POST(req) {
       }
     }
 
-    return NextResponse.json({ success: true });
+    // Phase 2 — recipient-attributed engagement. Fully additive and
+    // independent of everything above: it never touches stats.views,
+    // propertyViews, or propertyViewSessions, and a missing/invalid
+    // token never affects the response. A token can arrive two ways —
+    // explicitly (a fresh click of a personalised link, ?rlt=... in the
+    // URL, sent by the client below) or implicitly (a first-party cookie
+    // this route itself set on an earlier valid resolution) — so a
+    // return visit keeps attributing without the link needing to be
+    // re-clicked. See the Phase 2 report's "identity persistence"
+    // section for exactly why and for how long.
+    const cookies = parseCookieHeader(req.headers.get('cookie'));
+    const cookieName = recipientCookieName(propertyId);
+    const tokenToResolve = recipientToken || cookies[cookieName] || null;
+
+    let setRecipientCookie = null;
+    let clearRecipientCookie = false;
+
+    if (tokenToResolve) {
+      const resolved = await resolveRecipientToken(tokenToResolve, propertyId);
+      if (resolved) {
+        await recordRecipientEngagement({
+          propertyId: resolved.propertyId,
+          recipientId: resolved.recipientId,
+          agencyOwnerId: resolved.agencyOwnerId,
+          scannerSuspected,
+          now,
+        });
+        setRecipientCookie = tokenToResolve;
+      } else if (cookies[cookieName]) {
+        // The cookie itself held a token that's no longer valid (e.g.
+        // revoked) — clear it rather than retrying on every future visit.
+        clearRecipientCookie = true;
+      }
+    }
+
+    const response = NextResponse.json({ success: true });
+    if (setRecipientCookie) {
+      response.cookies.set(cookieName, setRecipientCookie, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: RECIPIENT_COOKIE_MAX_AGE_SECONDS,
+      });
+    } else if (clearRecipientCookie) {
+      response.cookies.set(cookieName, '', { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 0 });
+    }
+    return response;
   } catch (error) {
     console.error('Track view error:', error);
     return NextResponse.json({ error: 'Failed to track view' }, { status: 500 });

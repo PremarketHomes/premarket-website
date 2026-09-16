@@ -12,6 +12,7 @@ import ApiRequestsTab from './components/tabs/ApiRequestsTab';
 import PHIVerificationTab from './components/tabs/PHIVerificationTab';
 import DocsAnalyticsTab from './components/tabs/DocsAnalyticsTab';
 import DeveloperDocsTab from './components/tabs/DeveloperDocsTab';
+import RecipientLinksTab from './components/tabs/RecipientLinksTab';
 import CronJobsPanel from './components/CronJobsPanel';
 
 const TAB_META = {
@@ -24,6 +25,7 @@ const TAB_META = {
   'docs-analytics': { title: 'Docs Analytics', description: 'Monitor developer documentation usage and engagement.' },
   'dev-docs': { title: 'Developer Docs', description: 'Internal API documentation and integration guides.' },
   cron: { title: 'Cron Jobs', description: 'Manually trigger or monitor scheduled background tasks.' },
+  'recipient-links': { title: 'Recipient Links (Phase 2 test)', description: 'Internal-only: create test personalised recipient links and verify attribution. Not the buyer engagement dashboard.' },
 };
 
 function AdminContent() {
@@ -53,6 +55,7 @@ function AdminContent() {
       {activeTab === 'docs-analytics' && <DocsAnalyticsTab user={user} userData={userData} />}
       {activeTab === 'dev-docs' && <DeveloperDocsTab />}
       {activeTab === 'cron' && <CronJobsPanel user={user} />}
+      {activeTab === 'recipient-links' && <RecipientLinksTab />}
     </>
   );
 }

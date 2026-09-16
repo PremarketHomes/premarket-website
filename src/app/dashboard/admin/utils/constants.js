@@ -13,6 +13,7 @@ import {
   Plug,
   Sparkles,
   BookOpen,
+  Link2,
 } from 'lucide-react';
 
 export const TABS = [
@@ -24,6 +25,7 @@ export const TABS = [
   { key: 'phi-verification', label: 'PHI Verification', icon: ShieldCheck },
   { key: 'docs-analytics', label: 'Docs Analytics', icon: LinkIcon },
   { key: 'dev-docs', label: 'Developer Docs', icon: Code },
+  { key: 'recipient-links', label: 'Recipient Links (Phase 2 test)', icon: Link2 },
 ];
 
 export const NAV_SECTIONS = [
@@ -51,6 +53,7 @@ export const NAV_SECTIONS = [
       { key: 'crm', label: 'CRM', icon: Contact2, type: 'route', href: '/dashboard/crm' },
       { key: 'integrations', label: 'Integrations', icon: Plug, type: 'route', href: '/dashboard/integrations' },
       { key: 'cron', label: 'Cron Jobs', icon: Clock, type: 'tab' },
+      { key: 'recipient-links', label: 'Recipient Links (Phase 2 test)', icon: Link2, type: 'tab' },
     ],
   },
   {

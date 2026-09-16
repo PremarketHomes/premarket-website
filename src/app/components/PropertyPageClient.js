@@ -39,6 +39,10 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
   const searchParams = useSearchParams();
   const propertyId = previewPropertyId || searchParams.get('propertyId');
   const initialMode = searchParams.get('mode');
+  // Phase 2: an opaque personalised-recipient-link token, if this open
+  // came from one (see docs/phase2-recipient-links.md). Anonymous/direct
+  // links simply have no `rlt` param and behave exactly as before.
+  const recipientToken = searchParams.get('rlt');
   const auth = getAuth();
   const { user: currentAuthUser } = useAuth();
 
@@ -294,7 +298,15 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
       await fetch('/api/property-visit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ propertyId: propId, visitorId, isReturn }),
+        body: JSON.stringify({
+          propertyId: propId,
+          visitorId,
+          isReturn,
+          // Only present for a personalised recipient link; omitted
+          // (undefined -> not serialized) for an ordinary anonymous
+          // open, which behaves exactly as it always has.
+          ...(recipientToken ? { recipientToken } : {}),
+        }),
       });
     } catch (error) {
       console.error('Error incrementing property views:', error);
