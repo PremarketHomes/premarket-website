@@ -1,7 +1,7 @@
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, addDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, addDoc, getDocs } from 'firebase/firestore';
 
 const RULES_PATH = resolve(__dirname, '../../firestore.rules');
 const PROJECT_ID = 'premarket-rules-test';
@@ -65,4 +65,4 @@ export async function teardown() {
   }
 }
 
-export { assertSucceeds, assertFails, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, addDoc };
+export { assertSucceeds, assertFails, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, addDoc, getDocs };

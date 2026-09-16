@@ -20,6 +20,19 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.superAdmin == true;
     }
 
+    // True if the caller is the authenticated owner of the property a
+    // document references (used by offers below, so an agent can read
+    // opinions/interest submitted on their own listings). Guarded with
+    // exists() first: an offer can outlive its property (e.g. the agent
+    // later deletes the listing), and calling get() on a missing document
+    // would otherwise throw and deny the whole rule rather than just this
+    // branch.
+    function isOwnerOfProperty(propertyId) {
+      return isAuth() &&
+        exists(/databases/$(database)/documents/properties/$(propertyId)) &&
+        get(/databases/$(database)/documents/properties/$(propertyId)).data.userId == request.auth.uid;
+    }
+
     // ═══════════════════════════════════════════════════════════
     // USERS
     // Public read: listings page fetches agent profiles (name,
@@ -71,12 +84,24 @@ service cloud.firestore {
     // OFFERS (Price Opinions)
     // Anonymous create: web visitors submit price opinions
     //   without logging in - this is the core data collection.
-    // Public read: session-based lookups + property owner reads.
+    // Read: NOT public (buyer PII — name/email/phone — lives on these
+    //   documents once someone registers interest). Restricted to the
+    //   buyer who owns the offer (userId match), the agent who owns the
+    //   referenced property, or a superAdmin. The old anonymous
+    //   session-based "read back my previous opinion" lookup used by the
+    //   property page now goes through /api/offers/session-lookup
+    //   (Admin SDK, returns only the amount — never PII) instead of a
+    //   direct client read, since that pattern can't be safely expressed
+    //   as a security rule (see docs/security-finding-offers-public-read-pii.md).
     // Update: propertyId cannot change; if userId is being set
     //   the authenticated user must match.
     // ═══════════════════════════════════════════════════════════
     match /offers/{offerId} {
-      allow read: if true;
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid
+        || isOwnerOfProperty(resource.data.propertyId)
+        || isSuperAdmin()
+      );
 
       allow create: if request.resource.data.propertyId is string;
 
