@@ -189,17 +189,23 @@ export async function POST(req) {
       }
     }
 
+    // Secure cookies are silently dropped by browsers on plain http:// —
+    // only relevant for `npm run dev` on localhost; both production and
+    // every Vercel preview are always served over https, so this stays
+    // true everywhere that matters.
+    const useSecureCookie = process.env.NODE_ENV === 'production';
+
     const response = NextResponse.json({ success: true });
     if (setRecipientCookie) {
       response.cookies.set(cookieName, setRecipientCookie, {
         httpOnly: true,
-        secure: true,
+        secure: useSecureCookie,
         sameSite: 'lax',
         path: '/',
         maxAge: RECIPIENT_COOKIE_MAX_AGE_SECONDS,
       });
     } else if (clearRecipientCookie) {
-      response.cookies.set(cookieName, '', { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 0 });
+      response.cookies.set(cookieName, '', { httpOnly: true, secure: useSecureCookie, sameSite: 'lax', path: '/', maxAge: 0 });
     }
     return response;
   } catch (error) {
