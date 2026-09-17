@@ -23,6 +23,7 @@ import {
 import AgentSelector from '../../../components/AgentSelector';
 import AgentModal from '../../../components/AgentModal';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { resizeImageForUpload, runWithConcurrency } from '../../../utils/imageUpload';
 import {
   MapPin,
   DollarSign,
@@ -462,35 +463,47 @@ export default function EditPropertyPage() {
   // Submit — update existing property
   // Background upload helper
   const uploadMediaInBackground = async (propId, userId, newFiles, existingUrls, videoFile, existingVidUrl) => {
-    const uploadedUrls = [...existingUrls];
+    const total = newFiles.length;
+    const newUrls = new Array(total);
+    let completed = 0;
+    let failed = 0;
 
     try {
-      for (const rawFile of newFiles) {
-        const file = await convertHeicIfNeeded(rawFile);
-        const storageRef = ref(storage, `propertyImages/${userId}/${Date.now()}-${file.name}`);
+      // Resize + upload up to 4 images at once — real speedup over one-at-a-
+      // time without firing off dozens of simultaneous decodes/uploads.
+      await runWithConcurrency(newFiles, async (rawFile, i) => {
+        const converted = await convertHeicIfNeeded(rawFile);
+        const file = await resizeImageForUpload(converted);
+        const storageRef = ref(storage, `propertyImages/${userId}/${Date.now()}-${i}-${file.name}`);
         const uploadTask = uploadBytesResumable(storageRef, file);
 
-        await new Promise((resolve, reject) => {
-          uploadTask.on(
-            'state_changed',
-            null,
-            reject,
-            async () => {
-              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              uploadedUrls.push(downloadURL);
-              await updateDoc(doc(db, 'properties', propId), {
-                imageUrls: [...uploadedUrls],
-                imageUploadProgress: {
-                  uploaded: uploadedUrls.length - existingUrls.length,
-                  total: newFiles.length,
-                  inProgress: (uploadedUrls.length - existingUrls.length) < newFiles.length,
-                },
-              });
-              resolve();
-            }
-          );
-        });
-      }
+        try {
+          const downloadURL = await new Promise((resolve, reject) => {
+            uploadTask.on('state_changed', null, reject, async () => {
+              try {
+                resolve(await getDownloadURL(uploadTask.snapshot.ref));
+              } catch (err) {
+                reject(err);
+              }
+            });
+          });
+          newUrls[i] = downloadURL;
+        } catch (err) {
+          console.error(`Image ${i + 1} of ${total} failed to upload:`, err);
+          failed += 1;
+        } finally {
+          completed += 1;
+          await updateDoc(doc(db, 'properties', propId), {
+            imageUrls: [...existingUrls, ...newUrls.filter(Boolean)],
+            imageUploadProgress: {
+              uploaded: completed - failed,
+              total,
+              failed,
+              inProgress: completed < total,
+            },
+          });
+        }
+      }, 4);
 
       // Upload new video to Firebase Storage
       if (videoFile) {
@@ -515,10 +528,13 @@ export default function EditPropertyPage() {
         }
       }
 
-      // Mark complete, flag for compression
-      if (newFiles.length > 0) {
+      // Authoritative final write — guards against any out-of-order network
+      // response among the parallel per-image progress writes above, and
+      // flags the property for server-side compression.
+      if (total > 0) {
         await updateDoc(doc(db, 'properties', propId), {
-          imageUploadProgress: { uploaded: newFiles.length, total: newFiles.length, inProgress: false },
+          imageUrls: [...existingUrls, ...newUrls.filter(Boolean)],
+          imageUploadProgress: { uploaded: total - failed, total, failed, inProgress: false },
           imagesCompressed: false,
         });
 

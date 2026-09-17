@@ -44,11 +44,22 @@ async function compressPropertyImages(propertyId) {
 
       const buffer = Buffer.from(await response.arrayBuffer());
 
-      // Compress with sharp
-      const compressed = await sharp(buffer)
-        .resize(2000, null, { withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
+      // The client already resizes/re-encodes new uploads to ~2000px wide
+      // before they reach Storage (see utils/imageUpload.js). Recompressing
+      // an image that's already at or under the target width just costs a
+      // second lossy JPEG generation for no size benefit — skip straight to
+      // re-uploading those bytes as-is. Anything still oversized (older
+      // uploads from before this change, or a non-browser source) still
+      // gets resized/compressed exactly as before.
+      const metadata = await sharp(buffer).metadata();
+      const alreadySized = (metadata.width || 0) <= 2050 && metadata.format === 'jpeg';
+
+      const compressed = alreadySized
+        ? buffer
+        : await sharp(buffer)
+            .resize(2000, null, { withoutEnlargement: true })
+            .jpeg({ quality: 80 })
+            .toBuffer();
 
       // Upload to Bunny CDN
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;

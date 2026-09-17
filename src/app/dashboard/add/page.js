@@ -20,6 +20,7 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { resizeImageForUpload, runWithConcurrency } from '../../utils/imageUpload';
 import {
   MapPin,
   DollarSign,
@@ -491,36 +492,46 @@ export default function AddPropertyPage() {
   // Background upload helper — runs after redirect
   const uploadMediaInBackground = async (propertyId, userId, imageFiles, videoFile, existingUrls = []) => {
     const total = imageFiles.length;
-    const imageUrls = [...existingUrls];
+    const uploadedUrls = new Array(total);
+    let completed = 0;
+    let failed = 0;
 
     try {
-      // Upload images one by one
-      for (let i = 0; i < total; i++) {
-        const file = await convertHeicIfNeeded(imageFiles[i]);
-        const storageRef = ref(storage, `propertyImages/${userId}/${Date.now()}-${file.name}`);
+      // Resize + upload up to 4 images at once — real speedup over one-at-a-
+      // time without firing off dozens of simultaneous decodes/uploads.
+      await runWithConcurrency(imageFiles, async (rawFile, i) => {
+        const converted = await convertHeicIfNeeded(rawFile);
+        const file = await resizeImageForUpload(converted);
+        const storageRef = ref(storage, `propertyImages/${userId}/${Date.now()}-${i}-${file.name}`);
         const uploadTask = uploadBytesResumable(storageRef, file);
 
-        await new Promise((resolve, reject) => {
-          uploadTask.on(
-            'state_changed',
-            null,
-            reject,
-            async () => {
-              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              imageUrls.push(downloadURL);
-              await updateDoc(doc(db, 'properties', propertyId), {
-                imageUrls: [...imageUrls],
-                imageUploadProgress: {
-                  uploaded: imageUrls.length - existingUrls.length,
-                  total,
-                  inProgress: (imageUrls.length - existingUrls.length) < total,
-                },
-              });
-              resolve();
-            }
-          );
-        });
-      }
+        try {
+          const downloadURL = await new Promise((resolve, reject) => {
+            uploadTask.on('state_changed', null, reject, async () => {
+              try {
+                resolve(await getDownloadURL(uploadTask.snapshot.ref));
+              } catch (err) {
+                reject(err);
+              }
+            });
+          });
+          uploadedUrls[i] = downloadURL;
+        } catch (err) {
+          console.error(`Image ${i + 1} of ${total} failed to upload:`, err);
+          failed += 1;
+        } finally {
+          completed += 1;
+          await updateDoc(doc(db, 'properties', propertyId), {
+            imageUrls: [...existingUrls, ...uploadedUrls.filter(Boolean)],
+            imageUploadProgress: {
+              uploaded: completed - failed,
+              total,
+              failed,
+              inProgress: completed < total,
+            },
+          });
+        }
+      }, 4);
 
       // Upload video to Firebase Storage, then move to Bunny CDN
       if (videoFile) {
@@ -545,9 +556,12 @@ export default function AddPropertyPage() {
         }
       }
 
-      // Mark upload complete, flag for compression
+      // Authoritative final write — guards against any out-of-order network
+      // response among the parallel per-image progress writes above, and
+      // flags the property for server-side compression.
       await updateDoc(doc(db, 'properties', propertyId), {
-        imageUploadProgress: { uploaded: total, total, inProgress: false },
+        imageUrls: [...existingUrls, ...uploadedUrls.filter(Boolean)],
+        imageUploadProgress: { uploaded: total - failed, total, failed, inProgress: false },
         imagesCompressed: false,
       });
 

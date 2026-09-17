@@ -271,7 +271,11 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
         ) : property.imageUploadProgress?.inProgress ? (
           <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-slate-50">
             <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs font-medium text-slate-500">Uploading media...</p>
+            <p className="text-xs font-medium text-slate-500">
+              {property.imageUploadProgress.total > 0
+                ? `Uploading ${property.imageUploadProgress.uploaded} of ${property.imageUploadProgress.total}...`
+                : 'Preparing photos...'}
+            </p>
           </div>
         ) : (
           <div className="w-full h-full flex items-center justify-center">

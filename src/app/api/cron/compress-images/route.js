@@ -87,10 +87,17 @@ export async function GET(request) {
 
           const buffer = Buffer.from(await response.arrayBuffer());
 
-          const compressed = await sharp(buffer)
-            .resize(2000, null, { withoutEnlargement: true })
-            .jpeg({ quality: 80 })
-            .toBuffer();
+          // Skip a redundant recompression pass for images the client has
+          // already resized to the target width (see /api/images/compress).
+          const metadata = await sharp(buffer).metadata();
+          const alreadySized = (metadata.width || 0) <= 2050 && metadata.format === 'jpeg';
+
+          const compressed = alreadySized
+            ? buffer
+            : await sharp(buffer)
+                .resize(2000, null, { withoutEnlargement: true })
+                .jpeg({ quality: 80 })
+                .toBuffer();
 
           const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
           const bunnyPath = `images/${propertyId}/${filename}`;
