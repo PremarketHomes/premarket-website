@@ -507,24 +507,37 @@ export default function EditPropertyPage() {
 
       // Upload new video to Firebase Storage
       if (videoFile) {
+        await updateDoc(doc(db, 'properties', propId), {
+          videoUploadProgress: { inProgress: true, failed: false },
+        });
+
         try {
           const videoStorageRef = ref(storage, `propertyVideos/${userId}/${Date.now()}-${videoFile.name}`);
           const videoUploadTask = uploadBytesResumable(videoStorageRef, videoFile);
 
-          await new Promise((resolve, reject) => {
-            videoUploadTask.on(
-              'state_changed',
-              null,
-              reject,
-              async () => {
-                const videoDownloadURL = await getDownloadURL(videoUploadTask.snapshot.ref);
-                await updateDoc(doc(db, 'properties', propId), { videoUrl: videoDownloadURL });
-                resolve();
-              }
-            );
+          // getDownloadURL/updateDoc deliberately happen OUTSIDE the Firebase
+          // state_changed callback (in an awaited, try/caught step below) —
+          // an async callback passed directly to .on() isn't awaited by the
+          // SDK, so a throw inside it would leave this Promise unresolved
+          // forever, silently losing the video even though the file
+          // uploaded successfully. This was the root cause of the reported
+          // "video disappeared" bug.
+          const videoRef = await new Promise((resolve, reject) => {
+            videoUploadTask.on('state_changed', null, reject, () => {
+              resolve(videoUploadTask.snapshot.ref);
+            });
+          });
+
+          const url = await getDownloadURL(videoRef);
+          await updateDoc(doc(db, 'properties', propId), {
+            videoUrl: url,
+            videoUploadProgress: { inProgress: false, failed: false },
           });
         } catch (err) {
           console.error('Video upload failed:', err);
+          await updateDoc(doc(db, 'properties', propId), {
+            videoUploadProgress: { inProgress: false, failed: true },
+          }).catch(() => {});
         }
       }
 
@@ -590,6 +603,9 @@ export default function EditPropertyPage() {
         ...(existingVideoUrl ? { videoUrl: existingVideoUrl } : !video ? { videoUrl: null } : { videoUrl: existingVideoUrl || null }),
         ...(newFiles.length > 0 && {
           imageUploadProgress: { uploaded: 0, total: newFiles.length, inProgress: true },
+        }),
+        ...(video && !existingVideoUrl && {
+          videoUploadProgress: { inProgress: true, failed: false },
         }),
       };
 

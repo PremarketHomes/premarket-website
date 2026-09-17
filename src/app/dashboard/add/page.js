@@ -533,26 +533,38 @@ export default function AddPropertyPage() {
         }
       }, 4);
 
-      // Upload video to Firebase Storage, then move to Bunny CDN
+      // Upload video to Firebase Storage
       if (videoFile) {
+        await updateDoc(doc(db, 'properties', propertyId), {
+          videoUploadProgress: { inProgress: true, failed: false },
+        });
+
         try {
           const videoStorageRef = ref(storage, `propertyVideos/${userId}/${Date.now()}-${videoFile.name}`);
           const videoUploadTask = uploadBytesResumable(videoStorageRef, videoFile);
 
-          await new Promise((resolve, reject) => {
-            videoUploadTask.on(
-              'state_changed',
-              null,
-              reject,
-              async () => {
-                const videoDownloadURL = await getDownloadURL(videoUploadTask.snapshot.ref);
-                await updateDoc(doc(db, 'properties', propertyId), { videoUrl: videoDownloadURL });
-                resolve();
-              }
-            );
+          const videoDownloadURL = await new Promise((resolve, reject) => {
+            videoUploadTask.on('state_changed', null, reject, () => {
+              // getDownloadURL is called outside this callback (see below) —
+              // if it threw here, this async callback's rejection would be
+              // unhandled and the enclosing Promise would hang forever,
+              // silently losing the video even though the file uploaded
+              // successfully. Resolve with the completed snapshot instead
+              // and do the fallible work in an awaited, try/caught step.
+              resolve(videoUploadTask.snapshot.ref);
+            });
+          });
+
+          const url = await getDownloadURL(videoDownloadURL);
+          await updateDoc(doc(db, 'properties', propertyId), {
+            videoUrl: url,
+            videoUploadProgress: { inProgress: false, failed: false },
           });
         } catch (err) {
           console.error('Video upload failed:', err);
+          await updateDoc(doc(db, 'properties', propertyId), {
+            videoUploadProgress: { inProgress: false, failed: true },
+          }).catch(() => {});
         }
       }
 
@@ -606,6 +618,7 @@ export default function AddPropertyPage() {
         imageUploadProgress: needsUpload
           ? { uploaded: 0, total: imageFiles.length, inProgress: true }
           : { uploaded: existingUrls.length, total: existingUrls.length, inProgress: false },
+        ...(video && { videoUploadProgress: { inProgress: true, failed: false } }),
         features: Object.keys(features).filter((f) => features[f]),
         location,
         offPlan: false,

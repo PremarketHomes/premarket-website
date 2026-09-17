@@ -305,9 +305,19 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           }`}>
             {property.listingStatus === 'on-market' ? 'On Market' : 'Pre-Market'}
           </span>
-          {(property.videoUrl || property.aiVideo?.url) && (
+          {(property.videoUrl || property.aiVideo?.url) && !property.videoUploadProgress?.inProgress && (
             <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full bg-black/60 text-white">
               <Video className="w-3 h-3" />
+            </span>
+          )}
+          {property.videoUploadProgress?.inProgress && (
+            <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded-full bg-black/60 text-white">
+              <Video className="w-3 h-3 animate-pulse" /> Uploading video...
+            </span>
+          )}
+          {property.videoUploadProgress?.failed && !property.videoUploadProgress?.inProgress && (
+            <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded-full bg-red-600 text-white">
+              <Video className="w-3 h-3" /> Video failed — retry
             </span>
           )}
         </div>

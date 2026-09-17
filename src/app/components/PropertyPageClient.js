@@ -59,6 +59,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [videoModalOpen, setVideoModalOpen] = useState(false);
+  const [videoPlaybackError, setVideoPlaybackError] = useState(false);
   
   // Price opinion state
   const [priceOpinion, setPriceOpinion] = useState(0);
@@ -1239,7 +1240,9 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
         carSpaces={carSpaces}
         landSize={landSize}
         imageUrl={imageUrls[0]}
+        videoUrl={displayVideoUrl}
         hasVideo={!!displayVideoUrl}
+        heroVideoPaused={videoModalOpen}
         onWatchVideo={() => setVideoModalOpen(true)}
       />
 
@@ -1696,10 +1699,10 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
       {videoModalOpen && displayVideoUrl && (
         <div
           className="fixed inset-0 bg-black/95 z-[60] flex items-center justify-center"
-          onMouseDown={(e) => { if (e.target === e.currentTarget) setVideoModalOpen(false); }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) { setVideoModalOpen(false); setVideoPlaybackError(false); } }}
         >
           <button
-            onClick={() => setVideoModalOpen(false)}
+            onClick={() => { setVideoModalOpen(false); setVideoPlaybackError(false); }}
             className="absolute top-4 right-4 z-10 w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-colors"
           >
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1708,14 +1711,27 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
           </button>
 
           <div className="relative w-full max-w-5xl mx-4" onClick={(e) => e.stopPropagation()}>
-            <video
-              src={displayVideoUrl}
-              controls
-              autoPlay
-              playsInline
-              className="w-full rounded-xl"
-              style={{ maxHeight: '85vh' }}
-            />
+            {videoPlaybackError ? (
+              <div className="w-full aspect-video rounded-xl bg-slate-900 flex flex-col items-center justify-center gap-3 text-center px-6">
+                <p className="text-white/80 text-sm">This video couldn&apos;t be played on your device.</p>
+                <button
+                  onClick={() => { setVideoModalOpen(false); setVideoPlaybackError(false); }}
+                  className="text-orange-400 text-sm font-semibold hover:text-orange-300"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <video
+                src={displayVideoUrl}
+                controls
+                autoPlay
+                playsInline
+                onError={() => setVideoPlaybackError(true)}
+                className="w-full rounded-xl"
+                style={{ maxHeight: '85vh' }}
+              />
+            )}
           </div>
         </div>
       )}
