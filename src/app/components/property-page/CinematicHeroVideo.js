@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { isPreviewDeployment } from '../../utils/previewEnvironment';
 
 /**
  * The muted, looping "moving hero" layer that sits over the static hero
@@ -9,19 +10,11 @@ import { useEffect, useRef, useState, useCallback } from 'react';
  * The image is the loading/fallback state, always. This never reveals
  * itself until the browser has actually started rendering frames (the
  * native `playing` event) — never merely because `canplay` fired, and
- * never by relying on the declarative `autoplay` attribute, which is
- * exactly what caused the original bug: Safari's own "autoplay was
- * blocked" affordance (a large native play glyph) rendering over an
- * already-revealed-but-paused video. Playback is instead driven
- * entirely by an explicit, imperative `video.play()` call, so a
- * rejection is something we can catch and simply not reveal for,
- * rather than a silent browser decision we have no hook into.
+ * never by relying on the declarative `autoplay` attribute.
  *
  * `muted`/`defaultMuted`/`playsInline` are set as real DOM properties on
  * the element the instant it exists (a callback ref, not a post-mount
- * effect) — not left to React's JSX-attribute diffing, which can lose
- * the muted-autoplay race in Safari if `src` and `muted` don't land on
- * the node in the same tick.
+ * effect) — not left to React's JSX-attribute diffing.
  *
  * The hero is above the fold, so loading begins as soon as this mounts
  * — no IntersectionObserver gate on that. IntersectionObserver is still
@@ -32,7 +25,53 @@ import { useEffect, useRef, useState, useCallback } from 'react';
  * becomes true: the image stays visible, and "Watch video" remains the
  * fallback way to see it. Hero video is an enhancement, never a
  * requirement.
+ *
+ * TEMPORARY DIAGNOSTICS (2026-09): gated to Preview/dev only via
+ * isPreviewDeployment()/NODE_ENV — never runs on premarket.homes
+ * production. Logs the media lifecycle (readyState/networkState/every
+ * relevant event, the play() promise outcome, and every play()/pause()
+ * call site with its reason) to console under the `[HeroVideoDiag]`
+ * prefix, to find out exactly why autoplay isn't starting on a real
+ * test property. No src/token is ever logged in full. Remove once the
+ * root cause is confirmed and fixed, unless kept deliberately.
  */
+
+const DIAG = typeof window !== 'undefined' && (isPreviewDeployment() || process.env.NODE_ENV !== 'production');
+
+function redactSrc(src) {
+  if (!src) return src;
+  try {
+    const u = new URL(src);
+    return u.pathname; // strip query string (Firebase download token) entirely
+  } catch {
+    return '[unparseable-src]';
+  }
+}
+
+function diag(event, detail) {
+  if (!DIAG) return;
+  // eslint-disable-next-line no-console
+  console.log(`[HeroVideoDiag] ${event}`, {
+    t: typeof performance !== 'undefined' ? Math.round(performance.now()) : null,
+    ...detail,
+  });
+}
+
+function videoSnapshot(video) {
+  if (!video) return null;
+  return {
+    muted: video.muted,
+    defaultMuted: video.defaultMuted,
+    autoplay: video.autoplay,
+    playsInline: video.playsInline,
+    readyState: video.readyState,
+    networkState: video.networkState,
+    paused: video.paused,
+    currentSrc: redactSrc(video.currentSrc),
+    duration: video.duration,
+  };
+}
+
 export default function CinematicHeroVideo({ src, paused = false }) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
@@ -42,20 +81,29 @@ export default function CinematicHeroVideo({ src, paused = false }) {
   const [errored, setErrored] = useState(false);
 
   useEffect(() => {
+    diag('component-mount', { src: redactSrc(src), visibilityState: typeof document !== 'undefined' ? document.visibilityState : null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     setReducedMotion(mq.matches);
+    diag('reduced-motion-check', { matches: mq.matches });
     const handler = (e) => setReducedMotion(e.matches);
     mq.addEventListener?.('change', handler);
     return () => mq.removeEventListener?.('change', handler);
-  }, []);
+  }, [src]);
 
   // Pause/resume on scroll only — never gates whether the video loads or
   // gets its first play attempt.
   useEffect(() => {
     if (reducedMotion || errored || !containerRef.current) return;
     const observer = new IntersectionObserver(
-      ([entry]) => setInView(entry.isIntersecting),
+      ([entry]) => {
+        diag('intersection-observer', { isIntersecting: entry.isIntersecting, intersectionRatio: entry.intersectionRatio });
+        setInView(entry.isIntersecting);
+      },
       { threshold: 0.25 }
     );
     observer.observe(containerRef.current);
@@ -65,24 +113,44 @@ export default function CinematicHeroVideo({ src, paused = false }) {
   const setVideoNode = useCallback((node) => {
     videoRef.current = node;
     if (node) {
-      // Real DOM properties, set synchronously as the node is created —
-      // before the browser has any chance to evaluate autoplay policy
-      // against it.
       node.muted = true;
       node.defaultMuted = true;
       node.playsInline = true;
+      diag('video-node-created', videoSnapshot(node));
+
+      if (DIAG) {
+        const events = ['loadedmetadata', 'loadeddata', 'canplay', 'canplaythrough', 'play', 'playing', 'pause', 'waiting', 'stalled', 'suspend', 'emptied', 'abort'];
+        events.forEach((evt) => {
+          node.addEventListener(evt, () => diag(`media-event:${evt}`, videoSnapshot(node)));
+        });
+        node.addEventListener('error', () => {
+          const err = node.error;
+          diag('media-event:error', { code: err?.code, message: err?.message, ...videoSnapshot(node) });
+        });
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const attemptPlay = useCallback((reason) => {
+    const video = videoRef.current;
+    if (!video) return;
+    diag('attempt-play', { reason, ...videoSnapshot(video) });
+    const playPromise = video.play();
+    if (playPromise && typeof playPromise.then === 'function') {
+      playPromise.then(
+        () => diag('play-promise-resolved', { reason, ...videoSnapshot(video) }),
+        (err) => diag('play-promise-rejected', { reason, errorName: err?.name, errorMessage: err?.message, ...videoSnapshot(video) })
+      );
+    } else {
+      diag('play-returned-no-promise', { reason });
     }
   }, []);
 
-  const attemptPlay = useCallback(() => {
+  const attemptPause = useCallback((reason) => {
     const video = videoRef.current;
     if (!video) return;
-    const playPromise = video.play();
-    // A muted, script-invoked play() can still be rejected (interrupted
-    // by a near-simultaneous pause(), not enough data yet, etc). That's
-    // fine — the cover image is already showing, and `ready` only ever
-    // becomes true from the `playing` event below, never from here.
-    playPromise?.catch?.(() => {});
+    diag('attempt-pause', { reason, ...videoSnapshot(video) });
+    video.pause();
   }, []);
 
   // The single source of truth for revealing the video: an actual frame
@@ -101,26 +169,24 @@ export default function CinematicHeroVideo({ src, paused = false }) {
   // the browser queues play() internally until it has enough data.
   useEffect(() => {
     if (reducedMotion || errored || !src || paused || !inView) return;
-    attemptPlay();
+    attemptPlay('mount-or-deps-effect');
   }, [reducedMotion, errored, src, paused, inView, attemptPlay]);
 
   useEffect(() => {
     const handleVisibility = () => {
-      const video = videoRef.current;
-      if (!video) return;
-      if (document.hidden || paused || !inView) video.pause();
-      else attemptPlay();
+      diag('visibilitychange', { hidden: document.hidden });
+      if (document.hidden || paused || !inView) attemptPause('visibilitychange');
+      else attemptPlay('visibilitychange');
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [inView, paused, attemptPlay]);
+  }, [inView, paused, attemptPlay, attemptPause]);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (paused || !inView || document.hidden) video.pause();
-    else attemptPlay();
-  }, [paused, inView, attemptPlay]);
+    if (!videoRef.current) return;
+    if (paused || !inView || document.hidden) attemptPause('paused-inview-effect');
+    else attemptPlay('paused-inview-effect');
+  }, [paused, inView, attemptPlay, attemptPause]);
 
   if (reducedMotion || errored || !src) return null;
 
