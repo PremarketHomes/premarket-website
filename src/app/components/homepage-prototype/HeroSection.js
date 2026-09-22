@@ -43,6 +43,13 @@ export default function HeroSection({ onPastHero }) {
       {/* Legibility gradient — same bottom-weighted treatment as the real property page hero */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-transparent" />
 
+      {/* Nav legibility scrim — the gradient above fades to fully transparent
+          at the top, so the "How it works / Contact / Log in" row sits
+          directly on the raw photo with no darkening. This adds a small,
+          separate top-anchored scrim just behind the nav so that white text
+          stays readable regardless of what's in that part of the photo. */}
+      <div className="absolute inset-x-0 top-0 h-24 sm:h-28 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
+
       <div className="absolute inset-x-0 bottom-0 pb-16 sm:pb-24">
         <div className="max-w-6xl mx-auto px-5 sm:px-8">
           <h1
