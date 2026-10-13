@@ -1,17 +1,15 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-
-// Single source of truth for the price-opinion slider increment.
-// Only affects new slider interactions — never touches previously stored offers.
-export const PRICE_OPINION_STEP = 10000;
-
-// Rounds a display-only value (min/max range bounds, midpoints, restored
-// previous-offer values) to the nearest slider step. Never used on stored
-// Firestore data — only on values computed fresh for the current session.
-export function roundToStep(value, step = PRICE_OPINION_STEP) {
-  return Math.round(value / step) * step;
-}
+// Re-exported for backward compatibility — every existing call site
+// imports these from here. Moved to a plain, JSX-free util (no
+// `'use client'`, no <style jsx>) so pure logic like
+// utils/priceOpinionRange.js can depend on them without pulling this
+// whole component — and its styled-jsx syntax — into contexts (like
+// Vitest, which has no JSX loader configured for plain .js files
+// outside of Next's own compiler) that can't parse it.
+import { PRICE_OPINION_STEP, roundToStep } from '../utils/priceOpinionStep';
+export { PRICE_OPINION_STEP, roundToStep };
 
 // Fires a very short, subtle vibration if the platform supports it.
 // Silently does nothing on browsers/devices without the Vibration API
@@ -105,8 +103,8 @@ export default function PriceOpinionSlider({
 
         .slider-thumb::-webkit-slider-thumb {
           appearance: none;
-          width: 26px;
-          height: 26px;
+          width: 44px;
+          height: 44px;
           border-radius: 50%;
           background: white;
           cursor: pointer;
@@ -114,8 +112,8 @@ export default function PriceOpinionSlider({
           border: 3px solid var(--brand-primary, #c2410c);
         }
         .slider-thumb::-moz-range-thumb {
-          width: 26px;
-          height: 26px;
+          width: 44px;
+          height: 44px;
           border-radius: 50%;
           background: white;
           cursor: pointer;

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import SmartPropertyImage from './SmartPropertyImage';
 
 const STAT_ICONS = {
@@ -25,6 +26,17 @@ function HeroStat({ icon, label }) {
  * stats overlaid — matches the approved reference's "property is the
  * hero" treatment. Only real property data is shown; no fabricated
  * marketing copy is added for fields the data model doesn't have.
+ *
+ * Mobile height is viewport-relative (58vh, clamped 380–520px) rather
+ * than the fixed aspect-[4/5] it used to be — on a typical iPhone that
+ * put the price-opinion card roughly a scroll-and-a-half below the
+ * fold. Desktop/tablet (sm: and up) keep the original aspect-ratio
+ * treatment unchanged; this is a mobile-only correction.
+ *
+ * `onPastHero`, when passed, fires once a 1px sentinel at the bottom of
+ * the hero scrolls out of view — the same IntersectionObserver pattern
+ * already used on the homepage hero. Drives the sticky price prompt's
+ * "has the buyer moved past the hero" condition.
  */
 export default function PropertyHero({
   title,
@@ -36,14 +48,32 @@ export default function PropertyHero({
   imageUrl,
   hasVideo,
   onWatchVideo,
+  onPastHero,
 }) {
+  const sentinelRef = useRef(null);
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !onPastHero) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        onPastHero(!entry.isIntersecting && entry.boundingClientRect.top < 0);
+      },
+      { threshold: 0 }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [onPastHero]);
+
   return (
-    <div className="relative w-full aspect-[4/5] sm:aspect-[16/10] lg:aspect-[21/9] bg-slate-900 overflow-hidden">
+    <div className="relative w-full h-[58vh] min-h-[380px] max-h-[520px] sm:h-auto sm:aspect-[16/10] lg:aspect-[21/9] bg-slate-900 overflow-hidden">
       {imageUrl ? (
         <SmartPropertyImage
           src={imageUrl}
           alt={title || 'Property photo'}
           priority
+          sizes="100vw"
         />
       ) : null}
 
@@ -72,6 +102,10 @@ export default function PropertyHero({
           </div>
         </div>
       </div>
+
+      {/* Sentinel — the sticky price prompt considers itself "past the
+          hero" once this leaves the viewport */}
+      <div ref={sentinelRef} className="absolute bottom-0 left-0 w-full h-px" />
 
       {hasVideo && (
         <button

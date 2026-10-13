@@ -7,7 +7,12 @@ import { useEffect, useRef, useCallback } from 'react';
  * Starts a view timer on mount, tracks scroll depth, and sends data on unmount/navigate.
  *
  * Usage:
- *   const { trackPhotoView, trackShare, trackOpinionStart, trackOpinionComplete } = usePropertyEngagement(propertyId, apiKey);
+ *   const { trackPhotoView, trackShare, trackOpinionStart, trackSubmitAttempted, trackOpinionComplete } = usePropertyEngagement(propertyId, apiKey);
+ *
+ * trackOpinionStart, trackSubmitAttempted and trackOpinionComplete are
+ * three distinct funnel stages — see engagement-ping/route.js for why
+ * that distinction matters. Call trackOpinionStart on the buyer's first
+ * genuine slider interaction (not on mount, not at submit time).
  */
 export function usePropertyEngagement(propertyId, apiKey) {
   const startTime = useRef(Date.now());
@@ -15,6 +20,7 @@ export function usePropertyEngagement(propertyId, apiKey) {
   const photosViewed = useRef(0);
   const shared = useRef(false);
   const opinionStarted = useRef(false);
+  const submitAttempted = useRef(false);
   const opinionCompleted = useRef(false);
   const sent = useRef(false);
   const sessionId = useRef(
@@ -36,15 +42,17 @@ export function usePropertyEngagement(propertyId, apiKey) {
       photosViewed: photosViewed.current,
       shared: shared.current,
       opinionStarted: opinionStarted.current,
+      submitAttempted: submitAttempted.current,
       opinionCompleted: opinionCompleted.current,
       platform: 'web',
     };
 
-    // Use fetch with keepalive for reliability on page unload
+    // Use fetch with keepalive for reliability on page unload. Path
+    // deliberately avoids the word "track" — see engagement-ping/route.js.
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['x-api-key'] = apiKey;
 
-    fetch('/api/v1/track-engagement', {
+    fetch('/api/v1/engagement-ping', {
       method: 'POST',
       headers,
       body: JSON.stringify(data),
@@ -96,9 +104,13 @@ export function usePropertyEngagement(propertyId, apiKey) {
     opinionStarted.current = true;
   }, []);
 
+  const trackSubmitAttempted = useCallback(() => {
+    submitAttempted.current = true;
+  }, []);
+
   const trackOpinionComplete = useCallback(() => {
     opinionCompleted.current = true;
   }, []);
 
-  return { trackPhotoView, trackShare, trackOpinionStart, trackOpinionComplete };
+  return { trackPhotoView, trackShare, trackOpinionStart, trackSubmitAttempted, trackOpinionComplete };
 }

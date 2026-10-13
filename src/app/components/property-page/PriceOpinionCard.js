@@ -16,12 +16,24 @@ import LikeButton from '../LikeButton';
  * confirmation modal/save flow (see PropertyPageClient's
  * showConfirmOpinionModal + confirmPriceOpinion) — this component adds no
  * new submission logic, only a clearer, more deliberate call to action.
+ *
+ * `hasInteracted` controls whether a value has ever been deliberately
+ * dragged for this visitor on this property (true immediately for a
+ * returning visitor whose prior opinion was restored). Before that, no
+ * dollar figure is shown and Submit stays disabled — the slider's
+ * starting position is no longer anchored on the asking price, since an
+ * untouched midpoint submission reads as a genuine opinion it never was.
+ * The invitation copy ("Have a go — drag to find your number") exists
+ * specifically so removing that default doesn't just read as a confusing
+ * blank control.
  */
 export default function PriceOpinionCard({
   propertyId,
   priceOpinion,
   minPrice,
   maxPrice,
+  hasInteracted,
+  isSliding,
   onChange,
   onSlideStart,
   onSlideEnd,
@@ -31,7 +43,6 @@ export default function PriceOpinionCard({
   formatCompact,
   heading,
   subcopy,
-  interestHeading,
   interestSubcopy,
 }) {
   return (
@@ -52,28 +63,43 @@ export default function PriceOpinionCard({
         {subcopy}
       </p>
 
-      <div className="mb-5">
-        <motion.div
-          key={priceOpinion}
-          initial={{ scale: 1.04 }}
-          animate={{ scale: 1 }}
-          transition={{ duration: 0.18 }}
-          className="text-4xl sm:text-5xl font-semibold text-[var(--brand-primary,#c2410c)] tabular-nums"
-        >
-          {formatMoney(priceOpinion)}
-        </motion.div>
+      <div className="mb-5 min-h-[3.5rem] sm:min-h-[4rem] flex items-center justify-center">
+        {hasInteracted ? (
+          <motion.div
+            key={isSliding ? 'dragging' : priceOpinion}
+            initial={{ scale: 1.04 }}
+            animate={{ scale: 1 }}
+            transition={{ duration: 0.18 }}
+            className="text-4xl sm:text-5xl font-semibold text-[var(--brand-primary,#c2410c)] tabular-nums"
+          >
+            {formatMoney(priceOpinion)}
+          </motion.div>
+        ) : (
+          <p className="text-lg sm:text-xl font-semibold text-slate-400" style={{ fontFamily: 'var(--font-playfair, serif)' }}>
+            Have a go — drag to find your number
+          </p>
+        )}
       </div>
 
       <div className="mb-2">
-        <PriceOpinionSlider
-          min={minPrice}
-          max={maxPrice}
-          value={priceOpinion}
-          onChange={onChange}
-          onSlideStart={onSlideStart}
-          onSlideEnd={onSlideEnd}
-          className="w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer slider-thumb"
-        />
+        <div className={!hasInteracted ? 'relative' : ''}>
+          {!hasInteracted && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-0 rounded-full animate-pulse-track pointer-events-none"
+              style={{ background: 'linear-gradient(90deg, transparent, var(--brand-primary, #c2410c) 50%, transparent)', opacity: 0.18 }}
+            />
+          )}
+          <PriceOpinionSlider
+            min={minPrice}
+            max={maxPrice}
+            value={priceOpinion}
+            onChange={onChange}
+            onSlideStart={onSlideStart}
+            onSlideEnd={onSlideEnd}
+            className="w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer slider-thumb"
+          />
+        </div>
         <div className="flex justify-between mt-2 text-xs text-slate-400 font-medium">
           <span>{formatCompact(minPrice)}</span>
           <span>{formatCompact(maxPrice)}</span>
@@ -82,7 +108,8 @@ export default function PriceOpinionCard({
 
       <button
         onClick={onSubmitOpinion}
-        className="mt-6 w-full inline-flex items-center justify-center gap-2 bg-[var(--brand-primary,#c2410c)] hover:opacity-90 text-[var(--brand-text-on-primary,#ffffff)] font-semibold text-[15px] py-3.5 rounded-xl transition-opacity"
+        disabled={!hasInteracted}
+        className="mt-6 w-full inline-flex items-center justify-center gap-2 bg-[var(--brand-primary,#c2410c)] hover:opacity-90 text-[var(--brand-text-on-primary,#ffffff)] font-semibold text-[15px] py-3.5 rounded-xl transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Submit my price opinion
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -93,31 +120,33 @@ export default function PriceOpinionCard({
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
         </svg>
-        Your response is anonymous
+        Anonymous &middot; this is your opinion, not an offer
       </p>
 
-      <div className="flex items-center gap-3 my-6">
-        <div className="h-px flex-1 bg-slate-200" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Or</span>
-        <div className="h-px flex-1 bg-slate-200" />
-      </div>
-
-      {interestHeading && (
-        <p className="font-semibold text-slate-900 text-[15px] mb-3">
-          {interestHeading}
-        </p>
-      )}
       <button
         onClick={onRegisterInterest}
-        className="w-full py-3.5 rounded-xl border border-slate-300 text-slate-800 font-semibold text-[15px] hover:border-slate-400 transition-colors"
+        className="mt-5 text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors underline underline-offset-2"
       >
-        Register formal interest
+        Already know you&rsquo;re interested? Register formal interest instead
       </button>
       {interestSubcopy && (
-        <p className="mt-2.5 text-center text-xs text-slate-400">
+        <p className="mt-2 text-center text-xs text-slate-400">
           {interestSubcopy}
         </p>
       )}
+
+      <style jsx>{`
+        @keyframes pulseTrack {
+          0%, 100% { opacity: 0.1; }
+          50% { opacity: 0.3; }
+        }
+        .animate-pulse-track {
+          animation: pulseTrack 2.2s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-pulse-track { animation: none; }
+        }
+      `}</style>
     </div>
   );
 }

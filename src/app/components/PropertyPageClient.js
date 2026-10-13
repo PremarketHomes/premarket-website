@@ -14,6 +14,8 @@ import { computeBrandStyle, computeDisplayLogoUrl } from '../utils/brandStyle';
 import { getMarketStatusCopy } from '../utils/marketStatusCopy';
 import { isPreviewDeployment } from '../utils/previewEnvironment';
 import { getSwipeDirection } from '../utils/swipeGesture';
+import { computePriceOpinionRange } from '../utils/priceOpinionRange';
+import { shouldShowStickyPrompt } from '../utils/stickyPromptVisibility';
 import PreviewModeBanner from './property-page/PreviewModeBanner';
 import { playfairDisplay } from './property-page/fonts';
 import PropertyHeader from './property-page/PropertyHeader';
@@ -22,6 +24,7 @@ import PriceOpinionCard from './property-page/PriceOpinionCard';
 import PropertyInfoCard from './property-page/PropertyInfoCard';
 import PropertyGallery from './property-page/PropertyGallery';
 import AgentSignOff from './property-page/AgentSignOff';
+import StickyPricePrompt from './property-page/StickyPricePrompt';
 
 // Generate a session ID for tracking price opinions
 const getSessionId = () => {
@@ -35,7 +38,7 @@ const getSessionId = () => {
   return sessionId;
 };
 
-export default function PropertyPageClient({ previewBrand, previewPropertyId } = {}) {
+export default function PropertyPageClient({ previewBrand, previewPropertyId, initialProperty } = {}) {
   const searchParams = useSearchParams();
   const propertyId = previewPropertyId || searchParams.get('propertyId');
   const initialMode = searchParams.get('mode');
@@ -53,23 +56,46 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
     seriousnessLevel: '',
   });
 
-  const [property, setProperty] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Seeded from the server-fetched property (see find-property/page.js)
+  // when available, so the first paint has real content instead of a
+  // spinner. The fetchProperty effect below still runs unconditionally
+  // afterwards and is the one that actually drives views/sessions/
+  // opinion-prefill — this prop only short-circuits the visible wait,
+  // it changes nothing about when those side effects fire.
+  const [property, setProperty] = useState(initialProperty || null);
+  const [loading, setLoading] = useState(!initialProperty);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [videoModalOpen, setVideoModalOpen] = useState(false);
-  
-  // Price opinion state
+
+  // Price opinion state. min/maxPrice are seeded alongside
+  // initialProperty (not left at 0) so the opinion card never has a
+  // moment of showing a broken 0–0 range before the fetchProperty
+  // effect's own computation catches up.
+  const initialRange = initialProperty ? computePriceOpinionRange(initialProperty) : null;
   const [priceOpinion, setPriceOpinion] = useState(0);
-  const [minPrice, setMinPrice] = useState(0);
-  const [maxPrice, setMaxPrice] = useState(0);
+  const [minPrice, setMinPrice] = useState(initialRange?.min || 0);
+  const [maxPrice, setMaxPrice] = useState(initialRange?.max || 0);
+  // Whether this visitor has ever deliberately moved the slider for this
+  // property — true immediately for a returning visitor whose prior
+  // opinion was restored. The slider's starting position is no longer
+  // anchored on the asking price; this is what gates the price display
+  // and Submit button until a real drag has happened. See
+  // PriceOpinionCard.js.
+  const [hasInteracted, setHasInteracted] = useState(false);
   const [showPriceOpinionModal, setShowPriceOpinionModal] = useState(false);
   const [showConfirmOpinionModal, setShowConfirmOpinionModal] = useState(false);
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [registerInterest, setRegisterInterest] = useState(false);
   const [savedOfferId, setSavedOfferId] = useState(null);
+  // How many opinions (including this one) exist for this property —
+  // fetched once, right after a successful save, to give the "Opinion
+  // saved" modal a genuine, privacy-safe participation count instead of
+  // an empty confirmation. See api/offers/opinion-count/route.js for
+  // exactly why this is a count only, never an average or a range.
+  const [opinionCount, setOpinionCount] = useState(null);
   const [isSliding, setIsSliding] = useState(false);
   const [ipadContactStep, setIpadContactStep] = useState(false);
   const [phone, setPhone] = useState('');
@@ -93,14 +119,19 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
   // this is presentation only.
   const [brand, setBrand] = useState(null);
 
-  // Sticky price bar visibility
-  const [showStickyPrice, setShowStickyPrice] = useState(false);
+  // Sticky price prompt visibility inputs — see utils/stickyPromptVisibility.js
+  // for the actual decision, computed just before render below.
+  const [pastHero, setPastHero] = useState(false);
+  const [priceCardInView, setPriceCardInView] = useState(false);
+  const priceCardRef = useRef(null);
+  const firstInteractionTracked = useRef(false);
 
   // Engagement tracking (view duration, scroll depth, photos, shares, opinions)
   const {
     trackPhotoView,
     trackShare,
     trackOpinionStart,
+    trackSubmitAttempted,
     trackOpinionComplete,
   } = usePropertyEngagement(propertyId);
 
@@ -126,12 +157,18 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
     }
   }, [property, propertyId]);
 
-  // Ask the user to confirm their opinion when the slider is released
+  // Watches the real price-opinion card so the sticky prompt (below)
+  // never shows while the actual interaction is already on screen.
   useEffect(() => {
-    if (!isSliding && priceOpinion > 0 && propertyId) {
-      setShowConfirmOpinionModal(true);
-    }
-  }, [isSliding]);
+    const node = priceCardRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setPriceCardInView(entry.isIntersecting),
+      { threshold: 0.2 }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   const confirmPriceOpinion = () => {
     setShowConfirmOpinionModal(false);
@@ -139,6 +176,22 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
       saveIpadPriceOpinion();
     } else {
       savePriceOpinion();
+    }
+  };
+
+  // The buyer's first genuine touch of the slider — not mount, not a
+  // restored prior value, not submit time. This is what actually
+  // unlocks the price display/Submit button (see hasInteracted), and
+  // the correctly-timed "first price interaction" funnel signal that
+  // trackOpinionStart used to fire at submit time instead (see
+  // engagement-ping/route.js for why that distinction matters).
+  const handleSlideStart = () => {
+    setIsSliding(true);
+    if (!firstInteractionTracked.current) {
+      firstInteractionTracked.current = true;
+      setHasInteracted(true);
+      trackOpinionStart();
+      trackEvent('price_interaction_started', { property_id: propertyId });
     }
   };
   
@@ -151,9 +204,9 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
         if (docSnap.exists()) {
           const data = { id: docSnap.id, ...docSnap.data() };
           setProperty(data);
-          
+
           // Calculate price range based on property.price
-          const { min, max } = computeInitialRange(data);
+          const { min, max } = computePriceOpinionRange(data);
           setMinPrice(min);
           setMaxPrice(max);
           
@@ -249,25 +302,6 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
     fetchAgentData();
   }, [property?.userId, property?.agentId, property?.agentName, property?.agentAvatar]);
 
-  // Sticky price bar scroll visibility
-  useEffect(() => {
-    const handleScroll = () => {
-      const scrollPosition = window.scrollY;
-      const windowHeight = window.innerHeight;
-      const documentHeight = document.documentElement.scrollHeight;
-
-      const showThreshold = 400; // Show after scrolling past hero
-      const hideThreshold = documentHeight - windowHeight - 600; // Hide near bottom CTA
-
-      setShowStickyPrice(scrollPosition > showThreshold && scrollPosition < hideThreshold);
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    handleScroll();
-
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
   const incrementPropertyViews = async (propId) => {
     // Vercel Preview deployments share the same production Firebase
     // project as premarket.homes (see utils/previewEnvironment.js) — never
@@ -321,22 +355,51 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
         setSavedOfferId(data.offerId);
         const roundedOffer = roundToStep(data.offerAmount);
         setPriceOpinion(roundedOffer);
+        // Restoring a genuine prior answer is not the same as an
+        // untouched default — this visitor already deliberately gave
+        // an opinion, so there's nothing to re-invite.
+        setHasInteracted(true);
         return;
       }
 
-      // If no session offer found, use midpoint
+      // No prior opinion: the slider still needs a sensible starting
+      // position for the thumb to render at, so it's seeded at the
+      // midpoint — but hasInteracted stays false, so this number is
+      // never shown or submittable until the visitor actually drags.
       const mid = roundToStep((min + max) / 2);
       setPriceOpinion(mid);
     } catch (error) {
       console.error('Error fetching previous offer:', error);
-      // Fallback to midpoint if error
       const mid = roundToStep((min + max) / 2);
       setPriceOpinion(mid);
     }
   };
 
+  // Real, privacy-safe count of opinions on this property — see
+  // api/offers/opinion-count/route.js for exactly what it does and
+  // doesn't reveal. Never blocks the save path; a failed fetch just
+  // means the modal skips the participation line.
+  const fetchOpinionCount = async () => {
+    try {
+      const res = await fetch(`/api/offers/opinion-count?propertyId=${encodeURIComponent(propertyId)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data.count === 'number') setOpinionCount(data.count);
+    } catch (error) {
+      console.error('Error fetching opinion count:', error);
+    }
+  };
+
   const savePriceOpinion = async () => {
-    trackOpinionStart();
+    // Fires the instant a submit is attempted, before the write resolves
+    // — distinct from trackOpinionComplete below, so "attempted" and
+    // "succeeded" can be told apart (see engagement-ping/route.js).
+    trackSubmitAttempted();
+    trackEvent('opinion_submit_attempted', {
+      property_id: propertyId,
+      opinion_amount: Math.round(priceOpinion),
+    });
+
     // Preview deployments connect to the real production Firestore project
     // (see utils/previewEnvironment.js) — simulate a successful save so the
     // full UX can be tested, without writing a real buyer opinion. Analytics
@@ -344,16 +407,23 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
     // itself can be verified in preview too.
     if (isPreviewDeployment()) {
       trackOpinionComplete();
+      await fetchOpinionCount();
       setShowPriceOpinionModal(true);
       return;
     }
     try {
       const sessionId = getSessionId();
+      // Same persistent, anonymous identifier already used for views and
+      // meaningful sessions (see incrementPropertyViews) — stamped onto
+      // the offer as an additive field so the opinion-conversion funnel
+      // can eventually be joined across those collections.
+      const visitorId = localStorage.getItem('pm_visitor_id') || null;
 
       const offerData = {
         type: 'opinion',
         propertyId: propertyId,
         sessionId: sessionId,
+        visitorId,
         offerAmount: Math.round(priceOpinion),
         updatedAt: serverTimestamp(),
         fromWeb: true,
@@ -363,7 +433,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
         // Update existing offer
         const offerRef = doc(db, 'offers', savedOfferId);
         await updateDoc(offerRef, offerData);
-        
+
         trackEvent('price_opinion_updated', {
           property_id: propertyId,
           opinion_amount: Math.round(priceOpinion),
@@ -374,7 +444,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
         offerData.createdAt = serverTimestamp();
         const docRef = await addDoc(collection(db, 'offers'), offerData);
         setSavedOfferId(docRef.id);
-        
+
         trackEvent('price_opinion_created', {
           property_id: propertyId,
           opinion_amount: Math.round(priceOpinion),
@@ -383,6 +453,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
       }
 
       trackOpinionComplete();
+      await fetchOpinionCount();
       // Show the modal
       setShowPriceOpinionModal(true);
     } catch (error) {
@@ -410,11 +481,13 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
 
     // Save in the background
     const ipadSessionId = `ipad_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const visitorId = localStorage.getItem('pm_visitor_id') || null;
 
     const offerData = {
       type: 'opinion',
       propertyId: propertyId,
       sessionId: ipadSessionId,
+      visitorId,
       offerAmount: Math.round(priceOpinion),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -457,51 +530,13 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
     setEmail('');
     setFirstName('');
     setLastName('');
-    setPassword('');
     setSignupError('');
-    // Reset slider to midpoint
+    // Reset for the next walk-in visitor: same de-anchored starting
+    // state as a fresh page load — a sensible thumb position, but not
+    // treated as a real opinion until they actually drag.
     const mid = roundToStep((minPrice + maxPrice) / 2);
     setPriceOpinion(mid);
-  };
-
-  const computeInitialRange = (data) => {
-    const toDouble = (v) => {
-      if (!v) return 0;
-      if (typeof v === 'number') return v;
-      if (typeof v === 'string') {
-        const cleaned = v.replace(/[^\d.]/g, '');
-        return parseFloat(cleaned) || 0;
-      }
-      return 0;
-    };
-
-    // Get the base price from property.price
-    let basePrice = toDouble(data.price);
-    
-    // If no price, try other sources
-    if (basePrice === 0) {
-      const priceEstimate = data.propertyJob?.price_estimate;
-      if (priceEstimate) {
-        basePrice = toDouble(priceEstimate.mid) || 
-                    toDouble(priceEstimate.high) || 
-                    toDouble(priceEstimate.low);
-      }
-    }
-    
-    if (basePrice === 0) {
-      basePrice = toDouble(data.priceGuide);
-    }
-    
-    // Default to 1M if still no price
-    if (basePrice === 0) {
-      basePrice = 1000000;
-    }
-
-    // Calculate min and max as 25% either side
-    const min = roundToStep(basePrice * 0.75);
-    const max = roundToStep(basePrice * 1.25);
-
-    return { min, max };
+    setHasInteracted(false);
   };
 
   const formatMoney = (val) => {
@@ -908,19 +943,27 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
           </div>
 
           {/* Price display */}
-          <div className="mb-8">
-            <p className="text-slate-400 text-sm font-medium mb-3 uppercase tracking-wider">
-              What&apos;s your price opinion?
-            </p>
-            <motion.div
-              className="text-6xl md:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)]"
-              key={priceOpinion}
-              initial={{ scale: 1.05 }}
-              animate={{ scale: 1 }}
-              transition={{ duration: 0.15 }}
-            >
-              {formatMoney(priceOpinion)}
-            </motion.div>
+          <div className="mb-8 min-h-[72px] md:min-h-[84px] flex items-center justify-center">
+            {hasInteracted ? (
+              <div>
+                <p className="text-slate-400 text-sm font-medium mb-3 uppercase tracking-wider">
+                  What&apos;s your price opinion?
+                </p>
+                <motion.div
+                  className="text-6xl md:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)]"
+                  key={isSliding ? 'dragging' : priceOpinion}
+                  initial={{ scale: 1.05 }}
+                  animate={{ scale: 1 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  {formatMoney(priceOpinion)}
+                </motion.div>
+              </div>
+            ) : (
+              <p className="text-2xl md:text-3xl font-semibold text-slate-400">
+                Have a go &mdash; what&apos;s it worth?
+              </p>
+            )}
           </div>
 
           {/* Slider */}
@@ -930,7 +973,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
               max={maxPrice}
               value={priceOpinion}
               onChange={setPriceOpinion}
-              onSlideStart={() => setIsSliding(true)}
+              onSlideStart={handleSlideStart}
               onSlideEnd={() => setIsSliding(false)}
               className="w-full h-4 bg-gradient-to-r from-orange-400 via-yellow-400 to-green-500 rounded-lg appearance-none cursor-pointer ipad-slider"
             />
@@ -940,10 +983,17 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
             </div>
           </div>
 
-          {/* Instruction */}
-          <p className="text-slate-400 text-sm">
-            Drag the slider and release to confirm your opinion
-          </p>
+          {/* Lock in — explicit trigger (dragging no longer auto-confirms
+              on release, since that effect punished ordinary mid-drag
+              re-grips on the web page; this kiosk needs its own explicit
+              control instead of relying on that removed behaviour) */}
+          <button
+            onClick={() => setShowConfirmOpinionModal(true)}
+            disabled={!hasInteracted}
+            className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-4 rounded-xl shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+          >
+            Lock in my opinion
+          </button>
         </div>
 
         {/* Bottom: Powered by Premarket */}
@@ -1241,6 +1291,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
         imageUrl={imageUrls[0]}
         hasVideo={!!displayVideoUrl}
         onWatchVideo={() => setVideoModalOpen(true)}
+        onPastHero={setPastHero}
       />
 
       <div className="max-w-6xl mx-auto px-5 sm:px-8 py-10 sm:py-16">
@@ -1255,23 +1306,26 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
           see PropertyInfoCard.js).
         */}
         <div className="grid md:grid-cols-2 gap-5 sm:gap-6 items-stretch mb-10 sm:mb-14">
-          <PriceOpinionCard
-            propertyId={propertyId}
-            priceOpinion={priceOpinion}
-            minPrice={minPrice}
-            maxPrice={maxPrice}
-            onChange={setPriceOpinion}
-            onSlideStart={() => setIsSliding(true)}
-            onSlideEnd={() => setIsSliding(false)}
-            onSubmitOpinion={openConfirmOpinion}
-            onRegisterInterest={handleRegisterInterest}
-            formatMoney={formatMoney}
-            formatCompact={formatCompact}
-            heading={marketCopy.priceOpinionHeading}
-            subcopy={marketCopy.priceOpinionSubcopy}
-            interestHeading={marketCopy.interestHeading}
-            interestSubcopy={marketCopy.interestSubcopy}
-          />
+          <div ref={priceCardRef} className="h-full">
+            <PriceOpinionCard
+              propertyId={propertyId}
+              priceOpinion={priceOpinion}
+              minPrice={minPrice}
+              maxPrice={maxPrice}
+              hasInteracted={hasInteracted}
+              isSliding={isSliding}
+              onChange={setPriceOpinion}
+              onSlideStart={handleSlideStart}
+              onSlideEnd={() => setIsSliding(false)}
+              onSubmitOpinion={openConfirmOpinion}
+              onRegisterInterest={handleRegisterInterest}
+              formatMoney={formatMoney}
+              formatCompact={formatCompact}
+              heading={marketCopy.priceOpinionHeading}
+              subcopy={marketCopy.priceOpinionSubcopy}
+              interestSubcopy={marketCopy.interestSubcopy}
+            />
+          </div>
           <PropertyInfoCard
             description={description}
             showFullDescription={showFullDescription}
@@ -1311,6 +1365,19 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
         <AgentSignOff agentData={agentData} displayLogoUrl={displayLogoUrl} />
       </div>
 
+      <StickyPricePrompt
+        visible={shouldShowStickyPrompt({
+          pastHero,
+          priceCardInView,
+          anyModalOpen: showConfirmOpinionModal || showPriceOpinionModal || showQualificationModal || showSignupModal || lightboxOpen || videoModalOpen,
+          hasSubmittedOpinion: !!savedOfferId,
+        })}
+        priceOpinion={priceOpinion}
+        hasInteracted={hasInteracted}
+        formatMoney={formatMoney}
+        onTap={() => priceCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+      />
+
       {premiumConfirmOpinionModal}
 
       {/* Price Opinion Saved Modal */}
@@ -1333,14 +1400,21 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId } =
                 </svg>
               </div>
               <h3 className="text-2xl font-semibold text-slate-900 mb-3" style={{ fontFamily: 'var(--font-playfair, serif)' }}>
-                Opinion saved
+                Your opinion&rsquo;s locked in
               </h3>
               <div className="text-4xl font-semibold text-[var(--brand-primary,#c2410c)] mb-4 tabular-nums">
                 {formatMoney(priceOpinion)}
               </div>
-              <p className="text-slate-500 mb-6 text-sm">
-                You&apos;ve left a price opinion for this property.
+              <p className="text-slate-500 mb-1 text-sm">
+                This is your honest opinion of the property&rsquo;s value &mdash; not an offer or a commitment to buy.
               </p>
+              {typeof opinionCount === 'number' && opinionCount > 0 && (
+                <p className="text-slate-400 text-xs mt-3">
+                  {opinionCount === 1
+                    ? 'You’re the first to share an opinion on this property.'
+                    : `${opinionCount.toLocaleString()} opinions shared on this property so far.`}
+                </p>
+              )}
             </div>
 
             <div className="space-y-4">

@@ -73,12 +73,15 @@ describe('PropertyPageClient.js / PriceOpinionSlider.js — default fallback val
     expect(source).not.toContain('from-[#e48900] to-[#c64500]');
     // The premium redesign (default, non-iPad branch) intentionally moved
     // off this old two-tone orange gradient to a single, more restrained
-    // accent colour (see the redesigned-page assertion below). The 5
+    // accent colour (see the redesigned-page assertion below). The 6
     // remaining references are the iPad open-home kiosk mode's own JSX
-    // (4) plus the confirmOpinionModal variable it alone still uses (1) —
-    // both deliberately left untouched by the redesign.
+    // (5, including its explicit "Lock in my opinion" button — added
+    // when the shared auto-confirm-on-release effect was removed, since
+    // the kiosk had no other way to trigger the confirm modal) plus the
+    // confirmOpinionModal variable it alone still uses (1) — both
+    // deliberately left untouched by the redesign.
     const matches = source.match(/from-\[var\(--brand-primary,#e48900\)\] to-\[var\(--brand-primary-dark,#c64500\)\]/g) || [];
-    expect(matches.length).toBe(5);
+    expect(matches.length).toBe(6);
   });
 
   it('the redesigned (non-iPad) property page uses a single restrained brand-primary accent, with the original orange as its own distinct default fallback', async () => {
