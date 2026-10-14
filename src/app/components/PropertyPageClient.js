@@ -38,6 +38,37 @@ const getSessionId = () => {
   return sessionId;
 };
 
+// Register-interest "what would you like next?" — always answered (default
+// 'contact'), never a gate; replaces the old "how serious are you about this
+// property?" question, which was stored but never actually changed anything
+// the agent saw. An action an agent can act on beats a self-rated adjective.
+const NEXT_ACTION_OPTIONS = [
+  { value: 'contact', label: 'Have the agent contact me' },
+  { value: 'inspection', label: 'Arrange an inspection' },
+  { value: 'info', label: 'Send me more information' },
+];
+
+// Optional, inside the collapsed "more details" section — more useful to an
+// agent for triage than a vague seriousness rating, and never required.
+const TIMEFRAME_OPTIONS = [
+  { value: 'asap', label: 'ASAP' },
+  { value: '1_3_months', label: '1–3 months' },
+  { value: '3_6_months', label: '3–6 months' },
+  { value: '6_12_months', label: '6–12+ months' },
+  { value: 'just_exploring', label: 'Just exploring' },
+];
+
+// Optional, inside the collapsed "more details" section. Asking this before
+// a buyer has even given their name — as the old qualification modal did,
+// as a mandatory field — is backwards: it's personal financial information
+// requested ahead of any stated intent, gatekeeping a low-friction action.
+const FINANCE_OPTIONS = [
+  { value: 'cash', label: 'Cash Buyer' },
+  { value: 'approved_finance', label: 'Approved Finance' },
+  { value: 'pre_approval', label: 'Pre-Approval' },
+  { value: 'not_yet', label: 'Not Yet' },
+];
+
 export default function PropertyPageClient({ previewBrand, previewPropertyId, initialProperty } = {}) {
   const searchParams = useSearchParams();
   const propertyId = previewPropertyId || searchParams.get('propertyId');
@@ -49,12 +80,22 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
   const [ipadThankYou, setIpadThankYou] = useState(false);
 
   const [showQualificationModal, setShowQualificationModal] = useState(false);
+  // seriousnessLevel is iPad-kiosk-mode only now (see handleQualificationSubmit
+  // and the iPad-mode qualification modal below) — the web register-interest
+  // flow replaced that question with nextAction/timeframe, below, since
+  // "how serious are you" never actually changed what the agent received.
   const [qualificationData, setQualificationData] = useState({
     isFirstHomeBuyer: false,
     isInvestor: false,
     buyerType: '',
     seriousnessLevel: '',
+    nextAction: 'contact',
+    timeframe: '',
   });
+  // Collapsed by default — everything inside is optional enrichment, never
+  // a gate in front of the three fields (name/email/phone) that actually
+  // make a lead actionable.
+  const [showMoreDetails, setShowMoreDetails] = useState(false);
 
   // Seeded from the server-fetched property (see find-property/page.js)
   // when available, so the first paint has real content instead of a
@@ -508,7 +549,10 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
       isInvestor: false,
       buyerType: '',
       seriousnessLevel: '',
+      nextAction: 'contact',
+      timeframe: '',
     });
+    setShowMoreDetails(false);
     setEmail('');
     setFirstName('');
     setLastName('');
@@ -699,28 +743,75 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
     setSubmitting(true);
 
     try {
-      // Save contact + qualification info to the offer
-      if (savedOfferId) {
-        await updateDoc(doc(db, 'offers', savedOfferId), {
-          serious: registerInterest && hasAllContactFields ? true : false,
-          isFirstHomeBuyer: qualificationData.isFirstHomeBuyer,
-          isInvestor: qualificationData.isInvestor,
-          buyerType: qualificationData.buyerType,
-          seriousnessLevel: qualificationData.seriousnessLevel,
-          buyerName: `${firstName.trim()} ${lastName.trim()}`.trim(),
-          buyerEmail: email.trim().toLowerCase() || null,
-          buyerPhone: phone.trim() || null,
-          // Link to existing user if they're logged in
-          ...(currentAuthUser ? { userId: currentAuthUser.uid } : {}),
-          updatedAt: serverTimestamp(),
-        });
+      const interestFields = {
+        serious: registerInterest && hasAllContactFields ? true : false,
+        isFirstHomeBuyer: qualificationData.isFirstHomeBuyer,
+        isInvestor: qualificationData.isInvestor,
+        buyerType: qualificationData.buyerType || null,
+        nextAction: qualificationData.nextAction,
+        timeframe: qualificationData.timeframe || null,
+        buyerName: `${firstName.trim()} ${lastName.trim()}`.trim(),
+        buyerEmail: email.trim().toLowerCase() || null,
+        buyerPhone: phone.trim() || null,
+        // Link to existing user if they're logged in
+        ...(currentAuthUser ? { userId: currentAuthUser.uid } : {}),
+        updatedAt: serverTimestamp(),
+      };
+
+      let targetOfferId = savedOfferId;
+
+      // Preview deployments share production Firestore (see
+      // utils/previewEnvironment.js) — never write a real registered-interest
+      // record, or notify a real agent, from a preview build.
+      if (!isPreviewDeployment()) {
+        if (savedOfferId) {
+          await updateDoc(doc(db, 'offers', savedOfferId), interestFields);
+        } else {
+          // No prior price opinion exists for this visitor — this used to
+          // mean registering interest silently wrote nothing at all (the
+          // whole updateDoc call was skipped, with no fallback) while the
+          // UI still showed success. Registering interest must always
+          // create a genuine lead, whether or not this visitor ever
+          // touched the valuation slider. type stays 'opinion' so this
+          // flows through the existing dashboard/reporting pipeline
+          // unchanged; offerAmount is only ever included if this visitor
+          // actually gave a real opinion (hasInteracted) — never
+          // fabricated for someone who went straight to registering
+          // interest.
+          const sessionId = getSessionId();
+          const visitorId = localStorage.getItem('pm_visitor_id') || null;
+          const docRef = await addDoc(collection(db, 'offers'), {
+            type: 'opinion',
+            propertyId,
+            sessionId,
+            visitorId,
+            fromWeb: true,
+            createdAt: serverTimestamp(),
+            ...(hasInteracted ? { offerAmount: Math.round(priceOpinion) } : {}),
+            ...interestFields,
+          });
+          targetOfferId = docRef.id;
+          setSavedOfferId(docRef.id);
+        }
       }
 
       trackEvent('registered_interest', {
         property_id: propertyId,
         registered_interest: registerInterest,
         has_account: !!currentAuthUser,
+        had_prior_opinion: !!savedOfferId,
       });
+
+      // Fire-and-forget — the agent notification is a nice-to-have on top
+      // of a successful registration, never a reason to block or fail the
+      // buyer's own confirmation if it doesn't go through.
+      if (!isPreviewDeployment() && targetOfferId) {
+        fetch('/api/offers/notify-interest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ offerId: targetOfferId, propertyId }),
+        }).catch((err) => console.error('Error notifying agent of new interest:', err));
+      }
 
       setShowThankYou(true);
     } catch (error) {
@@ -731,11 +822,19 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
     }
   };
 
+  // Goes straight to the single contact-details form — no separate
+  // qualification screen first. The old two-modal flow asked finance
+  // status and a "how serious are you" rating before a buyer could even
+  // give their name; neither is worth gating lead capture behind, so
+  // registering interest now only ever asks for what it actually needs
+  // up front, with everything else folded into an optional section inside
+  // that one form (see showMoreDetails / the Register Interest modal).
   const handleRegisterInterest = () => {
     setRegisterInterest(true);
     setShowPriceOpinionModal(false);
-    setShowQualificationModal(true);
-    
+    setShowMoreDetails(false);
+    setShowSignupModal(true);
+
     trackEvent('register_interest_clicked', {
       property_id: propertyId
     });
@@ -1447,127 +1546,15 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         </div>
       )}
 
-      {/* Qualification Modal */}
-      {showQualificationModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8 relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => {
-                setShowQualificationModal(false);
-                setRegisterInterest(false);
-              }}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-
-            <div className="text-center mb-6">
-              <h3 className="text-xl font-semibold text-slate-900 mb-2" style={{ fontFamily: 'var(--font-playfair, serif)' }}>
-                Tell us a little more
-              </h3>
-              <p className="text-slate-500 text-sm">
-                This helps the agent understand your circumstances.
-              </p>
-            </div>
-
-            <div className="space-y-5">
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                <label className="flex items-center justify-between cursor-pointer">
-                  <span className="text-sm font-medium text-slate-800">Are you a first home buyer?</span>
-                  <input
-                    type="checkbox"
-                    checked={qualificationData.isFirstHomeBuyer}
-                    onChange={(e) => setQualificationData({
-                      ...qualificationData,
-                      isFirstHomeBuyer: e.target.checked
-                    })}
-                    className="w-5 h-5 rounded focus:ring-2 focus:ring-slate-400"
-                    style={{ accentColor: 'var(--brand-primary, #c2410c)' }}
-                  />
-                </label>
-              </div>
-
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                <label className="flex items-center justify-between cursor-pointer">
-                  <span className="text-sm font-medium text-slate-800">Are you an investor?</span>
-                  <input
-                    type="checkbox"
-                    checked={qualificationData.isInvestor}
-                    onChange={(e) => setQualificationData({
-                      ...qualificationData,
-                      isInvestor: e.target.checked
-                    })}
-                    className="w-5 h-5 rounded focus:ring-2 focus:ring-slate-400"
-                    style={{ accentColor: 'var(--brand-primary, #c2410c)' }}
-                  />
-                </label>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-800 mb-3">
-                  Finance status
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { value: 'cash', label: 'Cash Buyer' },
-                    { value: 'approved_finance', label: 'Approved Finance' },
-                    { value: 'pre_approval', label: 'Pre-Approval' },
-                    { value: 'not_yet', label: 'Not Yet' }
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setQualificationData({
-                        ...qualificationData,
-                        buyerType: option.value
-                      })}
-                      className={`px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
-                        qualificationData.buyerType === option.value
-                          ? 'border-slate-800 bg-slate-900 text-white'
-                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-800 mb-3">
-                  How serious are you about this property?
-                </label>
-                <select
-                  value={qualificationData.seriousnessLevel}
-                  onChange={(e) => setQualificationData({
-                    ...qualificationData,
-                    seriousnessLevel: e.target.value
-                  })}
-                  className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-400 focus:border-transparent outline-none transition-all text-slate-800"
-                >
-                  <option value="">Select your interest level</option>
-                  <option value="just_browsing">Just Browsing</option>
-                  <option value="interested">Interested</option>
-                  <option value="very_interested">Very Interested</option>
-                  <option value="ready_to_buy">Ready to Buy</option>
-                </select>
-              </div>
-
-              <button
-                onClick={handleQualificationSubmit}
-                disabled={!qualificationData.buyerType || !qualificationData.seriousnessLevel}
-                className="w-full bg-[var(--brand-primary,#c2410c)] hover:opacity-90 text-[var(--brand-text-on-primary,#ffffff)] font-semibold py-3.5 rounded-xl transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Signup / Register Interest Modal */}
+      {/*
+        Register Interest Modal — a single screen, replacing the old
+        qualification-then-contact two-modal flow. Name/email/phone are the
+        only things that make this a usable lead, so they're the only
+        mandatory fields; the next-action choice always has a sensible
+        default so it can never block submission; everything else (finance,
+        timeframe, FHB/investor) lives in a collapsed, explicitly optional
+        section underneath, never gating the fields above it.
+      */}
       {showSignupModal && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8 relative max-h-[90vh] overflow-y-auto">
@@ -1594,7 +1581,9 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
                   You&apos;re all set
                 </h3>
                 <p className="text-slate-500 mb-8 text-sm">
-                  Your interest in this property has been registered.
+                  {agentData?.firstName
+                    ? `${agentData.firstName} now has your details and will be in touch.`
+                    : 'The agent now has your details and will be in touch.'}
                 </p>
                 <a
                   href="/listings"
@@ -1664,6 +1653,119 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
                     />
                   </div>
 
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      What would you like next?
+                    </label>
+                    <div className="space-y-2">
+                      {NEXT_ACTION_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setQualificationData({
+                            ...qualificationData,
+                            nextAction: option.value
+                          })}
+                          className={`w-full text-left px-4 py-2.5 rounded-lg border text-sm font-medium transition-all ${
+                            qualificationData.nextAction === option.value
+                              ? 'border-slate-800 bg-slate-900 text-white'
+                              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowMoreDetails(!showMoreDetails)}
+                    className="text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors underline underline-offset-2"
+                  >
+                    {showMoreDetails ? 'Hide extra details' : 'Add a few more details (optional)'}
+                  </button>
+
+                  {showMoreDetails && (
+                    <div className="space-y-4 pt-1">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                          When are you hoping to buy?
+                        </label>
+                        <select
+                          value={qualificationData.timeframe}
+                          onChange={(e) => setQualificationData({
+                            ...qualificationData,
+                            timeframe: e.target.value
+                          })}
+                          className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-400 focus:border-transparent outline-none transition-all text-slate-800"
+                        >
+                          <option value="">Prefer not to say</option>
+                          {TIMEFRAME_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                          Where are you up to with finance? <span className="text-slate-400 font-normal">(optional)</span>
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          {FINANCE_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => setQualificationData({
+                                ...qualificationData,
+                                buyerType: qualificationData.buyerType === option.value ? '' : option.value
+                              })}
+                              className={`px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                                qualificationData.buyerType === option.value
+                                  ? 'border-slate-800 bg-slate-900 text-white'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                        <label className="flex items-center justify-between cursor-pointer">
+                          <span className="text-sm font-medium text-slate-800">Are you a first home buyer?</span>
+                          <input
+                            type="checkbox"
+                            checked={qualificationData.isFirstHomeBuyer}
+                            onChange={(e) => setQualificationData({
+                              ...qualificationData,
+                              isFirstHomeBuyer: e.target.checked
+                            })}
+                            className="w-5 h-5 rounded focus:ring-2 focus:ring-slate-400"
+                            style={{ accentColor: 'var(--brand-primary, #c2410c)' }}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                        <label className="flex items-center justify-between cursor-pointer">
+                          <span className="text-sm font-medium text-slate-800">Are you an investor?</span>
+                          <input
+                            type="checkbox"
+                            checked={qualificationData.isInvestor}
+                            onChange={(e) => setQualificationData({
+                              ...qualificationData,
+                              isInvestor: e.target.checked
+                            })}
+                            className="w-5 h-5 rounded focus:ring-2 focus:ring-slate-400"
+                            style={{ accentColor: 'var(--brand-primary, #c2410c)' }}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
                   {signupError && (
                     <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
                       {signupError}
@@ -1675,12 +1777,12 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
                     disabled={submitting}
                     className="w-full bg-[var(--brand-primary,#c2410c)] hover:opacity-90 text-[var(--brand-text-on-primary,#ffffff)] font-semibold py-3.5 rounded-lg transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {submitting ? 'Submitting...' : 'Register Interest'}
+                    {submitting ? 'Submitting...' : 'Register my interest'}
                   </button>
                 </form>
 
                 <p className="text-xs text-center text-slate-400 mt-4">
-                  100% free &bull; No obligation &bull; The agent will be in touch
+                  Your details will be shared with the agent for this property so they can follow up. This isn&rsquo;t an offer or a commitment to buy.
                 </p>
               </>
             )}

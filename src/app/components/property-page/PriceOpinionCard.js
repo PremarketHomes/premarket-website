@@ -126,7 +126,7 @@ export default function PriceOpinionCard({
         onClick={onRegisterInterest}
         className="mt-5 text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors underline underline-offset-2"
       >
-        Already know you&rsquo;re interested? Register formal interest instead
+        Already know this is for you? Register your interest instead
       </button>
       {interestSubcopy && (
         <p className="mt-2 text-center text-xs text-slate-400">

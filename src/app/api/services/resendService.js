@@ -97,6 +97,69 @@ export async function sendPropertyAgentEmail(userEmail, userFirstName, propertyA
   });
 }
 
+const NEXT_ACTION_LABELS = {
+  contact: 'Have the agent contact them',
+  inspection: 'Arrange an inspection',
+  info: 'Send more information',
+};
+
+const TIMEFRAME_LABELS = {
+  asap: 'ASAP',
+  '1_3_months': '1–3 months',
+  '3_6_months': '3–6 months',
+  '6_12_months': '6–12+ months',
+  just_exploring: 'Just exploring',
+};
+
+/**
+ * Sent to the owning agent the moment a buyer registers formal interest —
+ * the only real-time lead notification in the product today; everything
+ * else requires the agent to open their dashboard. See
+ * api/offers/notify-interest/route.js for when/why this fires.
+ */
+export async function sendNewBuyerInterestEmail({
+  agentEmail,
+  agentFirstName,
+  propertyAddress,
+  propertyId,
+  buyerName,
+  buyerEmail,
+  buyerPhone,
+  nextAction,
+  timeframe,
+}) {
+  const actionLabel = NEXT_ACTION_LABELS[nextAction] || NEXT_ACTION_LABELS.contact;
+  const timeframeLabel = TIMEFRAME_LABELS[timeframe];
+
+  const bodyHTML = `
+    ${greeting(agentFirstName)}
+    ${p(`<strong>${buyerName || 'A buyer'}</strong> just registered their interest in <strong>${propertyAddress}</strong>.`)}
+
+    ${infoBox(`
+      <p style="margin:0 0 10px 0; font-size:13px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Wants</p>
+      <p style="margin:0 0 14px 0; font-size:16px; font-weight:700; color:#1a1a2e;">${actionLabel}</p>
+      ${buyerEmail ? `<p style="margin:0 0 4px 0; font-size:14px; color:#4b5563;">${buyerEmail}</p>` : ''}
+      ${buyerPhone ? `<p style="margin:0; font-size:14px; color:#4b5563;">${buyerPhone}</p>` : ''}
+      ${timeframeLabel ? `<p style="margin:12px 0 0 0; font-size:13px; color:#94a3b8;">Buying timeframe: ${timeframeLabel}</p>` : ''}
+    `)}
+
+    ${p('Buyer leads go cold fast — worth reaching out while this is fresh.')}
+    ${ctaButton('View in Dashboard', `${BASE_URL}/dashboard/property/${propertyId}`)}
+    ${signature()}
+  `;
+
+  return sendEmail({
+    to: agentEmail,
+    subject: `New buyer interest: ${propertyAddress}`,
+    html: wrapEmail({
+      previewText: `${buyerName || 'A buyer'} registered interest in ${propertyAddress}`,
+      bodyHTML,
+      recipientEmail: agentEmail,
+      reason: "You're receiving this because a buyer registered interest in your property on Premarket.",
+    }),
+  });
+}
+
 /**
  * Vendor invite link email — sent by agents to invite vendors.
  */

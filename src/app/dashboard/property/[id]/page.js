@@ -459,6 +459,20 @@ function fmtInterestLevel(level) {
   return map[level] || level;
 }
 
+// nextAction replaced seriousnessLevel for registrations made after this
+// change — an action to take beats a self-rated adjective. Older records
+// only ever have seriousnessLevel, which the table below still shows as a
+// fallback.
+function fmtNextAction(action) {
+  const map = { contact: 'Have the agent contact them', inspection: 'Arrange an inspection', info: 'Send more information' };
+  return map[action] || null;
+}
+
+function fmtTimeframe(timeframe) {
+  const map = { asap: 'ASAP', '1_3_months': '1–3 months', '3_6_months': '3–6 months', '6_12_months': '6–12+ months', just_exploring: 'Just exploring' };
+  return map[timeframe] || null;
+}
+
 function fmtBudget(val) {
   if (!val) return null;
   if (val >= 1000000) return `$${(val / 1000000).toFixed(val % 1000000 === 0 ? 0 : 1)}M`;
@@ -558,6 +572,13 @@ function OpinionsTable({ opinions }) {
                         <span className="inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-100 text-slate-600">Investor</span>
                       )}
                     </div>
+                    {/* The one thing to actually act on, read first — what
+                        an agent needs is an instruction, not a price. */}
+                    {fmtNextAction(op.nextAction) && (
+                      <p className="text-sm font-semibold text-blue-700 mt-1">
+                        Wants: {fmtNextAction(op.nextAction)}
+                      </p>
+                    )}
                     {(op.resolvedEmail || op.resolvedPhone) && (
                       <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
                         {op.resolvedEmail && <span>{op.resolvedEmail}</span>}
@@ -566,7 +587,11 @@ function OpinionsTable({ opinions }) {
                     )}
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-lg font-bold text-slate-900">{formatPrice(op.offerAmount)}</div>
+                    {op.offerAmount ? (
+                      <div className="text-lg font-bold text-slate-900">{formatPrice(op.offerAmount)}</div>
+                    ) : (
+                      <div className="text-xs text-slate-400 italic">No price opinion</div>
+                    )}
                     <div className="text-xs text-slate-400">{formatDate(op.createdAt)}</div>
                   </div>
                 </div>
@@ -577,10 +602,21 @@ function OpinionsTable({ opinions }) {
                     <span className="text-slate-400">Finance</span>
                     <p className="font-semibold text-slate-700">{fmtBuyerType(op.buyerType)}</p>
                   </div>
-                  <div>
-                    <span className="text-slate-400">Interest Level</span>
-                    <p className="font-semibold text-slate-700">{fmtInterestLevel(op.seriousnessLevel)}</p>
-                  </div>
+                  {fmtTimeframe(op.timeframe) && (
+                    <div>
+                      <span className="text-slate-400">Timeframe</span>
+                      <p className="font-semibold text-slate-700">{fmtTimeframe(op.timeframe)}</p>
+                    </div>
+                  )}
+                  {/* seriousnessLevel only exists on registrations made
+                      before nextAction replaced it — shown here so older
+                      leads don't lose this context, never written anymore. */}
+                  {op.seriousnessLevel && (
+                    <div>
+                      <span className="text-slate-400">Interest Level</span>
+                      <p className="font-semibold text-slate-700">{fmtInterestLevel(op.seriousnessLevel)}</p>
+                    </div>
+                  )}
                   {op.preferredLocations?.length > 0 && (
                     <div>
                       <span className="text-slate-400">Preferred Locations</span>
