@@ -45,6 +45,7 @@ export default function PropertyHero({
   carSpaces,
   landSize,
   imageUrl,
+  heroFocalPoint,
   hasVideo,
   onWatchVideo,
 }) {
@@ -56,6 +57,7 @@ export default function PropertyHero({
           alt={title || 'Property photo'}
           priority
           sizes="100vw"
+          objectPosition={heroFocalPoint}
         />
       ) : null}
 

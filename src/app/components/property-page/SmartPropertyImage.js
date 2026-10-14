@@ -27,8 +27,14 @@ import { isOptimizableImageUrl } from '../../utils/imageHost';
  *
  * Must be used inside a `position: relative` container with a defined
  * size/aspect-ratio, same as next/image's `fill` mode.
+ *
+ * `objectPosition` is optional and only meaningful while this is in
+ * object-cover mode — once an image is too extreme an aspect ratio and
+ * this switches to the letterboxed object-contain fallback above, the
+ * whole image is already visible and a focal point has nothing left to
+ * do, so it's intentionally not applied in that branch.
  */
-export default function SmartPropertyImage({ src, alt, priority, className = '', sizes }) {
+export default function SmartPropertyImage({ src, alt, priority, className = '', sizes, objectPosition }) {
   const [contain, setContain] = useState(false);
 
   const handleLoad = useCallback((e) => {
@@ -50,6 +56,7 @@ export default function SmartPropertyImage({ src, alt, priority, className = '',
         sizes={sizes}
         draggable={false}
         onLoad={handleLoad}
+        style={!contain && objectPosition ? { objectPosition } : undefined}
         className={`select-none ${contain ? 'object-contain' : 'object-cover'} ${className}`}
       />
     </>

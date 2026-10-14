@@ -20,6 +20,8 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import ImagePositioner from '../../components/ImagePositioner';
+import { cropAreaToObjectPosition } from '../../utils/imageCrop';
 import {
   MapPin,
   DollarSign,
@@ -101,6 +103,15 @@ export default function AddPropertyPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [images, setImages] = useState([]);
+  // CSS object-position string ("x% y%") for the cover photo, set via
+  // the optional positioning step below — null until the agent uses it,
+  // which is also what tells PropertyHero.js to fall back to its
+  // existing centred default. Reset to null whenever the cover image
+  // itself changes (removed/reordered away from index 0), since a
+  // focal point chosen on one photo has no meaning on a different one.
+  const [heroFocalPoint, setHeroFocalPoint] = useState(null);
+  const [showHeroPositioner, setShowHeroPositioner] = useState(false);
+  const [positioningHero, setPositioningHero] = useState(false);
   const [video, setVideo] = useState(null);
   const [eagerness, setEagerness] = useState(null);
   const [showSuburbOnly, setShowSuburbOnly] = useState(false);
@@ -358,6 +369,9 @@ export default function AddPropertyPage() {
   };
 
   const removeImage = (index) => {
+    // Any reordering of the cover photo invalidates a previously-chosen
+    // focal point — it was framed for whichever photo used to be first.
+    if (index === 0) setHeroFocalPoint(null);
     setImages((prev) => {
       const newImages = [...prev];
       const removed = newImages.splice(index, 1)[0];
@@ -372,12 +386,28 @@ export default function AddPropertyPage() {
 
   const reorderImages = (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
+    // A previously-chosen focal point was framed for whatever photo
+    // used to be at index 0 — if the cover photo itself is changing,
+    // that framing no longer applies to whatever's now in that slot.
+    if (fromIndex === 0 || toIndex === 0) setHeroFocalPoint(null);
     setImages(prev => {
       const updated = [...prev];
       const [moved] = updated.splice(fromIndex, 1);
       updated.splice(toIndex, 0, moved);
       return updated;
     });
+  };
+
+  // No upload or re-encode here — zoom is locked at 1 in the positioner
+  // itself (see the ImagePositioner call below), so this only ever
+  // records a focal point on the original file, never a crop. Stored on
+  // the property as a ready CSS object-position value; applied by
+  // PropertyHero.js via SmartPropertyImage's existing object-fit logic.
+  const handleHeroPositionerSave = ({ croppedArea }) => {
+    setPositioningHero(true);
+    setHeroFocalPoint(cropAreaToObjectPosition(croppedArea));
+    setPositioningHero(false);
+    setShowHeroPositioner(false);
   };
 
   const handleGenerateAI = async () => {
@@ -589,6 +619,7 @@ export default function AddPropertyPage() {
         createdAt: serverTimestamp(),
         description,
         imageUrls: existingUrls,
+        ...(heroFocalPoint ? { heroFocalPoint } : {}),
         imageUploadProgress: needsUpload
           ? { uploaded: 0, total: imageFiles.length, inProgress: true }
           : { uploaded: existingUrls.length, total: existingUrls.length, inProgress: false },
@@ -1167,6 +1198,7 @@ export default function AddPropertyPage() {
                           >
                             <img
                               src={src}
+                              style={i === 0 && heroFocalPoint ? { objectPosition: heroFocalPoint } : undefined}
                               className="w-full h-full object-cover rounded-xl border border-slate-200"
                               alt={`upload-${i}`}
                               draggable={false}
@@ -1180,6 +1212,14 @@ export default function AddPropertyPage() {
                                 <span className="px-1.5 py-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-md">Cover</span>
                               )}
                             </div>
+                            {i === 0 && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setShowHeroPositioner(true); }}
+                                className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 hover:bg-black/75 text-white text-[10px] font-semibold rounded-md sm:opacity-0 sm:group-hover:opacity-100 transition-all"
+                              >
+                                {heroFocalPoint ? 'Reposition' : 'Position'}
+                              </button>
+                            )}
                             <button
                               onClick={() => removeImage(i)}
                               className="absolute top-2 right-2 w-7 h-7 bg-black/60 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center"
@@ -1450,6 +1490,21 @@ export default function AddPropertyPage() {
             <p className="text-slate-500 text-sm">This will only take a moment.</p>
           </div>
         </div>
+      )}
+
+      {showHeroPositioner && images[0] && (
+        <ImagePositioner
+          imageSrc={typeof images[0] === 'string' ? images[0] : images[0]?.preview}
+          aspect={16 / 10}
+          cropShape="rect"
+          minZoom={1}
+          maxZoom={1}
+          title="Position your cover photo"
+          description="Drag to choose what's centred when this photo is shown as the listing's hero image."
+          onCancel={() => setShowHeroPositioner(false)}
+          onSave={handleHeroPositionerSave}
+          saving={positioningHero}
+        />
       )}
     </div>
   );

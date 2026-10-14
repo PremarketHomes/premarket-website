@@ -19,6 +19,8 @@ import {
   Building2,
   MessageSquare,
 } from 'lucide-react';
+import ImagePositioner from '../../components/ImagePositioner';
+import { getCroppedImageBlob, blobToFile } from '../../utils/imageCrop';
 
 const TEAM_SMS_NUMBER = process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER || '+61 491 570 006';
 
@@ -50,6 +52,15 @@ export default function SettingsPage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [resetSending, setResetSending] = useState(false);
+
+  // ImagePositioner state — shared between the avatar and logo pickers.
+  // `positionerTarget` is which field the in-progress crop is for; the
+  // raw, just-selected file never touches avatarFile/logoFile directly
+  // any more — it's held here only long enough to be baked into a
+  // positioned File by the positioner's own Save step.
+  const [positionerTarget, setPositionerTarget] = useState(null);
+  const [positionerImageSrc, setPositionerImageSrc] = useState(null);
+  const [positionerSaving, setPositionerSaving] = useState(false);
 
   // SMS enrollment state
   const [smsPhone, setSmsPhone] = useState(userData?.smsPhone || '');
@@ -84,21 +95,66 @@ export default function SettingsPage() {
     return null;
   }
 
-  const handleAvatarChange = async (e) => {
+  // Both pickers open the positioner on the freshly-selected file rather
+  // than setting avatarFile/logoFile directly — the file that actually
+  // gets uploaded is whatever the positioner's Save step bakes, not the
+  // raw original. Resetting e.target.value lets the same file be picked
+  // again (e.g. after Cancel) without the browser treating it as "no
+  // change" and skipping onChange.
+  const handleAvatarChange = (e) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-
-    // Show preview immediately
-    const previewUrl = URL.createObjectURL(file);
-    setAvatarPreview(previewUrl);
-    setAvatarFile(file);
+    setPositionerImageSrc(URL.createObjectURL(file));
+    setPositionerTarget('avatar');
   };
 
   const handleLogoChange = (e) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    setLogoPreview(URL.createObjectURL(file));
-    setLogoFile(file);
+    setPositionerImageSrc(URL.createObjectURL(file));
+    setPositionerTarget('logo');
+  };
+
+  const closePositioner = () => {
+    if (positionerImageSrc) URL.revokeObjectURL(positionerImageSrc);
+    setPositionerImageSrc(null);
+    setPositionerTarget(null);
+  };
+
+  const handlePositionerSave = async ({ croppedAreaPixels }) => {
+    setPositionerSaving(true);
+    try {
+      if (positionerTarget === 'avatar') {
+        const blob = await getCroppedImageBlob(positionerImageSrc, croppedAreaPixels, {
+          outputWidth: 480,
+          outputHeight: 480,
+        });
+        const file = blobToFile(blob, 'avatar.png');
+        setAvatarPreview(URL.createObjectURL(blob));
+        setAvatarFile(file);
+      } else if (positionerTarget === 'logo') {
+        // Wide, padded frame — the agent positions/zooms so the whole
+        // mark is visible with room around it; a white background fills
+        // any space they leave, so a transparent-background logo still
+        // looks finished rather than showing a checkerboard/void.
+        const blob = await getCroppedImageBlob(positionerImageSrc, croppedAreaPixels, {
+          outputWidth: 1200,
+          outputHeight: 400,
+          background: '#ffffff',
+        });
+        const file = blobToFile(blob, 'logo.png');
+        setLogoPreview(URL.createObjectURL(blob));
+        setLogoFile(file);
+      }
+    } catch (err) {
+      console.error('Error positioning image:', err);
+      alert('Could not process that image. Please try a different file.');
+    } finally {
+      setPositionerSaving(false);
+      closePositioner();
+    }
   };
 
   const toggleRole = (roleId) => {
@@ -284,13 +340,18 @@ export default function SettingsPage() {
             <div className="flex items-center gap-5">
               <div className="relative group">
                 {logoPreview ? (
+                  // w-32 (not w-20) with object-contain, not object-cover
+                  // — the positioned logo is baked wide (3:1), so a
+                  // forced square preview box here would crop its sides
+                  // off and no longer be an accurate preview of the
+                  // saved result.
                   <img
                     src={logoPreview}
                     alt="Agency logo"
-                    className="w-20 h-20 rounded-xl object-cover"
+                    className="w-32 h-20 rounded-xl object-contain bg-slate-50 border border-slate-100"
                   />
                 ) : (
-                  <div className="w-20 h-20 rounded-xl bg-slate-100 flex items-center justify-center">
+                  <div className="w-32 h-20 rounded-xl bg-slate-100 flex items-center justify-center">
                     <Building2 className="w-8 h-8 text-slate-400" />
                   </div>
                 )}
@@ -531,6 +592,23 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {positionerTarget && (
+        <ImagePositioner
+          imageSrc={positionerImageSrc}
+          aspect={positionerTarget === 'avatar' ? 1 : 3}
+          cropShape={positionerTarget === 'avatar' ? 'round' : 'rect'}
+          title={positionerTarget === 'avatar' ? 'Position your photo' : 'Position your logo'}
+          description={
+            positionerTarget === 'avatar'
+              ? 'Drag to reposition. Use the slider, your scroll wheel, or pinch to zoom.'
+              : 'Zoom out to leave room around your logo — any empty space is filled in white.'
+          }
+          onCancel={closePositioner}
+          onSave={handlePositionerSave}
+          saving={positionerSaving}
+        />
+      )}
     </div>
   );
 }
