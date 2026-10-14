@@ -3,6 +3,14 @@ import { adminDb } from '../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { sendNewBuyerInterestEmail } from '../../services/resendService';
 
+// How long a claimed-but-unfinished notification attempt blocks a retry.
+// Covers the real double-click/rapid-retry race this exists for, without
+// permanently losing the notification if the one request that claimed it
+// fails outright (Resend downtime, a bad key, a timeout) — see the
+// success/failure handling below, which clears the claim immediately on
+// a known failure rather than waiting out this window regardless.
+const NOTIFY_CLAIM_STALE_MS = 2 * 60 * 1000;
+
 /**
  * Fires once, right after a buyer successfully registers formal interest —
  * the one real-time signal an agent gets today beyond opening the property
@@ -11,17 +19,26 @@ import { sendNewBuyerInterestEmail } from '../../services/resendService';
  * handleContactSubmit, which calls this fire-and-forget and never lets a
  * failure here affect the buyer's own confirmation).
  *
- * Dedup is enforced here, server-side, inside a transaction — not by the
- * client only calling this once. A buyer can trigger this same request
- * more than once for the exact same registration: a double-click before
- * the submit button's own disabled state applies, a flaky connection
- * causing the client's fetch to retry, or simply reopening the form after
- * a page refresh and resubmitting unchanged details (savedOfferId is
- * restored from the session, so this hits the same offer doc again).
- * `interestNotifiedAt` is read-checked-and-set in one transaction so
- * whichever request gets there first is the only one that ever sends an
- * email, no matter how many times this route is called for the same
- * offer.
+ * Dedup is a two-phase claim, not a single flag, because a one-shot
+ * "already notified" flag written before the send turned out to have a
+ * real failure mode in production: if the send itself fails for any
+ * reason (an invalid RESEND_API_KEY was the actual incident — see
+ * sendEmail's own comment in resendService.js for why that failure was
+ * previously silent), the offer would be permanently marked as notified
+ * with no email ever having gone out, and no retry would ever be
+ * possible. Instead:
+ *   - interestNotifyingSince is claimed transactionally the moment a
+ *     request starts sending. A second request arriving while this claim
+ *     is fresh (within NOTIFY_CLAIM_STALE_MS) is the real double-click/
+ *     retry/refresh case this guards against, and is skipped.
+ *   - interestNotifiedAt is only ever written after sendNewBuyerInterestEmail
+ *     has actually resolved without throwing — the final, permanent
+ *     "this genuinely sent" marker.
+ *   - On a failure, the claim is cleared immediately (not left to expire)
+ *     so the very next attempt — another buyer action, a manual retry,
+ *     whatever triggers this route again — can actually succeed once
+ *     the underlying problem (e.g. the API key) is fixed, rather than
+ *     this offer being silently unrecoverable forever.
  *
  * Also only ever sends for a "genuine" registration — `serious === true`
  * on the offer — as defense in depth beyond the one caller that exists
@@ -35,13 +52,15 @@ import { sendNewBuyerInterestEmail } from '../../services/resendService';
  * buyer PII ever needs to travel in the request beyond an offer id.
  */
 export async function POST(req) {
+  let offerRef = null;
+
   try {
     const { offerId, propertyId } = await req.json();
     if (!offerId || !propertyId) {
       return NextResponse.json({ error: 'offerId and propertyId required' }, { status: 400 });
     }
 
-    const offerRef = adminDb.collection('offers').doc(offerId);
+    offerRef = adminDb.collection('offers').doc(offerId);
 
     const claim = await adminDb.runTransaction(async (tx) => {
       const snap = await tx.get(offerRef);
@@ -52,7 +71,12 @@ export async function POST(req) {
       if (data.serious !== true) return { proceed: false, reason: 'not a genuine registration' };
       if (data.interestNotifiedAt) return { proceed: false, reason: 'already notified' };
 
-      tx.update(offerRef, { interestNotifiedAt: FieldValue.serverTimestamp() });
+      const claimedAt = data.interestNotifyingSince?.toMillis?.();
+      if (claimedAt && Date.now() - claimedAt < NOTIFY_CLAIM_STALE_MS) {
+        return { proceed: false, reason: 'notification already in progress' };
+      }
+
+      tx.update(offerRef, { interestNotifyingSince: FieldValue.serverTimestamp() });
       return { proceed: true, offer: data };
     });
 
@@ -63,17 +87,20 @@ export async function POST(req) {
     const offer = claim.offer;
     const propertySnap = await adminDb.collection('properties').doc(propertyId).get();
     if (!propertySnap.exists) {
+      await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
       return NextResponse.json({ skipped: true, reason: 'property not found' });
     }
     const property = propertySnap.data();
 
     const agentUserId = property.userId;
     if (!agentUserId) {
+      await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
       return NextResponse.json({ skipped: true, reason: 'no owning agent on this property' });
     }
 
     const userSnap = await adminDb.collection('users').doc(agentUserId).get();
     if (!userSnap.exists || !userSnap.data()?.email) {
+      await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
       return NextResponse.json({ skipped: true, reason: 'agent has no email on file' });
     }
     const agent = userSnap.data();
@@ -102,9 +129,24 @@ export async function POST(req) {
       isInvestor: offer.isInvestor,
     });
 
+    // Only written once the send has genuinely resolved without
+    // throwing — see sendEmail's own error-checking for why that's now
+    // a meaningful guarantee rather than a given.
+    await offerRef.update({
+      interestNotifiedAt: FieldValue.serverTimestamp(),
+      interestNotifyingSince: FieldValue.delete(),
+    });
+
     return NextResponse.json({ sent: true });
   } catch (error) {
     console.error('notify-interest error:', error);
+    // Clear the claim so this isn't permanently stuck — the next
+    // attempt (once whatever actually failed is fixed) can try again.
+    if (offerRef) {
+      await offerRef.update({ interestNotifyingSince: FieldValue.delete() }).catch((cleanupError) => {
+        console.error('notify-interest: failed to clear stale claim:', cleanupError);
+      });
+    }
     return NextResponse.json({ error: 'Failed to send notification' }, { status: 500 });
   }
 }

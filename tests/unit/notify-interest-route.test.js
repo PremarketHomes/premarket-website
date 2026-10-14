@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const state = { offers: {}, properties: {}, users: {} };
+const DELETE_FIELD = Symbol('delete-field');
+
+function applyUpdates(collectionName, id, updates) {
+  const current = { ...state[collectionName][id] };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === DELETE_FIELD) delete current[key];
+    else current[key] = value;
+  }
+  state[collectionName][id] = current;
+}
 
 function makeDocRef(collectionName, id) {
   return {
@@ -9,6 +19,9 @@ function makeDocRef(collectionName, id) {
     get: vi.fn(async () => {
       const data = state[collectionName]?.[id];
       return { exists: !!data, data: () => data };
+    }),
+    update: vi.fn(async (updates) => {
+      applyUpdates(collectionName, id, updates);
     }),
   };
 }
@@ -21,9 +34,7 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
     runTransaction: async (fn) => {
       const tx = {
         get: async (ref) => ref.get(),
-        update: (ref, updates) => {
-          state[ref.collectionName][ref.id] = { ...state[ref.collectionName][ref.id], ...updates };
-        },
+        update: (ref, updates) => applyUpdates(ref.collectionName, ref.id, updates),
       };
       return fn(tx);
     },
@@ -31,7 +42,10 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
 }));
 
 vi.mock('firebase-admin/firestore', () => ({
-  FieldValue: { serverTimestamp: () => 'MOCK_SERVER_TIMESTAMP' },
+  FieldValue: {
+    serverTimestamp: () => ({ toMillis: () => Date.now() }),
+    delete: () => DELETE_FIELD,
+  },
 }));
 
 vi.mock('../../src/app/api/services/resendService', () => ({

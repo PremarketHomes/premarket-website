@@ -9,8 +9,23 @@ function getResend() {
   return _resend;
 }
 
+// The Resend SDK never rejects/throws for an API-level failure (an
+// invalid key, a bad "from" domain, a rate limit, a suppressed
+// recipient, etc.) — it always resolves, with `{ data: null, error }`
+// on failure rather than a thrown exception. Every caller of sendEmail
+// across this file does `await sendEmail(...)` inside its own
+// try/catch expecting a throw on failure; without this check, a
+// Resend-reported error was silently swallowed as if the email had
+// sent — which is exactly what happened in production: the stored
+// RESEND_API_KEY was invalid, every send "succeeded" with no error
+// anywhere, and no email ever actually left Resend's side.
 export async function sendEmail({ to, subject, html, text, attachments }) {
-  return getResend().emails.send({ from: FROM_EMAIL, to, subject, html, text, attachments });
+  const result = await getResend().emails.send({ from: FROM_EMAIL, to, subject, html, text, attachments });
+  if (result?.error) {
+    const { name, message, statusCode } = result.error;
+    throw new Error(`Resend rejected the email (${name}, HTTP ${statusCode}): ${message}`);
+  }
+  return result;
 }
 
 /**
