@@ -52,12 +52,12 @@ export default function PriceOpinionCard({
         {hasInteracted ? (
           <div
             className="text-4xl sm:text-5xl font-semibold text-[var(--brand-primary,#c2410c)] tabular-nums"
-            style={{ fontFamily: 'var(--font-playfair, serif)' }}
+            style={{ fontFamily: 'var(--font-inter, system-ui, sans-serif)' }}
           >
             {formatMoney(priceOpinion)}
           </div>
         ) : (
-          <p className="text-lg sm:text-xl font-semibold text-slate-400" style={{ fontFamily: 'var(--font-playfair, serif)' }}>
+          <p className="text-lg sm:text-xl font-semibold text-slate-400">
             Drag the valuation slider above to set your price
           </p>
         )}

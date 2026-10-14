@@ -31,7 +31,7 @@ export default function PersistentValuationBar({ visible, ...rowProps }) {
           className="fixed inset-x-0 bottom-0 z-40 bg-white border-t border-slate-200 shadow-[0_-4px_24px_rgba(0,0,0,0.1)] px-5 sm:px-8"
           style={{ paddingTop: '0.75rem', paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
         >
-          <ValuationSliderRow {...rowProps} labelClassName="text-slate-400" trackClassName="bg-slate-200" />
+          <ValuationSliderRow {...rowProps} labelClassName="text-slate-400" />
         </motion.div>
       )}
     </AnimatePresence>

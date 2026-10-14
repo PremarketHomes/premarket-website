@@ -20,7 +20,7 @@ import ValuationSliderRow from './ValuationSliderRow';
 export default function HeroValuationBar(props) {
   return (
     <div className="w-full bg-white/90 backdrop-blur-md border-t border-white/40 shadow-[0_-4px_24px_rgba(0,0,0,0.12)] px-5 sm:px-8 py-3 sm:py-4">
-      <ValuationSliderRow {...props} labelClassName="text-slate-600" trackClassName="bg-slate-300/70" />
+      <ValuationSliderRow {...props} labelClassName="text-slate-600" />
     </div>
   );
 }

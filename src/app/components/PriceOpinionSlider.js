@@ -42,6 +42,7 @@ export default function PriceOpinionSlider({
   step = PRICE_OPINION_STEP,
   className,
   ariaLabel = 'Price opinion',
+  trackFill = true,
 }) {
   const lastStepIndexRef = useRef(Math.round((value - min) / step));
 
@@ -62,6 +63,20 @@ export default function PriceOpinionSlider({
     onChange(nextValue);
   };
 
+  // The track itself shows how far the current value sits across the
+  // range — a filled brand-gradient segment up to the thumb, a quiet
+  // translucent remainder after it — computed here so every call site
+  // gets the same "real control, not a flat bar" treatment for free,
+  // from the one shared component. The iPad kiosk slider opts out
+  // (trackFill={false}) since it already has its own deliberate
+  // orange-to-green sentiment gradient baked into its className.
+  const fillPercent = max > min ? Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100)) : 0;
+  const trackStyle = trackFill
+    ? {
+        background: `linear-gradient(to right, var(--brand-primary, #c2410c) 0%, var(--brand-primary-dark, #c64500) ${fillPercent}%, rgba(100, 116, 139, 0.18) ${fillPercent}%, rgba(100, 116, 139, 0.18) 100%)`,
+      }
+    : undefined;
+
   return (
     <>
       <input
@@ -76,6 +91,7 @@ export default function PriceOpinionSlider({
         onTouchStart={onSlideStart}
         onTouchEnd={onSlideEnd}
         className={className}
+        style={trackStyle}
         aria-label={ariaLabel}
       />
       {/* Thumb styling for every call site. Moved here (rather than left in
@@ -108,7 +124,11 @@ export default function PriceOpinionSlider({
           width: 44px;
           height: 44px;
           border-radius: 50%;
-          background: white;
+          background: radial-gradient(
+            circle at center,
+            var(--brand-primary, #c2410c) 0 7px,
+            white 7px 100%
+          );
           cursor: pointer;
           box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
           border: 3px solid var(--brand-primary, #c2410c);
@@ -117,7 +137,11 @@ export default function PriceOpinionSlider({
           width: 44px;
           height: 44px;
           border-radius: 50%;
-          background: white;
+          background: radial-gradient(
+            circle at center,
+            var(--brand-primary, #c2410c) 0 7px,
+            white 7px 100%
+          );
           cursor: pointer;
           box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
           border: 3px solid var(--brand-primary, #c2410c);

@@ -20,17 +20,22 @@ export default function PropertyHeader({ agencyName, agencyLogoUrl, onOpenIpadMo
       <div className="max-w-6xl mx-auto px-5 sm:px-8 h-16 sm:h-20 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
           {agencyLogoUrl ? (
+            // Fixed height, auto width — not a forced square box — so a
+            // wide wordmark-style agency logo renders at its own natural
+            // proportions instead of being squeezed small to fit a tile.
+            // max-w keeps an unusually wide logo from colliding with the
+            // Premarket badge on the right.
             <Image
               src={agencyLogoUrl}
               alt={agencyName ? `${agencyName} logo` : 'Agency logo'}
-              width={36}
-              height={36}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-md object-contain flex-shrink-0"
+              width={200}
+              height={60}
+              className="h-10 sm:h-12 w-auto max-w-[140px] sm:max-w-[180px] rounded-md object-contain flex-shrink-0"
               unoptimized
             />
           ) : null}
           {agencyName ? (
-            <span className="font-semibold text-slate-900 text-sm sm:text-base tracking-tight truncate">
+            <span className="font-semibold text-slate-900 text-base sm:text-lg tracking-tight truncate">
               {agencyName}
             </span>
           ) : null}

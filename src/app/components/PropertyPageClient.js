@@ -162,13 +162,17 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
 
   // Watches the lower recap section so the persistent valuation bar
   // (below) never shows while that section's own Submit button is
-  // already on screen.
+  // already on screen. A low threshold (just past either edge, not 20%
+  // deep into the card) keeps the "two submit surfaces" suppression
+  // window as short as possible — the persistent bar should come back
+  // the moment the recap card has genuinely scrolled past, not linger
+  // hidden for the whole time any sliver of it remains in view.
   useEffect(() => {
     const node = detailSectionRef.current;
     if (!node) return;
     const observer = new IntersectionObserver(
       ([entry]) => setDetailSectionInView(entry.isIntersecting),
-      { threshold: 0.2 }
+      { threshold: 0.05 }
     );
     observer.observe(node);
     return () => observer.disconnect();
@@ -543,15 +547,26 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
     setHasInteracted(false);
   };
 
+  // Explicit en-AU/AUD formatting rather than a bare `$` + toLocaleString()
+  // concatenation — that relied on the runtime's default locale for digit
+  // grouping, which is fine on most servers but not guaranteed.
   const formatMoney = (val) => {
     if (!val) return '$0';
-    return `$${Math.round(val).toLocaleString()}`;
+    return new Intl.NumberFormat('en-AU', {
+      style: 'currency',
+      currency: 'AUD',
+      maximumFractionDigits: 0,
+    }).format(val);
   };
 
   const formatCompact = (val) => {
-    if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`;
-    if (val >= 1000) return `$${(val / 1000).toFixed(0)}K`;
-    return `$${val.toFixed(0)}`;
+    if (!val) return '$0';
+    return new Intl.NumberFormat('en-AU', {
+      style: 'currency',
+      currency: 'AUD',
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(val);
   };
 
   const getNestedValue = (obj, path) => {
@@ -980,6 +995,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
               onSlideStart={handleSlideStart}
               onSlideEnd={() => setIsSliding(false)}
               className="w-full h-4 bg-gradient-to-r from-orange-400 via-yellow-400 to-green-500 rounded-lg appearance-none cursor-pointer ipad-slider"
+              trackFill={false}
             />
             <div className="flex justify-between mt-3 text-sm text-slate-400 font-medium">
               <span>{formatCompact(minPrice)}</span>

@@ -34,8 +34,8 @@ export default function PremarketBadge({ variant = 'header', className = '' }) {
         Powered by
       </span>
       <span className="inline-flex items-center gap-2">
-        <BrandMark size={22} />
-        <span className="font-bold text-slate-900 text-lg tracking-tight">Premarket</span>
+        <BrandMark size={28} />
+        <span className="font-bold text-slate-900 text-xl sm:text-2xl tracking-tight">Premarket</span>
       </span>
     </span>
   );
