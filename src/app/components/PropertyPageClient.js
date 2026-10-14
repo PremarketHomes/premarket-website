@@ -1393,6 +1393,13 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         carSpaces={carSpaces}
         landSize={landSize}
         imageUrl={imageUrls[0]}
+        // Optional — only set for a property whose agent used the new
+        // positioning step on the cover photo, stored as a ready-to-use
+        // CSS object-position value ("x% y%"). Every property that
+        // predates this feature (or whose agent never touched it) has
+        // no heroFocalPoint at all, so this is undefined and the hero
+        // renders exactly as it always has: centred object-cover.
+        heroFocalPoint={property?.heroFocalPoint || undefined}
         hasVideo={!!displayVideoUrl}
         onWatchVideo={() => setVideoModalOpen(true)}
       />

@@ -22,6 +22,8 @@ import {
 } from 'firebase/firestore';
 import AgentSelector from '../../../components/AgentSelector';
 import AgentModal from '../../../components/AgentModal';
+import ImagePositioner from '../../../components/ImagePositioner';
+import { cropAreaToObjectPosition } from '../../../utils/imageCrop';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import {
   MapPin,
@@ -100,6 +102,13 @@ export default function EditPropertyPage() {
   const [description, setDescription] = useState('');
   // Images: mix of existing URL strings and new File objects
   const [images, setImages] = useState([]);
+  // CSS object-position string ("x% y%") for the cover photo — see
+  // dashboard/add/page.js's own ImagePositioner wiring for the full
+  // rationale; cleared whenever the cover photo itself changes, since a
+  // focal point chosen on one photo has no meaning on a different one.
+  const [heroFocalPoint, setHeroFocalPoint] = useState(null);
+  const [showHeroPositioner, setShowHeroPositioner] = useState(false);
+  const [positioningHero, setPositioningHero] = useState(false);
   const [video, setVideo] = useState(null); // new File to upload
   const [existingVideoUrl, setExistingVideoUrl] = useState(null);
   const [eagerness, setEagerness] = useState(null);
@@ -183,6 +192,7 @@ export default function EditPropertyPage() {
 
         // Existing images as URL strings
         setImages(p.imageUrls || []);
+        setHeroFocalPoint(p.heroFocalPoint || null);
 
         // Existing video
         setExistingVideoUrl(p.videoUrl || p.aiVideo?.url || null);
@@ -331,6 +341,7 @@ export default function EditPropertyPage() {
   };
 
   const removeImage = (index) => {
+    if (index === 0) setHeroFocalPoint(null);
     setImages((prev) => {
       const newImages = [...prev];
       const removed = newImages.splice(index, 1)[0];
@@ -346,12 +357,20 @@ export default function EditPropertyPage() {
 
   const reorderImages = (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
+    if (fromIndex === 0 || toIndex === 0) setHeroFocalPoint(null);
     setImages(prev => {
       const updated = [...prev];
       const [moved] = updated.splice(fromIndex, 1);
       updated.splice(toIndex, 0, moved);
       return updated;
     });
+  };
+
+  const handleHeroPositionerSave = ({ croppedArea }) => {
+    setPositioningHero(true);
+    setHeroFocalPoint(cropAreaToObjectPosition(croppedArea));
+    setPositioningHero(false);
+    setShowHeroPositioner(false);
   };
 
   const handleGenerateAI = async () => {
@@ -555,6 +574,7 @@ export default function EditPropertyPage() {
         carSpaces,
         description,
         imageUrls: existingUrls,
+        heroFocalPoint: heroFocalPoint || null,
         features: Object.keys(features).filter((f) => features[f]),
         location,
         price: priceRaw,
@@ -977,6 +997,7 @@ export default function EditPropertyPage() {
                           >
                             <img
                               src={src}
+                              style={i === 0 && heroFocalPoint ? { objectPosition: heroFocalPoint } : undefined}
                               className="w-full h-full object-cover rounded-xl border border-slate-200"
                               alt={`upload-${i}`}
                               draggable={false}
@@ -990,6 +1011,14 @@ export default function EditPropertyPage() {
                                 <span className="px-1.5 py-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-md">Cover</span>
                               )}
                             </div>
+                            {i === 0 && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setShowHeroPositioner(true); }}
+                                className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 hover:bg-black/75 text-white text-[10px] font-semibold rounded-md sm:opacity-0 sm:group-hover:opacity-100 transition-all"
+                              >
+                                {heroFocalPoint ? 'Reposition' : 'Position'}
+                              </button>
+                            )}
                             <button
                               onClick={() => removeImage(i)}
                               className="absolute top-2 right-2 w-7 h-7 bg-black/60 hover:bg-red-500 text-white rounded-full sm:opacity-0 sm:group-hover:opacity-100 transition-all flex items-center justify-center"
@@ -1213,6 +1242,21 @@ export default function EditPropertyPage() {
             <p className="text-slate-500 text-sm">This will only take a moment.</p>
           </div>
         </div>
+      )}
+
+      {showHeroPositioner && images[0] && (
+        <ImagePositioner
+          imageSrc={typeof images[0] === 'string' ? images[0] : images[0]?.preview}
+          aspect={16 / 10}
+          cropShape="rect"
+          minZoom={1}
+          maxZoom={1}
+          title="Position your cover photo"
+          description="Drag to choose what's centred when this photo is shown as the listing's hero image."
+          onCancel={() => setShowHeroPositioner(false)}
+          onSave={handleHeroPositionerSave}
+          saving={positioningHero}
+        />
       )}
     </div>
   );

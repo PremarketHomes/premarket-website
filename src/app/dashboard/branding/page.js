@@ -7,6 +7,8 @@ import { authFetch } from '../../utils/authFetch';
 import { db } from '../../firebase/clientApp';
 import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import PropertyPageClient from '../../components/PropertyPageClient';
+import ImagePositioner from '../../components/ImagePositioner';
+import { getCroppedImageBlob, blobToFile } from '../../utils/imageCrop';
 import { Upload, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 /**
@@ -35,6 +37,13 @@ export default function BrandingPage() {
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [extractionMessage, setExtractionMessage] = useState('');
+  // Positioning is a separate, optional step after the initial upload +
+  // colour extraction — deliberately never runs before extraction, since
+  // baking a padded/positioned version first would feed the colour
+  // picker a canvas full of background-fill padding instead of the
+  // logo's own true colours.
+  const [showLogoPositioner, setShowLogoPositioner] = useState(false);
+  const [positioningLogo, setPositioningLogo] = useState(false);
 
   const [primary, setPrimary] = useState('#e48900');
   const [secondary, setSecondary] = useState('');
@@ -130,6 +139,37 @@ export default function BrandingPage() {
     } finally {
       setUploading(false);
       setExtracting(false);
+    }
+  };
+
+  // Bakes the positioned crop and re-uploads it via the same
+  // /api/upload-image endpoint already used above — uploadedLogoUrl is
+  // then swapped to this new URL, which is what both the live preview
+  // (proposedBrand.logoUrl) and the final "Confirm Branding" save
+  // already read, so nothing else needs to change for the new framing
+  // to take effect everywhere it's used.
+  const handleLogoPositionerSave = async ({ croppedAreaPixels }) => {
+    setPositioningLogo(true);
+    try {
+      const blob = await getCroppedImageBlob(logoPreviewUrl || uploadedLogoUrl, croppedAreaPixels, {
+        outputWidth: 1200,
+        outputHeight: 400,
+        background: '#ffffff',
+      });
+      const file = blobToFile(blob, 'logo.png');
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadRes = await authFetch('/api/upload-image', { method: 'POST', body: formData });
+      if (!uploadRes.ok) throw new Error('Upload failed');
+      const { url } = await uploadRes.json();
+      setUploadedLogoUrl(url);
+      setLogoPreviewUrl(URL.createObjectURL(blob));
+    } catch (err) {
+      console.error('Logo positioning failed:', err);
+      setExtractionMessage('Could not save that positioning — please try again.');
+    } finally {
+      setPositioningLogo(false);
+      setShowLogoPositioner(false);
     }
   };
 
@@ -274,6 +314,15 @@ export default function BrandingPage() {
                   {extractionMessage}
                 </p>
               )}
+              {uploadedLogoUrl && !uploading && (
+                <button
+                  type="button"
+                  onClick={() => setShowLogoPositioner(true)}
+                  className="text-xs font-semibold text-orange-600 hover:text-orange-700 mt-2"
+                >
+                  Adjust logo positioning
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -330,6 +379,19 @@ export default function BrandingPage() {
           </div>
         </div>
       </div>
+
+      {showLogoPositioner && (
+        <ImagePositioner
+          imageSrc={logoPreviewUrl || uploadedLogoUrl}
+          aspect={3}
+          cropShape="rect"
+          title="Position your logo"
+          description="Zoom out to leave room around your logo — any empty space is filled in white."
+          onCancel={() => setShowLogoPositioner(false)}
+          onSave={handleLogoPositionerSave}
+          saving={positioningLogo}
+        />
+      )}
     </div>
   );
 }
