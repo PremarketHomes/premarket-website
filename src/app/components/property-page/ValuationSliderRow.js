@@ -87,7 +87,7 @@ export default function ValuationSliderRow({
             onChange={onChange}
             onSlideStart={onSlideStart}
             onSlideEnd={onSlideEnd}
-            ariaLabel="Price opinion"
+            ariaLabel="Price opinion, always-visible slider"
             invitePulse={!hasInteracted}
             className="w-full h-1.5 rounded-full appearance-none cursor-pointer slider-thumb"
           />
