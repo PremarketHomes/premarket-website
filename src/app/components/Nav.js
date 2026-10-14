@@ -247,14 +247,15 @@ export default function Nav({ isHomepage = false }) {
             </div>
 
             {/* Desktop Navigation */}
+            {/*
+              No public property-browsing link here — Premarket moved away
+              from public discovery; properties are reached through their
+              own shareable link (see PublicSiteNav.js, the canonical nav
+              used everywhere else on the site, which never had one). This
+              is one of the two remaining places still on the older Nav
+              component (here and /v2) rather than PublicSiteNav.
+            */}
             <nav className="hidden lg:flex items-center gap-7">
-              <Link
-                href="/listings"
-                className="text-gray-700 hover:text-[#e48900] font-medium text-sm transition-colors duration-200"
-              >
-                Browse
-              </Link>
-
               <MegaDropdown
                 label="Solutions"
                 items={SOLUTIONS}
@@ -426,14 +427,6 @@ export default function Nav({ isHomepage = false }) {
               className="lg:hidden overflow-hidden bg-white border-t border-gray-100"
             >
               <div className="px-4 pt-3 pb-6 space-y-1">
-                <Link
-                  href="/listings"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="block px-4 py-3 rounded-xl text-gray-700 hover:bg-orange-50 hover:text-[#e48900] font-semibold transition-all duration-200"
-                >
-                  Browse Properties
-                </Link>
-
                 {/* Solutions accordion */}
                 <button
                   type="button"

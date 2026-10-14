@@ -113,9 +113,20 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
   // Price opinion state. min/maxPrice are seeded alongside
   // initialProperty (not left at 0) so the opinion card never has a
   // moment of showing a broken 0–0 range before the fetchProperty
-  // effect's own computation catches up.
+  // effect's own computation catches up. priceOpinion itself used to be
+  // left at a bare 0 here — since both sliders clamp an out-of-range
+  // value to `min` for display, that meant the very first paint showed
+  // the thumb pinned at the minimum, then visibly jumping to the
+  // midpoint once fetchPreviousOffer resolved a moment later. Seeding it
+  // to the midpoint up front (same initialRange this is already derived
+  // from) means the first frame is already correct — no animation to
+  // suppress, because there's no longer a wrong frame to move away from.
+  // hasInteracted (below) still starts false regardless, so this seeded
+  // midpoint is never shown as a price or submittable until a real drag.
   const initialRange = initialProperty ? computePriceOpinionRange(initialProperty) : null;
-  const [priceOpinion, setPriceOpinion] = useState(0);
+  const [priceOpinion, setPriceOpinion] = useState(
+    initialRange ? roundToStep((initialRange.min + initialRange.max) / 2) : 0
+  );
   const [minPrice, setMinPrice] = useState(initialRange?.min || 0);
   const [maxPrice, setMaxPrice] = useState(initialRange?.max || 0);
   // Whether this visitor has ever deliberately moved the slider for this
@@ -1559,10 +1570,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8 relative max-h-[90vh] overflow-y-auto">
             <button
-              onClick={() => {
-                setShowSignupModal(false);
-                setShowThankYou(false);
-              }}
+              onClick={() => setShowSignupModal(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -1585,12 +1593,19 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
                     ? `${agentData.firstName} now has your details and will be in touch.`
                     : 'The agent now has your details and will be in touch.'}
                 </p>
-                <a
-                  href="/listings"
+                {/* There's no public browsing page to send a buyer to
+                    anymore — properties are reached through their own
+                    shareable link. Closing just reveals the same property
+                    page underneath, registration intact; reopening this
+                    modal later (see the close button above) shows this
+                    same confirmation again rather than the form. */}
+                <button
+                  type="button"
+                  onClick={() => setShowSignupModal(false)}
                   className="inline-flex items-center justify-center w-full px-6 py-3.5 bg-[var(--brand-primary,#c2410c)] hover:opacity-90 text-[var(--brand-text-on-primary,#ffffff)] font-semibold rounded-xl transition-opacity"
                 >
-                  Browse more properties
-                </a>
+                  Back to Property
+                </button>
               </div>
             ) : (
               <>

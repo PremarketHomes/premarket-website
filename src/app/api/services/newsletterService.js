@@ -1,6 +1,6 @@
 import { adminDb } from '../../firebase/adminApp';
 import { sendEmail } from './resendService';
-import { wrapEmail, ctaButton, greeting, p, BASE_URL } from './emailTemplates';
+import { wrapEmail, greeting, p, signature, BASE_URL } from './emailTemplates';
 import { Timestamp } from 'firebase-admin/firestore';
 import { formatPriceShort } from '../../utils/formatters';
 
@@ -155,7 +155,7 @@ export function generateNewsletterHTML(buyer, properties) {
       ${properties.map((prop) => propertyCardHTML(prop)).join('')}
     </table>
 
-    ${ctaButton('Browse All Properties', `${BASE_URL}/listings`)}
+    ${signature()}
   `;
 
   return wrapEmail({

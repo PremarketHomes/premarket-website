@@ -111,6 +111,27 @@ const TIMEFRAME_LABELS = {
   just_exploring: 'Just exploring',
 };
 
+const FINANCE_LABELS = {
+  cash: 'Cash buyer',
+  approved_finance: 'Finance approved',
+  pre_approval: 'Pre-approval in progress',
+  not_yet: "Hasn't started finance yet",
+};
+
+// Buyer-supplied free text (name, email, phone) ends up interpolated
+// straight into this email's HTML — escaped here rather than trusted, so
+// a buyer entering something like `<img onerror=...>` as their name
+// can't inject markup into an agent's inbox.
+function escapeHtml(value) {
+  if (!value) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * Sent to the owning agent the moment a buyer registers formal interest —
  * the only real-time lead notification in the product today; everything
@@ -127,20 +148,39 @@ export async function sendNewBuyerInterestEmail({
   buyerPhone,
   nextAction,
   timeframe,
+  buyerType,
+  isFirstHomeBuyer,
+  isInvestor,
 }) {
   const actionLabel = NEXT_ACTION_LABELS[nextAction] || NEXT_ACTION_LABELS.contact;
   const timeframeLabel = TIMEFRAME_LABELS[timeframe];
+  const financeLabel = FINANCE_LABELS[buyerType];
+  const safeName = escapeHtml(buyerName) || 'A buyer';
+  const safeAddress = escapeHtml(propertyAddress);
+  const safeEmail = escapeHtml(buyerEmail);
+  const safePhone = escapeHtml(buyerPhone);
+
+  const tags = [
+    isFirstHomeBuyer ? 'First home buyer' : null,
+    isInvestor ? 'Investor' : null,
+  ].filter(Boolean);
 
   const bodyHTML = `
     ${greeting(agentFirstName)}
-    ${p(`<strong>${buyerName || 'A buyer'}</strong> just registered their interest in <strong>${propertyAddress}</strong>.`)}
+    ${p(`<strong>${safeName}</strong> just registered their interest in <strong>${safeAddress}</strong>.`)}
 
     ${infoBox(`
       <p style="margin:0 0 10px 0; font-size:13px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Wants</p>
       <p style="margin:0 0 14px 0; font-size:16px; font-weight:700; color:#1a1a2e;">${actionLabel}</p>
-      ${buyerEmail ? `<p style="margin:0 0 4px 0; font-size:14px; color:#4b5563;">${buyerEmail}</p>` : ''}
-      ${buyerPhone ? `<p style="margin:0; font-size:14px; color:#4b5563;">${buyerPhone}</p>` : ''}
-      ${timeframeLabel ? `<p style="margin:12px 0 0 0; font-size:13px; color:#94a3b8;">Buying timeframe: ${timeframeLabel}</p>` : ''}
+      ${safeEmail ? `<p style="margin:0 0 4px 0; font-size:14px; color:#4b5563;">${safeEmail}</p>` : ''}
+      ${safePhone ? `<p style="margin:0; font-size:14px; color:#4b5563;">${safePhone}</p>` : ''}
+      ${(timeframeLabel || financeLabel || tags.length > 0) ? `
+        <div style="margin-top:14px; padding-top:14px; border-top:1px solid #e2e8f0;">
+          ${timeframeLabel ? `<p style="margin:0 0 4px 0; font-size:13px; color:#94a3b8;">Buying timeframe: <span style="color:#4b5563;">${timeframeLabel}</span></p>` : ''}
+          ${financeLabel ? `<p style="margin:0 0 4px 0; font-size:13px; color:#94a3b8;">Finance: <span style="color:#4b5563;">${financeLabel}</span></p>` : ''}
+          ${tags.length > 0 ? `<p style="margin:0; font-size:13px; color:#94a3b8;">${tags.join(' &middot; ')}</p>` : ''}
+        </div>
+      ` : ''}
     `)}
 
     ${p('Buyer leads go cold fast — worth reaching out while this is fresh.')}
@@ -152,7 +192,7 @@ export async function sendNewBuyerInterestEmail({
     to: agentEmail,
     subject: `New buyer interest: ${propertyAddress}`,
     html: wrapEmail({
-      previewText: `${buyerName || 'A buyer'} registered interest in ${propertyAddress}`,
+      previewText: `${safeName} registered interest in ${safeAddress}`,
       bodyHTML,
       recipientEmail: agentEmail,
       reason: "You're receiving this because a buyer registered interest in your property on Premarket.",
