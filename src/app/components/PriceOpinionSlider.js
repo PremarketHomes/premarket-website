@@ -41,6 +41,7 @@ export default function PriceOpinionSlider({
   onSlideEnd,
   step = PRICE_OPINION_STEP,
   className,
+  ariaLabel = 'Price opinion',
 }) {
   const lastStepIndexRef = useRef(Math.round((value - min) / step));
 
@@ -75,6 +76,7 @@ export default function PriceOpinionSlider({
         onTouchStart={onSlideStart}
         onTouchEnd={onSlideEnd}
         className={className}
+        aria-label={ariaLabel}
       />
       {/* Thumb styling for every call site. Moved here (rather than left in
           each page) because styled-jsx only scopes to elements written

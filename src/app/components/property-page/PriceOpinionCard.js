@@ -1,46 +1,31 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import PriceOpinionSlider from '../PriceOpinionSlider';
 import LikeButton from '../LikeButton';
 
 /**
- * The visual centrepiece of the redesigned page — "Help the seller price
- * this property." Deliberately restrained: white card, charcoal type, and
- * the agency/Premarket accent colour used only on the price figure, the
- * slider fill/thumb, and the primary button — never as a big flood of
- * colour across the whole card.
+ * Recap + considered-submission section, further down the page. The
+ * actual slider now lives in HeroValuationBar (visible on first paint,
+ * in the hero) and PersistentValuationBar (while scrolling) — both
+ * bound to the exact same lifted `priceOpinion` state as this
+ * section's read-only display, so there is only ever one valuation in
+ * play, never a second slider to keep in sync.
  *
- * The explicit "Submit my price opinion" button and the automatic
- * confirm-on-release behaviour both open the exact same pre-existing
- * confirmation modal/save flow (see PropertyPageClient's
- * showConfirmOpinionModal + confirmPriceOpinion) — this component adds no
- * new submission logic, only a clearer, more deliberate call to action.
- *
- * `hasInteracted` controls whether a value has ever been deliberately
- * dragged for this visitor on this property (true immediately for a
- * returning visitor whose prior opinion was restored). Before that, no
- * dollar figure is shown and Submit stays disabled — the slider's
- * starting position is no longer anchored on the asking price, since an
- * untouched midpoint submission reads as a genuine opinion it never was.
- * The invitation copy ("Have a go — drag to find your number") exists
- * specifically so removing that default doesn't just read as a confusing
- * blank control.
+ * This section exists for buyers who want the fuller context — the
+ * explicit question, the anonymity/not-an-offer note, formal interest
+ * — before confirming, or who scroll straight down before ever
+ * touching a slider. Its own "Submit my price opinion" button opens
+ * the exact same confirmation flow as the two sliders' compact submit
+ * buttons (see PropertyPageClient's showConfirmOpinionModal +
+ * confirmPriceOpinion) — one submission flow, reached from three
+ * places.
  */
 export default function PriceOpinionCard({
   propertyId,
   priceOpinion,
-  minPrice,
-  maxPrice,
   hasInteracted,
-  isSliding,
-  onChange,
-  onSlideStart,
-  onSlideEnd,
   onSubmitOpinion,
   onRegisterInterest,
   formatMoney,
-  formatCompact,
   heading,
   subcopy,
   interestSubcopy,
@@ -63,53 +48,25 @@ export default function PriceOpinionCard({
         {subcopy}
       </p>
 
-      <div className="mb-5 min-h-[3.5rem] sm:min-h-[4rem] flex items-center justify-center">
+      <div className="mb-6 min-h-[3.5rem] sm:min-h-[4rem] flex items-center justify-center">
         {hasInteracted ? (
-          <motion.div
-            key={isSliding ? 'dragging' : priceOpinion}
-            initial={{ scale: 1.04 }}
-            animate={{ scale: 1 }}
-            transition={{ duration: 0.18 }}
+          <div
             className="text-4xl sm:text-5xl font-semibold text-[var(--brand-primary,#c2410c)] tabular-nums"
+            style={{ fontFamily: 'var(--font-playfair, serif)' }}
           >
             {formatMoney(priceOpinion)}
-          </motion.div>
+          </div>
         ) : (
           <p className="text-lg sm:text-xl font-semibold text-slate-400" style={{ fontFamily: 'var(--font-playfair, serif)' }}>
-            Have a go — drag to find your number
+            Drag the valuation slider above to set your price
           </p>
         )}
-      </div>
-
-      <div className="mb-2">
-        <div className={!hasInteracted ? 'relative' : ''}>
-          {!hasInteracted && (
-            <span
-              aria-hidden="true"
-              className="absolute inset-0 rounded-full animate-pulse-track pointer-events-none"
-              style={{ background: 'linear-gradient(90deg, transparent, var(--brand-primary, #c2410c) 50%, transparent)', opacity: 0.18 }}
-            />
-          )}
-          <PriceOpinionSlider
-            min={minPrice}
-            max={maxPrice}
-            value={priceOpinion}
-            onChange={onChange}
-            onSlideStart={onSlideStart}
-            onSlideEnd={onSlideEnd}
-            className="w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer slider-thumb"
-          />
-        </div>
-        <div className="flex justify-between mt-2 text-xs text-slate-400 font-medium">
-          <span>{formatCompact(minPrice)}</span>
-          <span>{formatCompact(maxPrice)}</span>
-        </div>
       </div>
 
       <button
         onClick={onSubmitOpinion}
         disabled={!hasInteracted}
-        className="mt-6 w-full inline-flex items-center justify-center gap-2 bg-[var(--brand-primary,#c2410c)] hover:opacity-90 text-[var(--brand-text-on-primary,#ffffff)] font-semibold text-[15px] py-3.5 rounded-xl transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-full inline-flex items-center justify-center gap-2 bg-[var(--brand-primary,#c2410c)] hover:opacity-90 text-[var(--brand-text-on-primary,#ffffff)] font-semibold text-[15px] py-3.5 rounded-xl transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Submit my price opinion
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -134,19 +91,6 @@ export default function PriceOpinionCard({
           {interestSubcopy}
         </p>
       )}
-
-      <style jsx>{`
-        @keyframes pulseTrack {
-          0%, 100% { opacity: 0.1; }
-          50% { opacity: 0.3; }
-        }
-        .animate-pulse-track {
-          animation: pulseTrack 2.2s ease-in-out infinite;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .animate-pulse-track { animation: none; }
-        }
-      `}</style>
     </div>
   );
 }

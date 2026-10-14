@@ -15,7 +15,7 @@ import { getMarketStatusCopy } from '../utils/marketStatusCopy';
 import { isPreviewDeployment } from '../utils/previewEnvironment';
 import { getSwipeDirection } from '../utils/swipeGesture';
 import { computePriceOpinionRange } from '../utils/priceOpinionRange';
-import { shouldShowStickyPrompt } from '../utils/stickyPromptVisibility';
+import { shouldShowValuationBar } from '../utils/valuationBarVisibility';
 import PreviewModeBanner from './property-page/PreviewModeBanner';
 import { playfairDisplay } from './property-page/fonts';
 import PropertyHeader from './property-page/PropertyHeader';
@@ -24,7 +24,7 @@ import PriceOpinionCard from './property-page/PriceOpinionCard';
 import PropertyInfoCard from './property-page/PropertyInfoCard';
 import PropertyGallery from './property-page/PropertyGallery';
 import AgentSignOff from './property-page/AgentSignOff';
-import StickyPricePrompt from './property-page/StickyPricePrompt';
+import PersistentValuationBar from './property-page/PersistentValuationBar';
 
 // Generate a session ID for tracking price opinions
 const getSessionId = () => {
@@ -119,11 +119,14 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
   // this is presentation only.
   const [brand, setBrand] = useState(null);
 
-  // Sticky price prompt visibility inputs — see utils/stickyPromptVisibility.js
-  // for the actual decision, computed just before render below.
+  // Persistent valuation bar visibility inputs — see
+  // utils/valuationBarVisibility.js for the actual decision, computed
+  // just before render below. `pastHero` doubles as "the hero's
+  // embedded valuation bar has scrolled away" now that the slider lives
+  // inside the hero itself (see PropertyHero.js/HeroValuationBar.js).
   const [pastHero, setPastHero] = useState(false);
-  const [priceCardInView, setPriceCardInView] = useState(false);
-  const priceCardRef = useRef(null);
+  const [detailSectionInView, setDetailSectionInView] = useState(false);
+  const detailSectionRef = useRef(null);
   const firstInteractionTracked = useRef(false);
 
   // Engagement tracking (view duration, scroll depth, photos, shares, opinions)
@@ -157,13 +160,14 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
     }
   }, [property, propertyId]);
 
-  // Watches the real price-opinion card so the sticky prompt (below)
-  // never shows while the actual interaction is already on screen.
+  // Watches the lower recap section so the persistent valuation bar
+  // (below) never shows while that section's own Submit button is
+  // already on screen.
   useEffect(() => {
-    const node = priceCardRef.current;
+    const node = detailSectionRef.current;
     if (!node) return;
     const observer = new IntersectionObserver(
-      ([entry]) => setPriceCardInView(entry.isIntersecting),
+      ([entry]) => setDetailSectionInView(entry.isIntersecting),
       { threshold: 0.2 }
     );
     observer.observe(node);
@@ -1292,6 +1296,16 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         hasVideo={!!displayVideoUrl}
         onWatchVideo={() => setVideoModalOpen(true)}
         onPastHero={setPastHero}
+        priceOpinion={priceOpinion}
+        hasInteracted={hasInteracted}
+        isSliding={isSliding}
+        minPrice={minPrice}
+        maxPrice={maxPrice}
+        onPriceChange={setPriceOpinion}
+        onSlideStart={handleSlideStart}
+        onSlideEnd={() => setIsSliding(false)}
+        onSubmitOpinion={openConfirmOpinion}
+        formatMoney={formatMoney}
       />
 
       <div className="max-w-6xl mx-auto px-5 sm:px-8 py-10 sm:py-16">
@@ -1306,21 +1320,14 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
           see PropertyInfoCard.js).
         */}
         <div className="grid md:grid-cols-2 gap-5 sm:gap-6 items-stretch mb-10 sm:mb-14">
-          <div ref={priceCardRef} className="h-full">
+          <div ref={detailSectionRef} className="h-full">
             <PriceOpinionCard
               propertyId={propertyId}
               priceOpinion={priceOpinion}
-              minPrice={minPrice}
-              maxPrice={maxPrice}
               hasInteracted={hasInteracted}
-              isSliding={isSliding}
-              onChange={setPriceOpinion}
-              onSlideStart={handleSlideStart}
-              onSlideEnd={() => setIsSliding(false)}
               onSubmitOpinion={openConfirmOpinion}
               onRegisterInterest={handleRegisterInterest}
               formatMoney={formatMoney}
-              formatCompact={formatCompact}
               heading={marketCopy.priceOpinionHeading}
               subcopy={marketCopy.priceOpinionSubcopy}
               interestSubcopy={marketCopy.interestSubcopy}
@@ -1365,17 +1372,23 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         <AgentSignOff agentData={agentData} displayLogoUrl={displayLogoUrl} />
       </div>
 
-      <StickyPricePrompt
-        visible={shouldShowStickyPrompt({
-          pastHero,
-          priceCardInView,
+      <PersistentValuationBar
+        visible={shouldShowValuationBar({
+          heroInView: !pastHero,
+          detailInView: detailSectionInView,
           anyModalOpen: showConfirmOpinionModal || showPriceOpinionModal || showQualificationModal || showSignupModal || lightboxOpen || videoModalOpen,
           hasSubmittedOpinion: !!savedOfferId,
         })}
         priceOpinion={priceOpinion}
         hasInteracted={hasInteracted}
+        isSliding={isSliding}
+        minPrice={minPrice}
+        maxPrice={maxPrice}
+        onChange={setPriceOpinion}
+        onSlideStart={handleSlideStart}
+        onSlideEnd={() => setIsSliding(false)}
+        onSubmit={openConfirmOpinion}
         formatMoney={formatMoney}
-        onTap={() => priceCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
       />
 
       {premiumConfirmOpinionModal}
