@@ -4,20 +4,18 @@ import LikeButton from '../LikeButton';
 
 /**
  * Recap + considered-submission section, further down the page. The
- * actual slider now lives in HeroValuationBar (visible on first paint,
- * in the hero) and PersistentValuationBar (while scrolling) — both
- * bound to the exact same lifted `priceOpinion` state as this
- * section's read-only display, so there is only ever one valuation in
- * play, never a second slider to keep in sync.
+ * actual slider lives in PersistentValuationBar, fixed to the bottom
+ * of the viewport throughout the whole page — bound to the exact same
+ * lifted `priceOpinion` state as this section's read-only display, so
+ * there is only ever one valuation in play, never a second slider to
+ * keep in sync.
  *
  * This section exists for buyers who want the fuller context — the
  * explicit question, the anonymity/not-an-offer note, formal interest
- * — before confirming, or who scroll straight down before ever
- * touching a slider. Its own "Submit my price opinion" button opens
- * the exact same confirmation flow as the two sliders' compact submit
- * buttons (see PropertyPageClient's showConfirmOpinionModal +
- * confirmPriceOpinion) — one submission flow, reached from three
- * places.
+ * — before confirming. Its own "Submit my price opinion" button opens
+ * the exact same confirmation flow as the fixed slider's compact
+ * submit button (see PropertyPageClient's showConfirmOpinionModal +
+ * confirmPriceOpinion) — one submission flow, reached from either place.
  */
 export default function PriceOpinionCard({
   propertyId,
@@ -58,7 +56,7 @@ export default function PriceOpinionCard({
           </div>
         ) : (
           <p className="text-lg sm:text-xl font-semibold text-slate-400">
-            Drag the valuation slider above to set your price
+            Use the valuation slider at the bottom of your screen to set your price
           </p>
         )}
       </div>

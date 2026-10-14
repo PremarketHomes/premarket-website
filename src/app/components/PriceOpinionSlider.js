@@ -43,6 +43,7 @@ export default function PriceOpinionSlider({
   className,
   ariaLabel = 'Price opinion',
   trackFill = true,
+  invitePulse = false,
 }) {
   const lastStepIndexRef = useRef(Math.round((value - min) / step));
 
@@ -77,6 +78,12 @@ export default function PriceOpinionSlider({
       }
     : undefined;
 
+  // A soft, slow glow pulse on the thumb invites the first touch —
+  // never shown once the buyer has actually interacted (the caller
+  // only passes invitePulse while !hasInteracted), and skipped
+  // entirely under prefers-reduced-motion (see the media query below).
+  const inputClassName = invitePulse ? `${className} invite-pulse` : className;
+
   return (
     <>
       <input
@@ -90,7 +97,7 @@ export default function PriceOpinionSlider({
         onMouseUp={onSlideEnd}
         onTouchStart={onSlideStart}
         onTouchEnd={onSlideEnd}
-        className={className}
+        className={inputClassName}
         style={trackStyle}
         aria-label={ariaLabel}
       />
@@ -165,6 +172,27 @@ export default function PriceOpinionSlider({
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(228, 137, 0, 0.4);
           border: 2px solid white;
+        }
+
+        @keyframes invite-pulse-glow {
+          0%,
+          100% {
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25), 0 0 0 0 rgba(194, 65, 12, 0.35);
+          }
+          50% {
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25), 0 0 0 9px rgba(194, 65, 12, 0);
+          }
+        }
+        /* Respect reduced-motion: the invite-pulse glow only runs when
+           the platform says motion is welcome. With a preference set,
+           the thumb simply keeps its normal, static appearance. */
+        @media (prefers-reduced-motion: no-preference) {
+          .invite-pulse::-webkit-slider-thumb {
+            animation: invite-pulse-glow 2.2s ease-in-out infinite;
+          }
+          .invite-pulse::-moz-range-thumb {
+            animation: invite-pulse-glow 2.2s ease-in-out infinite;
+          }
         }
       `}</style>
     </>

@@ -15,7 +15,7 @@ import { getMarketStatusCopy } from '../utils/marketStatusCopy';
 import { isPreviewDeployment } from '../utils/previewEnvironment';
 import { getSwipeDirection } from '../utils/swipeGesture';
 import { computePriceOpinionRange } from '../utils/priceOpinionRange';
-import { shouldShowValuationBar } from '../utils/valuationBarVisibility';
+import { shouldShowPersistentSlider } from '../utils/persistentSliderVisibility';
 import PreviewModeBanner from './property-page/PreviewModeBanner';
 import { playfairDisplay } from './property-page/fonts';
 import PropertyHeader from './property-page/PropertyHeader';
@@ -119,14 +119,6 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
   // this is presentation only.
   const [brand, setBrand] = useState(null);
 
-  // Persistent valuation bar visibility inputs — see
-  // utils/valuationBarVisibility.js for the actual decision, computed
-  // just before render below. `pastHero` doubles as "the hero's
-  // embedded valuation bar has scrolled away" now that the slider lives
-  // inside the hero itself (see PropertyHero.js/HeroValuationBar.js).
-  const [pastHero, setPastHero] = useState(false);
-  const [detailSectionInView, setDetailSectionInView] = useState(false);
-  const detailSectionRef = useRef(null);
   const firstInteractionTracked = useRef(false);
 
   // Engagement tracking (view duration, scroll depth, photos, shares, opinions)
@@ -159,24 +151,6 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
       });
     }
   }, [property, propertyId]);
-
-  // Watches the lower recap section so the persistent valuation bar
-  // (below) never shows while that section's own Submit button is
-  // already on screen. A low threshold (just past either edge, not 20%
-  // deep into the card) keeps the "two submit surfaces" suppression
-  // window as short as possible — the persistent bar should come back
-  // the moment the recap card has genuinely scrolled past, not linger
-  // hidden for the whole time any sliver of it remains in view.
-  useEffect(() => {
-    const node = detailSectionRef.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setDetailSectionInView(entry.isIntersecting),
-      { threshold: 0.05 }
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
 
   const confirmPriceOpinion = () => {
     setShowConfirmOpinionModal(false);
@@ -1311,20 +1285,16 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         imageUrl={imageUrls[0]}
         hasVideo={!!displayVideoUrl}
         onWatchVideo={() => setVideoModalOpen(true)}
-        onPastHero={setPastHero}
-        priceOpinion={priceOpinion}
-        hasInteracted={hasInteracted}
-        isSliding={isSliding}
-        minPrice={minPrice}
-        maxPrice={maxPrice}
-        onPriceChange={setPriceOpinion}
-        onSlideStart={handleSlideStart}
-        onSlideEnd={() => setIsSliding(false)}
-        onSubmitOpinion={openConfirmOpinion}
-        formatMoney={formatMoney}
       />
 
-      <div className="max-w-6xl mx-auto px-5 sm:px-8 py-10 sm:py-16">
+      {/*
+        pb- here is deliberately larger than pt- (and larger on mobile
+        than sm:) to reserve room at the bottom of the page content for
+        the always-on fixed valuation bar below, which floats over
+        whatever is at the bottom of the viewport — without this, the
+        map/agent sign-off could end up permanently hidden behind it.
+      */}
+      <div className="max-w-6xl mx-auto px-5 sm:px-8 pt-10 sm:pt-16 pb-32 sm:pb-24">
         {/*
           items-stretch (not items-start): on mobile this grid is a single
           column, so "stretching to match the row" has no visible effect —
@@ -1336,7 +1306,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
           see PropertyInfoCard.js).
         */}
         <div className="grid md:grid-cols-2 gap-5 sm:gap-6 items-stretch mb-10 sm:mb-14">
-          <div ref={detailSectionRef} className="h-full">
+          <div className="h-full">
             <PriceOpinionCard
               propertyId={propertyId}
               priceOpinion={priceOpinion}
@@ -1389,9 +1359,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
       </div>
 
       <PersistentValuationBar
-        visible={shouldShowValuationBar({
-          heroInView: !pastHero,
-          detailInView: detailSectionInView,
+        visible={shouldShowPersistentSlider({
           anyModalOpen: showConfirmOpinionModal || showPriceOpinionModal || showQualificationModal || showSignupModal || lightboxOpen || videoModalOpen,
           hasSubmittedOpinion: !!savedOfferId,
         })}
@@ -1405,6 +1373,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         onSlideEnd={() => setIsSliding(false)}
         onSubmit={openConfirmOpinion}
         formatMoney={formatMoney}
+        formatCompact={formatCompact}
       />
 
       {premiumConfirmOpinionModal}
