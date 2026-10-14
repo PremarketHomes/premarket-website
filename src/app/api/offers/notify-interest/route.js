@@ -78,9 +78,14 @@ export async function POST(req) {
     }
     const agent = userSnap.data();
 
-    const propertyAddress = property.showSuburbOnly
-      ? (property.address || property.location?.suburb || 'their property')
-      : (property.formattedAddress || property.address || 'their property');
+    // showSuburbOnly controls what an anonymous BUYER sees on the public
+    // property page — it has no bearing on what the agent who owns this
+    // exact listing is shown in their own inbox. The agent already knows
+    // the full address; hiding it here only made the notification less
+    // useful, so this always resolves the fullest address available,
+    // regardless of that flag.
+    const propertyAddress =
+      property.formattedAddress || property.address || property.location?.suburb || 'their property';
 
     await sendNewBuyerInterestEmail({
       agentEmail: agent.email,

@@ -160,4 +160,61 @@ describe('POST /api/offers/notify-interest', () => {
     const res = await POST(makeRequest({ offerId: 'does-not-exist', propertyId: 'prop-1' }));
     expect((await res.json())).toEqual({ skipped: true, reason: 'offer not found' });
   });
+
+  it('always sends the agent the full street address, even when showSuburbOnly hides it from the public', async () => {
+    // The bug this guards against: propertyAddress used to branch on
+    // showSuburbOnly (a buyer-facing privacy setting) and fall back to
+    // just the suburb/state for the agent's own notification — e.g.
+    // "Hope Island QLD" instead of the actual street address, even
+    // though the agent already owns this exact listing.
+    state.properties['prop-1'] = {
+      userId: 'agent-1',
+      showSuburbOnly: true,
+      formattedAddress: '7 Jingella Street, Hope Island QLD 4212',
+      address: 'Hope Island QLD',
+    };
+    const { POST } = await import('../../src/app/api/offers/notify-interest/route');
+    const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
+
+    await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }));
+
+    expect(sendNewBuyerInterestEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ propertyAddress: '7 Jingella Street, Hope Island QLD 4212' })
+    );
+  });
+
+  it('falls back to the suburb-level address only when no street address exists at all', async () => {
+    state.properties['prop-1'] = { userId: 'agent-1', location: { suburb: 'Hope Island QLD' } };
+    const { POST } = await import('../../src/app/api/offers/notify-interest/route');
+    const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
+
+    await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }));
+
+    expect(sendNewBuyerInterestEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ propertyAddress: 'Hope Island QLD' })
+    );
+  });
+
+  it('passes through every collected registration field (finance, FHB/investor, timeframe) to the email', async () => {
+    state.offers['offer-1'] = {
+      ...state.offers['offer-1'],
+      buyerType: 'cash',
+      isFirstHomeBuyer: true,
+      isInvestor: false,
+      timeframe: 'asap',
+    };
+    const { POST } = await import('../../src/app/api/offers/notify-interest/route');
+    const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
+
+    await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }));
+
+    expect(sendNewBuyerInterestEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buyerType: 'cash',
+        isFirstHomeBuyer: true,
+        isInvestor: false,
+        timeframe: 'asap',
+      })
+    );
+  });
 });

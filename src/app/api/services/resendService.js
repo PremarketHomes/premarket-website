@@ -9,8 +9,8 @@ function getResend() {
   return _resend;
 }
 
-export async function sendEmail({ to, subject, html, attachments }) {
-  return getResend().emails.send({ from: FROM_EMAIL, to, subject, html, attachments });
+export async function sendEmail({ to, subject, html, text, attachments }) {
+  return getResend().emails.send({ from: FROM_EMAIL, to, subject, html, text, attachments });
 }
 
 /**
@@ -132,11 +132,61 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+// A plain row inside a card: a small uppercase label on the left (or
+// above, on narrow screens — the table collapses naturally since each
+// row is its own block rather than relying on a multi-column layout),
+// value on the right in the normal body colour.
+function detailRow(label, valueHTML) {
+  return `
+    <tr>
+      <td style="padding:7px 0; font-size:12px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.4px; vertical-align:top; width:112px;">${label}</td>
+      <td style="padding:7px 0; font-size:14px; color:#1a1a2e; vertical-align:top;">${valueHTML}</td>
+    </tr>
+  `;
+}
+
+// A card: white background, thin border, rounded corners, a small
+// uppercase section title, then a table of detailRow()s — the "clean
+// cards and subtle dividers" the redesign asked for, reused for both
+// BUYER DETAILS and WHAT THE BUYER TOLD US so they read as one
+// consistent system rather than two different treatments.
+function detailCard(title, rowsHTML) {
+  return `
+    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:18px 20px; margin:0 0 16px 0;">
+      <p style="margin:0 0 4px 0; font-size:12px; font-weight:700; color:#1a1a2e; text-transform:uppercase; letter-spacing:0.6px;">${title}</p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+        ${rowsHTML}
+      </table>
+    </div>
+  `;
+}
+
+// Strips everything except a leading + and digits, so "0400 000 000"
+// or "(04) 0000 0000" still produces a dialable tel: href — the
+// escaped original (with its own formatting) stays the visible text.
+function toTelHref(phone) {
+  if (!phone) return '';
+  return String(phone).replace(/[^0-9+]/g, '');
+}
+
 /**
  * Sent to the owning agent the moment a buyer registers formal interest —
  * the only real-time lead notification in the product today; everything
  * else requires the agent to open their dashboard. See
- * api/offers/notify-interest/route.js for when/why this fires.
+ * api/offers/notify-interest/route.js for when/why this fires, and for
+ * why propertyAddress is always the full street address here even for a
+ * property an anonymous buyer would only see as a suburb — showSuburbOnly
+ * is a buyer-facing privacy setting, meaningless to the agent who already
+ * owns this exact listing.
+ *
+ * Shows only the registration fields that were actually collected —
+ * never infers or labels a buyer "qualified" or "serious" beyond what
+ * their own answers say. Buyer email/phone are shown in full, as
+ * clickable mailto:/tel: links, never masked: this notification only
+ * ever goes to the one agent who owns the property the buyer registered
+ * on (resolved server-side in notify-interest/route.js from the
+ * property's own record, never from client input), which is exactly the
+ * sharing the registration form's own consent copy describes.
  */
 export async function sendNewBuyerInterestEmail({
   agentEmail,
@@ -159,44 +209,84 @@ export async function sendNewBuyerInterestEmail({
   const safeAddress = escapeHtml(propertyAddress);
   const safeEmail = escapeHtml(buyerEmail);
   const safePhone = escapeHtml(buyerPhone);
+  const telHref = escapeHtml(toTelHref(buyerPhone));
 
-  const tags = [
+  const buyerTypeTags = [
     isFirstHomeBuyer ? 'First home buyer' : null,
     isInvestor ? 'Investor' : null,
   ].filter(Boolean);
 
+  const buyerDetailsRows = [
+    detailRow('Name', safeName),
+    safeEmail ? detailRow('Email', `<a href="mailto:${safeEmail}" style="color:#1a1a2e; text-decoration:underline;">${safeEmail}</a>`) : '',
+    safePhone ? detailRow('Phone', `<a href="tel:${telHref}" style="color:#1a1a2e; text-decoration:underline;">${safePhone}</a>`) : '',
+  ].filter(Boolean).join('');
+
+  // Every row here is conditional — only what this buyer actually
+  // submitted is shown. "Wants" is the one field that's always present,
+  // since the registration form always collects it (with a default).
+  const submittedRows = [
+    detailRow('Wants', `<strong>${actionLabel}</strong>`),
+    timeframeLabel ? detailRow('Timeframe', timeframeLabel) : '',
+    financeLabel ? detailRow('Finance', financeLabel) : '',
+    buyerTypeTags.length > 0 ? detailRow('Buyer type', buyerTypeTags.join(' &middot; ')) : '',
+  ].filter(Boolean).join('');
+
+  const dashboardUrl = `${BASE_URL}/dashboard/property/${propertyId}`;
+
   const bodyHTML = `
-    ${greeting(agentFirstName)}
-    ${p(`<strong>${safeName}</strong> just registered their interest in <strong>${safeAddress}</strong>.`)}
+    <p style="margin:0 0 6px 0; font-size:12px; font-weight:700; color:#ea580c; text-transform:uppercase; letter-spacing:0.8px;">New buyer registration</p>
+    <h2 style="margin:0 0 4px 0; font-size:20px; font-weight:700; color:#1a1a2e; line-height:1.3;">
+      ${safeName} registered interest
+    </h2>
+    <p style="margin:0 0 22px 0; font-size:15px; color:#4b5563;">in <strong style="color:#1a1a2e;">${safeAddress}</strong></p>
 
-    ${infoBox(`
-      <p style="margin:0 0 10px 0; font-size:13px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Wants</p>
-      <p style="margin:0 0 14px 0; font-size:16px; font-weight:700; color:#1a1a2e;">${actionLabel}</p>
-      ${safeEmail ? `<p style="margin:0 0 4px 0; font-size:14px; color:#4b5563;">${safeEmail}</p>` : ''}
-      ${safePhone ? `<p style="margin:0; font-size:14px; color:#4b5563;">${safePhone}</p>` : ''}
-      ${(timeframeLabel || financeLabel || tags.length > 0) ? `
-        <div style="margin-top:14px; padding-top:14px; border-top:1px solid #e2e8f0;">
-          ${timeframeLabel ? `<p style="margin:0 0 4px 0; font-size:13px; color:#94a3b8;">Buying timeframe: <span style="color:#4b5563;">${timeframeLabel}</span></p>` : ''}
-          ${financeLabel ? `<p style="margin:0 0 4px 0; font-size:13px; color:#94a3b8;">Finance: <span style="color:#4b5563;">${financeLabel}</span></p>` : ''}
-          ${tags.length > 0 ? `<p style="margin:0; font-size:13px; color:#94a3b8;">${tags.join(' &middot; ')}</p>` : ''}
-        </div>
-      ` : ''}
-    `)}
+    ${detailCard('Buyer details', buyerDetailsRows)}
+    ${detailCard('What the buyer told us', submittedRows)}
 
-    ${p('Buyer leads go cold fast — worth reaching out while this is fresh.')}
-    ${ctaButton('View in Dashboard', `${BASE_URL}/dashboard/property/${propertyId}`)}
+    <p style="margin:0 0 4px 0; font-size:12px; font-weight:700; color:#1a1a2e; text-transform:uppercase; letter-spacing:0.6px;">Next step</p>
+    <p style="margin:0 0 20px 0; font-size:14px; color:#4b5563; line-height:1.6;">
+      Contact ${safeName} directly, or view the full registration in your Premarket dashboard. Buyer leads go cold fast — worth reaching out while this is fresh.
+    </p>
+
+    ${ctaButton('View Registration', dashboardUrl)}
     ${signature()}
   `;
 
+  // null means "omit this line entirely" (a field that wasn't
+  // collected) — kept distinct from '' (a deliberate blank separator
+  // line between sections), so filtering one never swallows the other.
+  const plainTextLines = [
+    'NEW BUYER REGISTRATION',
+    '',
+    `${buyerName || 'A buyer'} registered interest in ${propertyAddress}.`,
+    '',
+    'BUYER DETAILS',
+    `Name: ${buyerName || ''}`,
+    buyerEmail ? `Email: ${buyerEmail}` : null,
+    buyerPhone ? `Phone: ${buyerPhone}` : null,
+    '',
+    'WHAT THE BUYER TOLD US',
+    `Wants: ${actionLabel}`,
+    timeframeLabel ? `Timeframe: ${timeframeLabel}` : null,
+    financeLabel ? `Finance: ${financeLabel}` : null,
+    buyerTypeTags.length > 0 ? `Buyer type: ${buyerTypeTags.join(', ')}` : null,
+    '',
+    'NEXT STEP',
+    `Contact ${buyerName || 'the buyer'} directly, or view the full registration in your dashboard:`,
+    dashboardUrl,
+  ].filter((line) => line !== null);
+
   return sendEmail({
     to: agentEmail,
-    subject: `New buyer interest: ${propertyAddress}`,
+    subject: `New buyer registration | ${propertyAddress}`,
     html: wrapEmail({
       previewText: `${safeName} registered interest in ${safeAddress}`,
       bodyHTML,
       recipientEmail: agentEmail,
       reason: "You're receiving this because a buyer registered interest in your property on Premarket.",
     }),
+    text: plainTextLines.join('\n'),
   });
 }
 
