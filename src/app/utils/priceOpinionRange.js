@@ -2,13 +2,16 @@ import { roundToStep } from './priceOpinionStep';
 
 /**
  * How far either side of the base price the opinion slider lets a buyer
- * move. Previously 25% — widened to 35% because the tighter range was
- * silently clamping genuinely strong opinions at the edge: a buyer who
- * believed a property was worth meaningfully more or less than the
- * range allowed could only ever submit the boundary value, which
- * quietly truncated the exact signal this feature exists to collect.
+ * move. Explicit product requirement: the slider's selectable range is
+ * the vendor's hoped-for price (see computePriceOpinionRange's
+ * `basePrice` below) ± 25%, so that price itself sits exactly at the
+ * midpoint — min = basePrice * 0.75, max = basePrice * 1.25. That price
+ * is never surfaced in the buyer interface; only the min/max endpoints
+ * this fraction produces are ever shown (see ValuationSliderRow.js /
+ * PriceOpinionCard.js), and the midpoint itself is never labelled or
+ * marked out as significant.
  */
-export const PRICE_OPINION_RANGE_FRACTION = 0.35;
+export const PRICE_OPINION_RANGE_FRACTION = 0.25;
 
 function toDouble(v) {
   if (!v) return 0;
