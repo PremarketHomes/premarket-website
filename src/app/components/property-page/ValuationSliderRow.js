@@ -15,6 +15,16 @@ import PriceOpinionSlider from '../PriceOpinionSlider';
  * slider's own selectable endpoints — not a formal price guide, and
  * never labelled or implied to be the vendor's expected range. The
  * midpoint is never marked or called out.
+ *
+ * Label copy matches marketStatusCopy.js's own "anonymous price
+ * opinion" phrasing (used in the heading/subcopy further down the
+ * page) and PriceOpinionCard's "Anonymous · this is your opinion, not
+ * an offer" line — same claim, same scope: it describes this specific
+ * submission action, not the whole page, because it's only true for
+ * it. Submitting here stores just an amount against the session's
+ * existing anonymous visitor/session id (see PropertyPageClient's
+ * savePriceOpinion) — no name or contact details — unlike formal
+ * interest, which is a separate, clearly distinct action.
  */
 export default function ValuationSliderRow({
   priceOpinion,
@@ -34,9 +44,21 @@ export default function ValuationSliderRow({
     <div className="max-w-6xl mx-auto">
       <div className="flex items-center gap-3 sm:gap-5">
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between gap-3 mb-1.5">
-            <span className={`text-[11px] sm:text-xs font-semibold uppercase tracking-wide truncate ${labelClassName}`}>
-              {hasInteracted ? 'Your valuation' : "What's this home worth to you?"}
+          <div className="flex items-start justify-between gap-3 mb-1.5">
+            <span className={`text-[11px] sm:text-xs font-semibold uppercase tracking-wide leading-tight ${labelClassName}`}>
+              {hasInteracted ? (
+                <>
+                  {/* Shares its row with the price figure, which leaves very
+                      little width on the narrowest phones — short enough
+                      there to stay to two lines; the fuller phrase only
+                      takes over once sm: gives it a whole floating card's
+                      width to breathe in. */}
+                  <span className="sm:hidden">Anonymous opinion</span>
+                  <span className="hidden sm:inline">Your anonymous price opinion</span>
+                </>
+              ) : (
+                "What's this home worth to you?"
+              )}
             </span>
             {hasInteracted && (
               <motion.span
@@ -67,6 +89,11 @@ export default function ValuationSliderRow({
               <span>{formatCompact(minPrice)}</span>
               <span>{formatCompact(maxPrice)}</span>
             </div>
+          )}
+          {hasInteracted && (
+            <p className="hidden sm:block mt-1 text-[11px] text-slate-400">
+              Anonymous &middot; not an offer
+            </p>
           )}
         </div>
         <button
