@@ -1,29 +1,46 @@
 'use client';
 
+import { motion } from 'framer-motion';
 import LikeButton from '../LikeButton';
+import PriceOpinionSlider from '../PriceOpinionSlider';
 
 /**
- * Recap + considered-submission section, further down the page. The
- * actual slider lives in PersistentValuationBar, fixed to the bottom
- * of the viewport throughout the whole page — bound to the exact same
- * lifted `priceOpinion` state as this section's read-only display, so
- * there is only ever one valuation in play, never a second slider to
- * keep in sync.
+ * The main valuation control, further down the page — a second, fully
+ * interactive slider bound to the exact same lifted `priceOpinion`
+ * (plus `hasInteracted`/`isSliding`/`minPrice`/`maxPrice`) state as the
+ * fixed PersistentValuationBar. Moving either slider moves both,
+ * instantly, because both read from and write to the one shared state
+ * in PropertyPageClient — there is no second value to keep in sync.
  *
- * This section exists for buyers who want the fuller context — the
- * explicit question, the anonymity/not-an-offer note, formal interest
- * — before confirming. Its own "Submit my price opinion" button opens
- * the exact same confirmation flow as the fixed slider's compact
- * submit button (see PropertyPageClient's showConfirmOpinionModal +
- * confirmPriceOpinion) — one submission flow, reached from either place.
+ * Both this card's "Submit my price opinion" button and the floating
+ * bar's compact Submit button call the exact same
+ * openConfirmOpinion → confirmPriceOpinion → savePriceOpinion chain,
+ * which itself updates the existing `offers` doc (via `savedOfferId`)
+ * rather than creating a new one on a second submission — so there is
+ * no route to a duplicate regardless of which control was used first.
+ *
+ * `hasInteracted` controls whether a value has ever been deliberately
+ * dragged for this visitor on this property (true immediately for a
+ * returning visitor whose prior opinion was restored). Before that, no
+ * dollar figure is shown and Submit stays disabled on both sliders —
+ * an untouched midpoint submission would read as a genuine opinion it
+ * never was. The invitation copy below exists so removing that default
+ * doesn't just read as a confusing blank control.
  */
 export default function PriceOpinionCard({
   propertyId,
   priceOpinion,
+  minPrice,
+  maxPrice,
   hasInteracted,
+  isSliding,
+  onChange,
+  onSlideStart,
+  onSlideEnd,
   onSubmitOpinion,
   onRegisterInterest,
   formatMoney,
+  formatCompact,
   heading,
   subcopy,
   interestSubcopy,
@@ -46,25 +63,52 @@ export default function PriceOpinionCard({
         {subcopy}
       </p>
 
-      <div className="mb-6 min-h-[3.5rem] sm:min-h-[4rem] flex items-center justify-center">
+      <div className="mb-5 min-h-[3.5rem] sm:min-h-[4rem] flex items-center justify-center">
         {hasInteracted ? (
-          <div
+          <motion.div
+            key={isSliding ? 'dragging' : priceOpinion}
+            initial={{ scale: 1.04 }}
+            animate={{ scale: 1 }}
+            transition={{ duration: 0.18 }}
             className="text-4xl sm:text-5xl font-semibold text-[var(--brand-primary,#c2410c)] tabular-nums"
             style={{ fontFamily: 'var(--font-inter, system-ui, sans-serif)' }}
           >
             {formatMoney(priceOpinion)}
-          </div>
+          </motion.div>
         ) : (
-          <p className="text-lg sm:text-xl font-semibold text-slate-400">
-            Use the valuation slider at the bottom of your screen to set your price
+          <p
+            className="text-lg sm:text-xl font-semibold text-slate-400"
+            style={{ fontFamily: 'var(--font-playfair, serif)' }}
+          >
+            Have a go &mdash; drag to find your number
           </p>
+        )}
+      </div>
+
+      <div className="mb-2">
+        <PriceOpinionSlider
+          min={minPrice}
+          max={maxPrice}
+          value={priceOpinion}
+          onChange={onChange}
+          onSlideStart={onSlideStart}
+          onSlideEnd={onSlideEnd}
+          ariaLabel="Price opinion"
+          invitePulse={!hasInteracted}
+          className="w-full h-2 rounded-full appearance-none cursor-pointer slider-thumb"
+        />
+        {typeof formatCompact === 'function' && (
+          <div className="flex justify-between mt-2 text-xs text-slate-400 font-medium tabular-nums">
+            <span>{formatCompact(minPrice)}</span>
+            <span>{formatCompact(maxPrice)}</span>
+          </div>
         )}
       </div>
 
       <button
         onClick={onSubmitOpinion}
         disabled={!hasInteracted}
-        className="w-full inline-flex items-center justify-center gap-2 bg-[var(--brand-primary,#c2410c)] hover:opacity-90 text-[var(--brand-text-on-primary,#ffffff)] font-semibold text-[15px] py-3.5 rounded-xl transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+        className="mt-6 w-full inline-flex items-center justify-center gap-2 bg-[var(--brand-primary,#c2410c)] hover:opacity-90 text-[var(--brand-text-on-primary,#ffffff)] font-semibold text-[15px] py-3.5 rounded-xl transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Submit my price opinion
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

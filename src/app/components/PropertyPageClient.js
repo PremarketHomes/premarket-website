@@ -1310,10 +1310,17 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
             <PriceOpinionCard
               propertyId={propertyId}
               priceOpinion={priceOpinion}
+              minPrice={minPrice}
+              maxPrice={maxPrice}
               hasInteracted={hasInteracted}
+              isSliding={isSliding}
+              onChange={setPriceOpinion}
+              onSlideStart={handleSlideStart}
+              onSlideEnd={() => setIsSliding(false)}
               onSubmitOpinion={openConfirmOpinion}
               onRegisterInterest={handleRegisterInterest}
               formatMoney={formatMoney}
+              formatCompact={formatCompact}
               heading={marketCopy.priceOpinionHeading}
               subcopy={marketCopy.priceOpinionSubcopy}
               interestSubcopy={marketCopy.interestSubcopy}

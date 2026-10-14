@@ -24,7 +24,10 @@ import PriceOpinionSlider from '../PriceOpinionSlider';
  * it. Submitting here stores just an amount against the session's
  * existing anonymous visitor/session id (see PropertyPageClient's
  * savePriceOpinion) — no name or contact details — unlike formal
- * interest, which is a separate, clearly distinct action.
+ * interest, which is a separate, clearly distinct action. The same
+ * claim applies equally to PriceOpinionCard's own slider further down
+ * the page, since both read/write the one shared `priceOpinion` state
+ * and submit through the one shared confirm/save flow.
  */
 export default function ValuationSliderRow({
   priceOpinion,
@@ -48,16 +51,20 @@ export default function ValuationSliderRow({
             <span className={`text-[11px] sm:text-xs font-semibold uppercase tracking-wide leading-tight ${labelClassName}`}>
               {hasInteracted ? (
                 <>
-                  {/* Shares its row with the price figure, which leaves very
-                      little width on the narrowest phones — short enough
-                      there to stay to two lines; the fuller phrase only
-                      takes over once sm: gives it a whole floating card's
-                      width to breathe in. */}
+                  {/* Once interacted, this shares its row with the price
+                      figure, which leaves very little width on the
+                      narrowest phones — short enough there to stay on one
+                      line; the fuller phrase only takes over once sm:
+                      gives it a whole floating card's width to breathe
+                      in. Before interaction there's no price figure
+                      competing for room, so the full phrase (rendered in
+                      the other branch below) fits even on the narrowest
+                      phone without needing this split. */}
                   <span className="sm:hidden">Anonymous opinion</span>
                   <span className="hidden sm:inline">Your anonymous price opinion</span>
                 </>
               ) : (
-                "What's this home worth to you?"
+                'Your anonymous price opinion'
               )}
             </span>
             {hasInteracted && (

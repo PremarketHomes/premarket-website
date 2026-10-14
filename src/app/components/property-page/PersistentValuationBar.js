@@ -6,13 +6,15 @@ import ValuationSliderRow from './ValuationSliderRow';
 /**
  * Premarket's primary valuation control — fixed to the bottom of the
  * viewport from the moment the property loads, through every bit of
- * scrolling (photos, description, location). This is deliberately the
- * single interactive slider on the page: the hero is purely
- * photographic now (see PropertyHero.js), and the read-only recap
- * further down the page (PriceOpinionCard.js) shows the same value and
- * offers its own Submit button, but never a second slider to drag —
- * so there is only ever one value and one submission flow, reached
- * from either place.
+ * scrolling (photos, description, location), so it's always reachable
+ * no matter where on the page the buyer is. The hero is purely
+ * photographic (see PropertyHero.js); further down the page,
+ * PriceOpinionCard.js has its own fully interactive slider too — both
+ * read from and write to the exact same lifted `priceOpinion` (plus
+ * `hasInteracted`/`isSliding`/`minPrice`/`maxPrice`) state in
+ * PropertyPageClient, so moving either one moves both instantly, and
+ * both Submit buttons open the exact same confirmation/save flow —
+ * one value, one submission flow, reachable from either control.
  *
  * Only ever hidden for two reasons — never for scroll position or
  * section visibility, see utils/persistentSliderVisibility.js:
