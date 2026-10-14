@@ -13,6 +13,11 @@ import PremarketBadge from './PremarketBadge';
  *
  * Hierarchy: PROPERTY → AGENT → AGENCY → PREMARKET. This header carries
  * the AGENCY and PREMARKET layers only; agent + property live below.
+ *
+ * Agency identity is logo OR name, never both — showing the name as
+ * well when a logo already exists just duplicated the same identity
+ * twice in a two-second-wide header. The name is only ever a fallback
+ * for the agencies who haven't uploaded a logo.
  */
 export default function PropertyHeader({ agencyName, agencyLogoUrl, onOpenIpadMode }) {
   return (
@@ -33,8 +38,7 @@ export default function PropertyHeader({ agencyName, agencyLogoUrl, onOpenIpadMo
               className="h-10 sm:h-12 w-auto max-w-[140px] sm:max-w-[180px] rounded-md object-contain flex-shrink-0"
               unoptimized
             />
-          ) : null}
-          {agencyName ? (
+          ) : agencyName ? (
             <span className="font-semibold text-slate-900 text-base sm:text-lg tracking-tight truncate">
               {agencyName}
             </span>
