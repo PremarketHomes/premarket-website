@@ -16,10 +16,10 @@ import PriceOpinionSlider from '../PriceOpinionSlider';
  * never labelled or implied to be the vendor's expected range. The
  * midpoint is never marked or called out.
  *
- * Label copy matches marketStatusCopy.js's own "anonymous price
- * opinion" phrasing (used in the heading/subcopy further down the
- * page) and PriceOpinionCard's "Anonymous · this is your opinion, not
- * an offer" line — same claim, same scope: it describes this specific
+ * Label copy matches marketStatusCopy.js's own "anonymous prediction"
+ * phrasing (used in the heading/subcopy further down the page) and
+ * PriceOpinionCard's "Anonymous · a prediction, not an offer to
+ * purchase" line — same claim, same scope: it describes this specific
  * submission action, not the whole page, because it's only true for
  * it. Submitting here stores just an amount against the session's
  * existing anonymous visitor/session id (see PropertyPageClient's
@@ -60,11 +60,11 @@ export default function ValuationSliderRow({
                       competing for room, so the full phrase (rendered in
                       the other branch below) fits even on the narrowest
                       phone without needing this split. */}
-                  <span className="sm:hidden">Anonymous opinion</span>
-                  <span className="hidden sm:inline">Your anonymous price opinion</span>
+                  <span className="sm:hidden">Anonymous prediction</span>
+                  <span className="hidden sm:inline">Your anonymous prediction</span>
                 </>
               ) : (
-                'Your anonymous price opinion'
+                'Your anonymous prediction'
               )}
             </span>
             {hasInteracted && (
@@ -99,14 +99,14 @@ export default function ValuationSliderRow({
           )}
           {hasInteracted && (
             <p className="hidden sm:block mt-1 text-[11px] text-slate-400">
-              Anonymous &middot; not an offer
+              Anonymous &middot; not an offer to purchase
             </p>
           )}
         </div>
         <button
           onClick={onSubmit}
           disabled={!hasInteracted}
-          aria-label="Submit my price opinion"
+          aria-label="Submit my prediction"
           className="flex-shrink-0 inline-flex items-center gap-1.5 h-11 pl-4 pr-4 sm:pr-5 rounded-full bg-[var(--brand-primary,#c2410c)] text-white shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
         >
           <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>

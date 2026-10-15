@@ -39,7 +39,7 @@ describe('getMarketStatusCopy — pre-market (off-market) properties', () => {
   const copy = getMarketStatusCopy('premarket');
 
   it('keeps the required price-opinion heading', () => {
-    expect(copy.priceOpinionHeading).toBe('What do you think this property is worth?');
+    expect(copy.priceOpinionHeading).toBe('What do you think this property will sell for?');
   });
 
   it('communicates the pre-launch opportunity in the price-opinion subcopy', () => {
@@ -62,7 +62,7 @@ describe('getMarketStatusCopy — on-market properties', () => {
   const copy = getMarketStatusCopy('on-market');
 
   it('keeps the same required price-opinion heading as pre-market', () => {
-    expect(copy.priceOpinionHeading).toBe('What do you think this property is worth?');
+    expect(copy.priceOpinionHeading).toBe('What do you think this property will sell for?');
   });
 
   it('uses price-education / buyer-sentiment framing, not a launch-timing pitch', () => {

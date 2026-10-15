@@ -1347,23 +1347,23 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8 text-center"
       >
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-          Your price opinion
+          Your anonymous prediction
         </p>
         <div className="text-4xl sm:text-5xl font-semibold text-[var(--brand-primary,#c2410c)] mb-6 tabular-nums">
           {formatMoney(priceOpinion)}
         </div>
         <h3 className="text-lg font-semibold text-slate-900 mb-2">
-          Confirm your anonymous opinion?
+          Confirm your prediction?
         </h3>
         <p className="text-sm text-slate-500 mb-8">
-          No signup required — your response stays anonymous.
+          No signup required — your response stays anonymous. It&rsquo;s not an offer to purchase.
         </p>
         <div className="space-y-3">
           <button
             onClick={confirmPriceOpinion}
             className="w-full bg-[var(--brand-primary,#c2410c)] hover:opacity-90 text-[var(--brand-text-on-primary,#ffffff)] font-semibold py-3.5 rounded-xl transition-opacity"
           >
-            Yes, confirm my opinion
+            Yes, confirm my prediction
           </button>
           <button
             onClick={() => setShowConfirmOpinionModal(false)}
