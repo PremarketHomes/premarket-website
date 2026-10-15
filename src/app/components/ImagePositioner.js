@@ -31,6 +31,10 @@ import Cropper from 'react-easy-crop';
  * baked crop or a transform — see cropAreaToObjectPosition's own
  * comment in imageCrop.js for why a full zoom+pan transform isn't used
  * for property photos specifically.
+ *
+ * `error`, when set, renders a message above the action buttons — the
+ * caller's own upload/processing failure, not anything this component
+ * detects itself (it has no concept of a failed save).
  */
 export default function ImagePositioner({
   imageSrc,
@@ -43,6 +47,7 @@ export default function ImagePositioner({
   onCancel,
   onSave,
   saving = false,
+  error = '',
 }) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -115,6 +120,10 @@ export default function ImagePositioner({
             Reset
           </button>
         </div>
+
+        {error && (
+          <p className="text-sm text-red-600 mt-3">{error}</p>
+        )}
 
         <div className="flex gap-3 mt-6">
           <button

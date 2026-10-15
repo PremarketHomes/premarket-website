@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { useRequireAgent } from '../../hooks/useRequireAgent';
@@ -49,6 +49,7 @@ export default function SettingsPage() {
   const [companyName, setCompanyName] = useState(userData?.companyName || '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [resetSending, setResetSending] = useState(false);
@@ -61,6 +62,7 @@ export default function SettingsPage() {
   const [positionerTarget, setPositionerTarget] = useState(null);
   const [positionerImageSrc, setPositionerImageSrc] = useState(null);
   const [positionerSaving, setPositionerSaving] = useState(false);
+  const [positionerError, setPositionerError] = useState('');
 
   // SMS enrollment state
   const [smsPhone, setSmsPhone] = useState(userData?.smsPhone || '');
@@ -69,8 +71,15 @@ export default function SettingsPage() {
   const [smsSaved, setSmsSaved] = useState(false);
   const [smsError, setSmsError] = useState('');
 
-  // Sync state if userData loads after initial render
-  useState(() => {
+  // Sync state when userData loads after initial render — userData comes
+  // from AuthContext's own async Firestore read, which is almost always
+  // still null on first render, so this has to be a real effect. (It was
+  // previously written as `useState(fn, [userData])`, which looks like an
+  // effect but isn't one: useState's lazy initializer runs exactly once,
+  // on mount, and silently ignores any second argument — so userData
+  // loading in afterwards never actually synced, and the avatar/logo/name
+  // shown here could permanently disagree with what's actually saved.)
+  useEffect(() => {
     if (userData) {
       setFirstName(userData.firstName || '');
       setLastName(userData.lastName || '');
@@ -80,7 +89,7 @@ export default function SettingsPage() {
       setLogoPreview(userData.logoUrl || '');
       setCompanyName(userData.companyName || '');
     }
-  }, [userData]);
+  }, [userData, user?.email]);
 
   if (loading) {
     return (
@@ -105,6 +114,7 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    setPositionerError('');
     setPositionerImageSrc(URL.createObjectURL(file));
     setPositionerTarget('avatar');
   };
@@ -113,18 +123,42 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    setPositionerError('');
     setPositionerImageSrc(URL.createObjectURL(file));
     setPositionerTarget('logo');
   };
 
+  // Reopens the positioner on the CURRENT saved avatar/logo (a remote
+  // CDN url, not a freshly-picked file) so an agent can adjust an
+  // already-saved image's framing without re-selecting the original
+  // file — satisfies "reopening the editor shows the saved image and
+  // positioning" for the common case of just wanting to nudge the crop.
+  // BunnyCDN's pull zone sends Access-Control-Allow-Origin: * on every
+  // response, so loading a remote avatar/logo url into the canvas this
+  // bakes from (getCroppedImageBlob) never taints it — confirmed this
+  // isn't a repeat of the original CORS-shaped failure class before
+  // relying on it here.
+  const openRepositioner = (target, src) => {
+    if (!src) return;
+    setPositionerError('');
+    setPositionerImageSrc(src);
+    setPositionerTarget(target);
+  };
+
   const closePositioner = () => {
-    if (positionerImageSrc) URL.revokeObjectURL(positionerImageSrc);
+    // Only ever revokes a URL this component itself created (a blob:
+    // url from a freshly-picked file) — revoking a plain https: url
+    // (the reposition-existing-image path) is a documented no-op, but
+    // tracked explicitly anyway so intent here is unambiguous.
+    if (positionerImageSrc?.startsWith('blob:')) URL.revokeObjectURL(positionerImageSrc);
     setPositionerImageSrc(null);
     setPositionerTarget(null);
+    setPositionerError('');
   };
 
   const handlePositionerSave = async ({ croppedAreaPixels }) => {
     setPositionerSaving(true);
+    setPositionerError('');
     try {
       if (positionerTarget === 'avatar') {
         const blob = await getCroppedImageBlob(positionerImageSrc, croppedAreaPixels, {
@@ -148,12 +182,16 @@ export default function SettingsPage() {
         setLogoPreview(URL.createObjectURL(blob));
         setLogoFile(file);
       }
+      closePositioner();
     } catch (err) {
       console.error('Error positioning image:', err);
-      alert('Could not process that image. Please try a different file.');
+      // Deliberately does NOT close the positioner or lose the crop the
+      // agent just made — closing here (the original behaviour) threw
+      // away their positioning on a transient failure, forcing them to
+      // redo it from scratch. They can retry Save or Cancel explicitly.
+      setPositionerError('Could not process that image. You can try Save again, or Cancel and pick a different file.');
     } finally {
       setPositionerSaving(false);
-      closePositioner();
     }
   };
 
@@ -168,10 +206,18 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
+    setSaveError('');
     try {
       let avatarUrl = userData?.avatar || '';
 
-      // Upload avatar if changed
+      // Upload avatar if changed. Previously, a failed upload here
+      // (res.ok === false) was silently ignored — avatarUrl quietly
+      // fell back to the old value, but the rest of this function kept
+      // going and still reported "Saved" at the end. The agent would
+      // see their careful crop vanish on the next refresh with no
+      // indication anything had gone wrong. Now a failed upload throws,
+      // which aborts the whole save (nothing partially persists) and
+      // surfaces a specific, honest error instead of a false "Saved".
       if (avatarFile) {
         setUploadingAvatar(true);
         const formData = new FormData();
@@ -180,16 +226,17 @@ export default function SettingsPage() {
           method: 'POST',
           body: formData,
         });
-        if (res.ok) {
-          const data = await res.json();
-          avatarUrl = data.url;
-        }
         setUploadingAvatar(false);
+        if (!res.ok) {
+          throw new Error('Your new profile photo could not be uploaded. Your previous photo is unchanged — please try again.');
+        }
+        const data = await res.json();
+        avatarUrl = data.url;
       }
 
       let logoUrl = userData?.logoUrl || '';
 
-      // Upload logo if changed
+      // Upload logo if changed — same failure handling as the avatar.
       if (logoFile) {
         const logoFormData = new FormData();
         logoFormData.append('file', logoFile);
@@ -197,10 +244,11 @@ export default function SettingsPage() {
           method: 'POST',
           body: logoFormData,
         });
-        if (logoRes.ok) {
-          const logoData = await logoRes.json();
-          logoUrl = logoData.url;
+        if (!logoRes.ok) {
+          throw new Error('Your new agency logo could not be uploaded. Your previous logo is unchanged — please try again.');
         }
+        const logoData = await logoRes.json();
+        logoUrl = logoData.url;
       }
 
       const updates = {
@@ -220,9 +268,14 @@ export default function SettingsPage() {
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       console.error('Error saving profile:', err);
-      alert('Failed to save. Please try again.');
+      // avatarFile/logoFile are deliberately left set (not cleared) on
+      // failure — the baked crop the agent already made is still ready
+      // to go, so retrying Save re-uploads it without making them
+      // reopen the positioner and redo the crop from scratch.
+      setSaveError(err.message || 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
+      setUploadingAvatar(false);
     }
   };
 
@@ -322,12 +375,22 @@ export default function SettingsPage() {
               />
             </div>
             <div>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="text-sm font-semibold text-orange-600 hover:text-orange-700 transition-colors"
-              >
-                Change photo
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-sm font-semibold text-orange-600 hover:text-orange-700 transition-colors"
+                >
+                  Change photo
+                </button>
+                {avatarPreview && (
+                  <button
+                    onClick={() => openRepositioner('avatar', avatarPreview)}
+                    className="text-sm font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+                  >
+                    Reposition
+                  </button>
+                )}
+              </div>
               <p className="text-xs text-slate-500 mt-1">JPG, PNG. Max 5MB.</p>
             </div>
           </div>
@@ -370,12 +433,22 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <button
-                  onClick={() => logoInputRef.current?.click()}
-                  className="text-sm font-semibold text-orange-600 hover:text-orange-700 transition-colors"
-                >
-                  Change logo
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => logoInputRef.current?.click()}
+                    className="text-sm font-semibold text-orange-600 hover:text-orange-700 transition-colors"
+                  >
+                    Change logo
+                  </button>
+                  {logoPreview && (
+                    <button
+                      onClick={() => openRepositioner('logo', logoPreview)}
+                      className="text-sm font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+                    >
+                      Reposition
+                    </button>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 mt-1">Displayed on property listings, TV displays, and your agent profile.</p>
               </div>
             </div>
@@ -563,6 +636,9 @@ export default function SettingsPage() {
         </div>
 
         {/* Save Button */}
+        {saveError && (
+          <p className="text-sm text-red-600 text-right">{saveError}</p>
+        )}
         <div className="flex justify-end">
           <button
             onClick={handleSave}
@@ -607,6 +683,7 @@ export default function SettingsPage() {
           onCancel={closePositioner}
           onSave={handlePositionerSave}
           saving={positionerSaving}
+          error={positionerError}
         />
       )}
     </div>

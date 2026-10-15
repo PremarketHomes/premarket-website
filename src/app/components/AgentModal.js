@@ -7,6 +7,8 @@ import { authFetch } from '../utils/authFetch';
 import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { Camera, X, Loader2, User, MessageCircle } from 'lucide-react';
 import { normalizeE164 } from '../utils/phone';
+import ImagePositioner from './ImagePositioner';
+import { getCroppedImageBlob, blobToFile } from '../utils/imageCrop';
 
 export default function AgentModal({ show, onClose, onSave, agent = null, userId }) {
   const fileInputRef = useRef(null);
@@ -17,14 +19,55 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
   const [smsEnabled, setSmsEnabled] = useState(!!agent?.smsEnabled);
   const [phoneError, setPhoneError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  // Same positioner pattern as dashboard/settings/page.js's avatar field
+  // — the raw picked file (or, for "Reposition", the already-saved
+  // remote avatar url) is held here only long enough for the
+  // positioner's Save step to bake it into a File, which becomes `file`.
+  const [positionerImageSrc, setPositionerImageSrc] = useState(null);
+  const [positionerSaving, setPositionerSaving] = useState(false);
+  const [positionerError, setPositionerError] = useState('');
 
   if (!show) return null;
 
   const handleFileChange = (e) => {
     const f = e.target.files?.[0];
+    e.target.value = '';
     if (!f) return;
-    setPreview(URL.createObjectURL(f));
-    setFile(f);
+    setPositionerError('');
+    setPositionerImageSrc(URL.createObjectURL(f));
+  };
+
+  const openRepositioner = () => {
+    if (!preview) return;
+    setPositionerError('');
+    setPositionerImageSrc(preview);
+  };
+
+  const closePositioner = () => {
+    if (positionerImageSrc?.startsWith('blob:')) URL.revokeObjectURL(positionerImageSrc);
+    setPositionerImageSrc(null);
+    setPositionerError('');
+  };
+
+  const handlePositionerSave = async ({ croppedAreaPixels }) => {
+    setPositionerSaving(true);
+    setPositionerError('');
+    try {
+      const blob = await getCroppedImageBlob(positionerImageSrc, croppedAreaPixels, {
+        outputWidth: 480,
+        outputHeight: 480,
+      });
+      setPreview(URL.createObjectURL(blob));
+      setFile(blobToFile(blob, 'avatar.png'));
+      closePositioner();
+    } catch (err) {
+      console.error('Error positioning image:', err);
+      setPositionerError('Could not process that image. You can try Save again, or Cancel and pick a different file.');
+    } finally {
+      setPositionerSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -43,17 +86,24 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
     setPhoneError('');
 
     setSaving(true);
+    setSaveError('');
     try {
       let avatarUrl = agent?.avatar || null;
 
+      // A failed upload here used to be silently ignored — avatarUrl
+      // quietly fell back to the old value, but the save still went
+      // ahead and reported success. Now it throws, so the whole save
+      // aborts with a clear error instead of a false "Saved" that hides
+      // a crop the agent just made never actually landing.
       if (file) {
         const formData = new FormData();
         formData.append('file', file);
         const res = await authFetch('/api/upload-image', { method: 'POST', body: formData });
-        if (res.ok) {
-          const { url } = await res.json();
-          avatarUrl = url;
+        if (!res.ok) {
+          throw new Error('The new photo could not be uploaded. The previous photo is unchanged — please try again.');
         }
+        const { url } = await res.json();
+        avatarUrl = url;
       }
 
       const smsPhoneValue = normalizedPhone || null;
@@ -97,6 +147,10 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
       onClose();
     } catch (err) {
       console.error('Agent save failed:', err);
+      // Previously just logged and returned — the Save button stopped
+      // spinning with zero indication anything had gone wrong, which
+      // read exactly like a successful, silent no-op.
+      setSaveError(err.message || 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -141,12 +195,22 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
                 <Camera className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             </div>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="text-sm font-semibold text-orange-600 hover:text-orange-700"
-            >
-              {preview ? 'Change photo' : 'Add photo'}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="text-sm font-semibold text-orange-600 hover:text-orange-700"
+              >
+                {preview ? 'Change photo' : 'Add photo'}
+              </button>
+              {preview && (
+                <button
+                  onClick={openRepositioner}
+                  className="text-sm font-semibold text-slate-500 hover:text-slate-800"
+                >
+                  Reposition
+                </button>
+              )}
+            </div>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
           </div>
 
@@ -194,6 +258,10 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
           </label>
         </div>
 
+        {saveError && (
+          <p className="px-6 text-sm text-red-600 mb-3">{saveError}</p>
+        )}
+
         <div className="px-6 pb-6 flex gap-3">
           <button
             onClick={onClose}
@@ -210,6 +278,20 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
           </button>
         </div>
       </motion.div>
+
+      {positionerImageSrc && (
+        <ImagePositioner
+          imageSrc={positionerImageSrc}
+          aspect={1}
+          cropShape="round"
+          title="Position your photo"
+          description="Drag to reposition. Use the slider, your scroll wheel, or pinch to zoom."
+          onCancel={closePositioner}
+          onSave={handlePositionerSave}
+          saving={positionerSaving}
+          error={positionerError}
+        />
+      )}
     </motion.div>
   );
 }
