@@ -23,9 +23,9 @@ export function getMarketStatusCopy(listingStatus) {
   if (isOnMarket(listingStatus)) {
     return {
       isOnMarket: true,
-      priceOpinionHeading: 'What do you think this property will sell for?',
+      priceOpinionHeading: 'Every buyer has their opinion. What\'s yours?',
       priceOpinionSubcopy:
-        'Share your anonymous prediction and help provide a clearer picture of where buyers see value in today’s market. It’s not an offer to purchase.',
+        'Share your anonymous feedback and help provide a clearer picture of where buyers see value in today’s market. It’s not an offer to purchase.',
       interestHeading: 'Interested in this property?',
       interestSubcopy: 'Register your interest directly with the agent.',
     };
@@ -33,9 +33,9 @@ export function getMarketStatusCopy(listingStatus) {
 
   return {
     isOnMarket: false,
-    priceOpinionHeading: 'What do you think this property will sell for?',
+    priceOpinionHeading: 'Every buyer has their opinion. What\'s yours?',
     priceOpinionSubcopy:
-      'Share your anonymous prediction and help the owner understand the property’s true value before it launches to market. It’s not an offer to purchase.',
+      'Share your anonymous feedback and help the owner understand the property’s true value before it launches to market. It’s not an offer to purchase.',
     interestHeading: 'Interested in securing it before it hits the market?',
     interestSubcopy:
       'Register your interest directly with the agent and explore the opportunity to secure a pre-market deal.',

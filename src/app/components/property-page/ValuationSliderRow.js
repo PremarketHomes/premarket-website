@@ -16,12 +16,15 @@ import PriceOpinionSlider from '../PriceOpinionSlider';
  * never labelled or implied to be the vendor's expected range. The
  * midpoint is never marked or called out.
  *
- * Label copy matches marketStatusCopy.js's own heading verbatim ("What
- * do you think this property will sell for?") and PriceOpinionCard's
- * "Anonymous · a prediction, not an offer to purchase" line — same
- * claim, same scope: it describes this specific submission action, not
- * the whole page, because it's only true for it. Submitting here
- * stores just an amount against the session's existing anonymous
+ * This control's own headline ("What would you value this property
+ * at?") is deliberately its own, shorter wording — not the main card's
+ * heading from marketStatusCopy.js further down the page — since this
+ * bar has to fit the question, the live price figure, and a Submit
+ * button all in one line. PriceOpinionCard's own "Anonymous · feedback,
+ * not an offer to purchase" line carries the same claim this control's
+ * own anonymity line makes: it describes this specific submission
+ * action, not the whole page, because it's only true for it. Submitting
+ * here stores just an amount against the session's existing anonymous
  * visitor/session id (see PropertyPageClient's savePriceOpinion) — no
  * name or contact details — unlike formal interest, which is a
  * separate, clearly distinct action. The same claim applies equally to
@@ -30,7 +33,7 @@ import PriceOpinionSlider from '../PriceOpinionSlider';
  * the one shared confirm/save flow.
  *
  * Once interacted, this shares its row with the price figure, which
- * leaves very little width on the narrowest phones — "Will sell for?"
+ * leaves very little width on the narrowest phones — "Value it at?"
  * stays short enough there to hold one line; the full question only
  * takes over once `sm:` gives it a whole floating card's width to
  * breathe in. Before interaction there's no price figure competing for
@@ -59,11 +62,11 @@ export default function ValuationSliderRow({
             <span className={`text-[11px] sm:text-xs font-semibold uppercase tracking-wide leading-tight ${labelClassName}`}>
               {hasInteracted ? (
                 <>
-                  <span className="sm:hidden">Will sell for?</span>
-                  <span className="hidden sm:inline">What do you think this property will sell for?</span>
+                  <span className="sm:hidden">Value it at?</span>
+                  <span className="hidden sm:inline">What would you value this property at?</span>
                 </>
               ) : (
-                'What do you think this property will sell for?'
+                'What would you value this property at?'
               )}
             </span>
             {hasInteracted && (
@@ -105,7 +108,7 @@ export default function ValuationSliderRow({
         <button
           onClick={onSubmit}
           disabled={!hasInteracted}
-          aria-label="Submit my prediction"
+          aria-label="Submit my feedback"
           className="flex-shrink-0 inline-flex items-center gap-1.5 h-11 pl-4 pr-4 sm:pr-5 rounded-full bg-[var(--brand-primary,#c2410c)] text-white shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
         >
           <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
