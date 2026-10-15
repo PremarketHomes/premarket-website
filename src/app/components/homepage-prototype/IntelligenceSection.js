@@ -42,7 +42,7 @@ export default function IntelligenceSection() {
             className="text-3xl sm:text-4xl text-slate-900 mb-3"
             style={{ fontFamily: 'var(--font-playfair, serif)', fontWeight: 600 }}
           >
-            You walk back into the conversation with proof.
+            You walk back in with proof &mdash; not just an opinion.
           </h2>
           <p className="text-slate-500 text-base sm:text-lg max-w-xl mx-auto">
             Take the pressure out of the pricing conversation. Real buyer price opinions gathered

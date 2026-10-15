@@ -19,12 +19,17 @@ const MID = 950000;
  */
 export default function OpinionSection() {
   const [value, setValue] = useState(MID);
+  const [userTouched, setUserTouched] = useState(false);
   const sectionRef = useRef(null);
   const inView = useInView(sectionRef, { once: false, margin: '-100px' });
   const reduce = useReducedMotion();
 
+  // Auto-plays gently to show the interaction is possible, but a visitor
+  // who actually drags it is trying the real product — the demo should
+  // never fight back. Once touched, autoplay stops for good rather than
+  // resuming and yanking the thumb out from under them.
   useEffect(() => {
-    if (!inView || reduce) return;
+    if (!inView || reduce || userTouched) return;
 
     let direction = 1;
     let current = MID;
@@ -36,7 +41,12 @@ export default function OpinionSection() {
     }, 550);
 
     return () => clearInterval(id);
-  }, [inView, reduce]);
+  }, [inView, reduce, userTouched]);
+
+  const handleChange = (next) => {
+    setUserTouched(true);
+    setValue(next);
+  };
 
   const displayValue = reduce ? MID : value;
 
@@ -54,10 +64,10 @@ export default function OpinionSection() {
             className="text-3xl sm:text-4xl text-slate-900 mb-3"
             style={{ fontFamily: 'var(--font-playfair, serif)', fontWeight: 600 }}
           >
-            They tell you what they&rsquo;d actually pay.
+            They tell you what they think it&rsquo;s worth.
           </h2>
           <p className="text-slate-500 text-base sm:text-lg mb-12">
-            Anonymous. Honest. In seconds.
+            Anonymous. Honest. In seconds &mdash; a price opinion, not an offer.
           </p>
         </Reveal>
 
@@ -70,9 +80,12 @@ export default function OpinionSection() {
             value={displayValue}
             min={MIN}
             max={MAX}
-            onChange={setValue}
+            onChange={handleChange}
             className="slider-thumb w-full h-2 rounded-full appearance-none bg-slate-200 accent-[#e48900] cursor-pointer"
           />
+          {!userTouched && (
+            <p className="text-[11px] text-slate-400 mt-3">Try dragging it yourself</p>
+          )}
 
           <div className="flex justify-between text-xs text-slate-400 mt-3">
             <span>${MIN.toLocaleString('en-AU')}</span>

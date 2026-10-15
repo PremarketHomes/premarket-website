@@ -26,14 +26,16 @@ export default function FinalCtaSection() {
             className="text-white text-3xl sm:text-5xl mb-4"
             style={{ fontFamily: 'var(--font-playfair, serif)', fontWeight: 600 }}
           >
-            Your database already has the buyers.
+            Win more listings. Before the campaign even begins.
           </h2>
-          <p className="text-white/85 text-lg sm:text-xl mb-8">Show the sellers what they&rsquo;re thinking.</p>
+          <p className="text-white/85 text-lg sm:text-xl mb-8">
+            Send your next appraisal property to the buyers already in your database.
+          </p>
           <Link
             href="/join"
             className="inline-block px-7 py-3.5 rounded-xl bg-[#e48900] text-white font-semibold hover:opacity-90 transition-opacity"
           >
-            Get started
+            Get started free
           </Link>
         </Reveal>
       </div>

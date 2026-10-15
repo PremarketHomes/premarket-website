@@ -45,14 +45,18 @@ export default function HeroSection({ onPastHero }) {
 
       <div className="absolute inset-x-0 bottom-0 pb-16 sm:pb-24">
         <div className="max-w-6xl mx-auto px-5 sm:px-8">
+          <p className="text-white/70 text-xs sm:text-sm uppercase tracking-[0.2em] font-semibold mb-5">
+            For listing agents
+          </p>
           <h1
             className="text-white text-4xl sm:text-6xl lg:text-7xl leading-[1.05] max-w-2xl"
             style={{ fontFamily: 'var(--font-playfair, serif)', fontWeight: 600 }}
           >
-            Your database already has the buyers.
+            Win more listings. Before the campaign even begins.
           </h1>
-          <p className="mt-4 text-white/85 text-lg sm:text-xl max-w-xl">
-            Premarket shows you what they&rsquo;re thinking.
+          <p className="mt-5 text-white/85 text-lg sm:text-xl max-w-xl">
+            Send the property to the buyers already in your database. Come back to the vendor
+            with real price opinions and genuine interest &mdash; not just your own opinion of value.
           </p>
         </div>
       </div>

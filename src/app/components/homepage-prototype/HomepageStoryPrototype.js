@@ -5,29 +5,36 @@ import { playfairDisplay } from '../property-page/fonts';
 import PublicSiteNav from '../public-site/PublicSiteNav';
 import PublicSiteFooter from '../public-site/PublicSiteFooter';
 import HeroSection from './HeroSection';
+import WinListingSection from './WinListingSection';
 import SendSection from './SendSection';
 import EngageSection from './EngageSection';
 import OpinionSection from './OpinionSection';
 import InterestSection from './InterestSection';
 import IntelligenceSection from './IntelligenceSection';
+import PricingSection from './PricingSection';
 import FinalCtaSection from './FinalCtaSection';
 
 /**
- * VISUAL PROTOTYPE — homepage redesign concept.
- * Approved sequence: Hero -> Send -> Engage -> Opinion -> Interest ->
- * Intelligence -> Final CTA -> Footer. (The Proof section was removed —
- * it only ever held an unverified "agents are already using it this way"
- * placeholder, and the brief was to cut it rather than replace it with
- * another unverified claim.)
+ * Homepage — commercial rebuild on top of the original visual prototype.
+ * Sequence: Hero -> Win the Listing -> Send -> Engage -> Opinion ->
+ * Interest -> Intelligence -> Pricing -> Final CTA -> Footer.
+ *
+ * The original sequence (Hero -> Send -> Engage -> Opinion -> Interest ->
+ * Intelligence -> Final CTA) was buyer-engagement-led — it explained the
+ * mechanism well but never told a listing agent, in the first viewport,
+ * that this is how you win the appraisal. Win the Listing and Pricing are
+ * new; everything else is the same component, lightly reworded where it
+ * conflated a price opinion with a personal offer or missed a chance to
+ * tie back to the commercial outcome. No "Proof" section — no real case
+ * studies or testimonials exist yet to put there honestly; see the
+ * homepage transformation report for what's needed before one can be
+ * added without fabricating anything.
  *
  * Reuses real product pieces where sensible (PriceOpinionSlider,
  * PremarketBadge, BrandMark, the property page's scoped Playfair Display
  * font) rather than inventing fake product interfaces. Everything else is
- * new, isolated markup under components/homepage-prototype/ — nothing in
- * the existing property page, dashboard, or PublicHomepage is modified.
- *
- * This component is only wired into src/app/page.js on this prototype
- * branch, never on main.
+ * isolated markup under components/homepage-prototype/ — nothing in the
+ * property page, dashboard, email, or Firestore rules is touched.
  */
 export default function HomepageStoryPrototype() {
   const [scrolledPastHero, setScrolledPastHero] = useState(false);
@@ -36,11 +43,13 @@ export default function HomepageStoryPrototype() {
     <div className={playfairDisplay.variable}>
       <PublicSiteNav solid={scrolledPastHero} howItWorksHref="#send" howItWorksLabel="How it works" />
       <HeroSection onPastHero={setScrolledPastHero} />
+      <WinListingSection />
       <SendSection />
       <EngageSection />
       <OpinionSection />
       <InterestSection />
       <IntelligenceSection />
+      <PricingSection />
       <FinalCtaSection />
       <PublicSiteFooter />
     </div>

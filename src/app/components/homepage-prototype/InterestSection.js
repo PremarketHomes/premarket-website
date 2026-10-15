@@ -20,6 +20,11 @@ const ENGAGEMENT_FEED = [
  * interest on the property experience, the agent is notified, and that
  * action becomes part of a running engagement feed. Deliberately one
  * connected composition rather than two separate demo boxes.
+ *
+ * The button is genuinely clickable — the visitor registers the demo
+ * interest themselves rather than watching it happen on a timer. On
+ * reduced motion, or if the visitor scrolls past without clicking, it
+ * still resolves on its own after a longer pause so the story completes.
  */
 export default function InterestSection() {
   const [registered, setRegistered] = useState(false);
@@ -28,10 +33,10 @@ export default function InterestSection() {
   const reduce = useReducedMotion();
 
   useEffect(() => {
-    if (!inView) return;
-    const t = setTimeout(() => setRegistered(true), reduce ? 0 : 900);
+    if (!inView || registered) return;
+    const t = setTimeout(() => setRegistered(true), reduce ? 0 : 3500);
     return () => clearTimeout(t);
-  }, [inView, reduce]);
+  }, [inView, reduce, registered]);
 
   return (
     <section id="interest" ref={sectionRef} className="relative bg-[#F8F5F0] py-24 sm:py-32">
@@ -65,8 +70,8 @@ export default function InterestSection() {
             {!registered ? (
               <button
                 type="button"
-                disabled
-                className="mx-auto px-7 py-3.5 rounded-xl border border-slate-300 text-slate-800 font-semibold text-[15px]"
+                onClick={() => setRegistered(true)}
+                className="mx-auto px-7 py-3.5 rounded-xl border border-slate-300 text-slate-800 font-semibold text-[15px] hover:border-slate-400 hover:bg-slate-50 active:scale-[0.98] transition-all cursor-pointer"
               >
                 Register formal interest
               </button>
