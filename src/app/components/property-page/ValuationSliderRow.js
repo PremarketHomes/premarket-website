@@ -16,18 +16,26 @@ import PriceOpinionSlider from '../PriceOpinionSlider';
  * never labelled or implied to be the vendor's expected range. The
  * midpoint is never marked or called out.
  *
- * Label copy matches marketStatusCopy.js's own "anonymous prediction"
- * phrasing (used in the heading/subcopy further down the page) and
- * PriceOpinionCard's "Anonymous · a prediction, not an offer to
- * purchase" line — same claim, same scope: it describes this specific
- * submission action, not the whole page, because it's only true for
- * it. Submitting here stores just an amount against the session's
- * existing anonymous visitor/session id (see PropertyPageClient's
- * savePriceOpinion) — no name or contact details — unlike formal
- * interest, which is a separate, clearly distinct action. The same
- * claim applies equally to PriceOpinionCard's own slider further down
- * the page, since both read/write the one shared `priceOpinion` state
- * and submit through the one shared confirm/save flow.
+ * Label copy matches marketStatusCopy.js's own heading verbatim ("What
+ * do you think this property will sell for?") and PriceOpinionCard's
+ * "Anonymous · a prediction, not an offer to purchase" line — same
+ * claim, same scope: it describes this specific submission action, not
+ * the whole page, because it's only true for it. Submitting here
+ * stores just an amount against the session's existing anonymous
+ * visitor/session id (see PropertyPageClient's savePriceOpinion) — no
+ * name or contact details — unlike formal interest, which is a
+ * separate, clearly distinct action. The same claim applies equally to
+ * PriceOpinionCard's own slider further down the page, since both
+ * read/write the one shared `priceOpinion` state and submit through
+ * the one shared confirm/save flow.
+ *
+ * Once interacted, this shares its row with the price figure, which
+ * leaves very little width on the narrowest phones — "Will sell for?"
+ * stays short enough there to hold one line; the full question only
+ * takes over once `sm:` gives it a whole floating card's width to
+ * breathe in. Before interaction there's no price figure competing for
+ * room, so the full question fits even on the narrowest phone without
+ * needing a split.
  */
 export default function ValuationSliderRow({
   priceOpinion,
@@ -51,20 +59,11 @@ export default function ValuationSliderRow({
             <span className={`text-[11px] sm:text-xs font-semibold uppercase tracking-wide leading-tight ${labelClassName}`}>
               {hasInteracted ? (
                 <>
-                  {/* Once interacted, this shares its row with the price
-                      figure, which leaves very little width on the
-                      narrowest phones — short enough there to stay on one
-                      line; the fuller phrase only takes over once sm:
-                      gives it a whole floating card's width to breathe
-                      in. Before interaction there's no price figure
-                      competing for room, so the full phrase (rendered in
-                      the other branch below) fits even on the narrowest
-                      phone without needing this split. */}
-                  <span className="sm:hidden">Anonymous prediction</span>
-                  <span className="hidden sm:inline">Your anonymous prediction</span>
+                  <span className="sm:hidden">Will sell for?</span>
+                  <span className="hidden sm:inline">What do you think this property will sell for?</span>
                 </>
               ) : (
-                'Your anonymous prediction'
+                'What do you think this property will sell for?'
               )}
             </span>
             {hasInteracted && (
