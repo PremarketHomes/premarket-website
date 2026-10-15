@@ -81,12 +81,14 @@ export async function POST(req) {
     });
 
     if (!claim.proceed) {
+      console.log(`notify-interest: skipped for offer ${offerId} (${claim.reason})`);
       return NextResponse.json({ skipped: true, reason: claim.reason });
     }
 
     const offer = claim.offer;
     const propertySnap = await adminDb.collection('properties').doc(propertyId).get();
     if (!propertySnap.exists) {
+      console.log(`notify-interest: skipped for offer ${offerId} (property ${propertyId} not found)`);
       await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
       return NextResponse.json({ skipped: true, reason: 'property not found' });
     }
@@ -94,12 +96,14 @@ export async function POST(req) {
 
     const agentUserId = property.userId;
     if (!agentUserId) {
+      console.log(`notify-interest: skipped for offer ${offerId} (no owning agent on property ${propertyId})`);
       await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
       return NextResponse.json({ skipped: true, reason: 'no owning agent on this property' });
     }
 
     const userSnap = await adminDb.collection('users').doc(agentUserId).get();
     if (!userSnap.exists || !userSnap.data()?.email) {
+      console.log(`notify-interest: skipped for offer ${offerId} (agent ${agentUserId} has no email on file)`);
       await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
       return NextResponse.json({ skipped: true, reason: 'agent has no email on file' });
     }
@@ -137,6 +141,7 @@ export async function POST(req) {
       interestNotifyingSince: FieldValue.delete(),
     });
 
+    console.log(`notify-interest: sent for offer ${offerId} to agent ${agentUserId} (property ${propertyId})`);
     return NextResponse.json({ sent: true });
   } catch (error) {
     console.error('notify-interest error:', error);
