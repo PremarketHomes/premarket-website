@@ -1439,7 +1439,6 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
               formatMoney={formatMoney}
               formatCompact={formatCompact}
               heading={marketCopy.priceOpinionHeading}
-              subcopy={marketCopy.priceOpinionSubcopy}
               interestSubcopy={marketCopy.interestSubcopy}
             />
           </div>

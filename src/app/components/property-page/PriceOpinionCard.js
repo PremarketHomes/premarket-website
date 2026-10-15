@@ -24,8 +24,10 @@ import PriceOpinionSlider from '../PriceOpinionSlider';
  * returning visitor whose prior opinion was restored). Before that, no
  * dollar figure is shown and Submit stays disabled on both sliders —
  * an untouched midpoint submission would read as a genuine opinion it
- * never was. The invitation copy below exists so removing that default
- * doesn't just read as a confusing blank control.
+ * never was. There's deliberately no placeholder/instructional copy
+ * filling that space any more — the slider sits directly under the
+ * heading and is self-evident, so the live dollar figure only ever
+ * appears once there's a real value to show, immediately below it.
  */
 export default function PriceOpinionCard({
   propertyId,
@@ -42,7 +44,6 @@ export default function PriceOpinionCard({
   formatMoney,
   formatCompact,
   heading,
-  subcopy,
   interestSubcopy,
 }) {
   return (
@@ -59,33 +60,8 @@ export default function PriceOpinionCard({
       >
         {heading}
       </h2>
-      <p className="text-slate-500 text-sm leading-relaxed mt-2 mb-6 sm:mb-8 max-w-md mx-auto">
-        {subcopy}
-      </p>
 
-      <div className="mb-5 min-h-[3.5rem] sm:min-h-[4rem] flex items-center justify-center">
-        {hasInteracted ? (
-          <motion.div
-            key={isSliding ? 'dragging' : priceOpinion}
-            initial={{ scale: 1.04 }}
-            animate={{ scale: 1 }}
-            transition={{ duration: 0.18 }}
-            className="text-4xl sm:text-5xl font-semibold text-[var(--brand-primary,#c2410c)] tabular-nums"
-            style={{ fontFamily: 'var(--font-inter, system-ui, sans-serif)' }}
-          >
-            {formatMoney(priceOpinion)}
-          </motion.div>
-        ) : (
-          <p
-            className="text-lg sm:text-xl font-semibold text-slate-400"
-            style={{ fontFamily: 'var(--font-playfair, serif)' }}
-          >
-            Have a go &mdash; drag to find your number
-          </p>
-        )}
-      </div>
-
-      <div className="mb-2">
+      <div className="mt-5 sm:mt-6 mb-2">
         <PriceOpinionSlider
           min={minPrice}
           max={maxPrice}
@@ -104,6 +80,19 @@ export default function PriceOpinionCard({
           </div>
         )}
       </div>
+
+      {hasInteracted && (
+        <motion.div
+          key={isSliding ? 'dragging' : priceOpinion}
+          initial={{ scale: 1.04 }}
+          animate={{ scale: 1 }}
+          transition={{ duration: 0.18 }}
+          className="mt-4 text-4xl sm:text-5xl font-semibold text-[var(--brand-primary,#c2410c)] tabular-nums"
+          style={{ fontFamily: 'var(--font-inter, system-ui, sans-serif)' }}
+        >
+          {formatMoney(priceOpinion)}
+        </motion.div>
+      )}
 
       <button
         onClick={onSubmitOpinion}
