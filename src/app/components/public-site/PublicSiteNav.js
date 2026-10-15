@@ -17,8 +17,11 @@ import BrandMark from '../BrandMark';
  * `solid`:
  *   - true (default) — always white/bordered, used on every page except
  *     the homepage hero (which has a full-bleed photo behind it).
- *   - false — transparent, white text; only the homepage drives this to
- *     true once the visitor scrolls past the hero.
+ *   - false — a semi-transparent charcoal bar with a backdrop blur, not
+ *     fully transparent: plain `bg-transparent` left the nav links
+ *     unreadable against a bright hero photo. The photo stays subtly
+ *     visible through it. Only the homepage drives this to true once the
+ *     visitor scrolls past the hero.
  *
  * Deliberately does not include Browse/Solutions-dropdown/Features-
  * dropdown/"What is Premarket?"/Create account — those remain real,
@@ -30,7 +33,7 @@ export default function PublicSiteNav({ solid = true, howItWorksHref = '/feature
       className={`fixed top-0 inset-x-0 z-50 transition-colors duration-500 ${
         solid
           ? 'bg-white/95 backdrop-blur-sm border-b border-slate-200'
-          : 'bg-transparent border-b border-transparent'
+          : 'bg-slate-950/55 backdrop-blur-md border-b border-white/10'
       }`}
     >
       <div className="max-w-6xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
@@ -49,7 +52,7 @@ export default function PublicSiteNav({ solid = true, howItWorksHref = '/feature
           <Link
             href={howItWorksHref}
             className={`hidden sm:inline text-sm font-medium transition-colors duration-500 ${
-              solid ? 'text-slate-600 hover:text-slate-900' : 'text-white/80 hover:text-white'
+              solid ? 'text-slate-600 hover:text-slate-900' : 'text-white/95 hover:text-white'
             }`}
           >
             {howItWorksLabel}
@@ -57,7 +60,7 @@ export default function PublicSiteNav({ solid = true, howItWorksHref = '/feature
           <Link
             href="/contact"
             className={`hidden sm:inline text-sm font-medium transition-colors duration-500 ${
-              solid ? 'text-slate-600 hover:text-slate-900' : 'text-white/80 hover:text-white'
+              solid ? 'text-slate-600 hover:text-slate-900' : 'text-white/95 hover:text-white'
             }`}
           >
             Contact
@@ -65,7 +68,7 @@ export default function PublicSiteNav({ solid = true, howItWorksHref = '/feature
           <Link
             href="/login"
             className={`text-sm font-medium transition-colors duration-500 ${
-              solid ? 'text-slate-600 hover:text-slate-900' : 'text-white/80 hover:text-white'
+              solid ? 'text-slate-600 hover:text-slate-900' : 'text-white/95 hover:text-white'
             }`}
           >
             Log in

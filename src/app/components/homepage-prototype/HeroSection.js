@@ -8,6 +8,16 @@ import { useReducedMotion } from 'framer-motion';
  * Hero — Option 1 from the approved concept: full-bleed premium property
  * photography and a single positioning line. No product UI yet. The
  * technology reveals itself as the visitor scrolls (Send → Engage → ...).
+ *
+ * hero-exterior-hd.jpg replaces the original hero-exterior.jpg for this
+ * section only (that file stayed a 1200px-wide source — fine at the
+ * smaller sizes it's used at elsewhere, but visibly soft stretched full-
+ * bleed across a wide viewport, let alone at 2x/3x device pixel ratio).
+ * This is a real photograph (Michael Brown, via Unsplash, free for
+ * commercial use under the Unsplash License — unsplash.com/photos/
+ * G48h926L2qo), downloaded at its native 3840px width and self-hosted
+ * here rather than hotlinked. SendSection/IntelligenceSection still use
+ * the original file deliberately — out of scope for this change.
  */
 export default function HeroSection({ onPastHero }) {
   const sentinelRef = useRef(null);
@@ -31,10 +41,11 @@ export default function HeroSection({ onPastHero }) {
     <section className="relative h-screen min-h-[560px] w-full overflow-hidden">
       <div className={`absolute inset-0 ${reduce ? '' : 'animate-hero-zoom'}`}>
         <Image
-          src="/prototype-homepage/hero-exterior.jpg"
-          alt="Premium residential property at dusk"
+          src="/prototype-homepage/hero-exterior-hd.jpg"
+          alt="Premium contemporary residential property at dusk"
           fill
           priority
+          quality={90}
           sizes="100vw"
           className="object-cover"
         />
