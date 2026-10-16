@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
 import { sendEmail } from '../../services/resendService';
 import { createInvoiceRunFromPendingCharges } from '../../services/invoiceRunService';
+import { verifyCron } from '../../middleware/auth';
 
 export const maxDuration = 120;
 
@@ -15,9 +16,9 @@ export const maxDuration = 120;
  * than creating an empty one.
  */
 export async function GET(request) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = verifyCron(request);
+  if (!auth.authenticated) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   try {
