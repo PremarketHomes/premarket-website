@@ -18,30 +18,7 @@
 
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
-import { ensureChargesForProperties } from './billingService';
-
-/**
- * Safety net, not the primary mechanism: properties are meant to get a
- * charge the moment they're created (see billingService.js's own
- * comment for the three real creation paths that call
- * recordPropertyCharge directly). This sweeps for any property that
- * somehow doesn't have one yet — e.g. the client-side call after
- * dashboard/add's addDoc failed to reach the server — and records it
- * before this run looks at what's pending, so a charge is never simply
- * lost because of a transient failure elsewhere.
- *
- * Scans the whole properties collection. Fine at this project's current
- * scale (every property is one cheap existence check against
- * propertyCharges, most of which already exist and short-circuit with
- * no write) — if the properties collection grows very large, this
- * should be narrowed to properties created since the last successful
- * run rather than a full scan every time.
- */
-async function reconcileMissingCharges() {
-  const propertiesSnap = await adminDb.collection('properties').get();
-  const properties = propertiesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  return ensureChargesForProperties(properties);
-}
+import { reconcileMissingCharges } from './billingService';
 
 /**
  * Groups a list of { id, ...chargeData } charge docs by

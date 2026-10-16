@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockVerifyIdToken = vi.fn();
 vi.mock('firebase-admin/auth', () => ({
@@ -33,6 +33,15 @@ function makeFakeDb() {
           async set(data) { store[name][id] = { ...data }; },
           async update(patch) { store[name][id] = { ...(store[name][id] || {}), ...patch }; },
         };
+      },
+      where(field, op, value) {
+        const all = Object.entries(store[name]).map(([docId, data]) => ({ id: docId, data: () => data, _raw: data }));
+        const filtered = all.filter((d) => (op === '==' ? d._raw[field] === value : true));
+        return { get: async () => ({ docs: filtered, empty: filtered.length === 0, size: filtered.length }) };
+      },
+      async get() {
+        const docs = Object.entries(store[name]).map(([docId, data]) => ({ id: docId, data: () => data }));
+        return { docs, empty: docs.length === 0 };
       },
     };
   }
@@ -196,5 +205,56 @@ describe('POST /api/admin/invoicing/charges/[chargeId]', () => {
     expect(res.status).toBe(200);
     expect(data.requiresCreditNote).toBe(true);
     expect(fakeDb._store.propertyCharges.c1.status).toBe('reversed');
+  });
+});
+
+describe('GET /api/cron/reconcile-property-charges', () => {
+  const originalSecret = process.env.CRON_SECRET;
+  beforeEach(() => { process.env.CRON_SECRET = 'test-secret'; });
+  afterEach(() => { process.env.CRON_SECRET = originalSecret; });
+
+  function makeGetRequest(authHeader) {
+    const headers = new Headers();
+    if (authHeader) headers.set('authorization', authHeader);
+    return new Request('http://localhost/test', { method: 'GET', headers });
+  }
+
+  it('401s without the correct CRON_SECRET bearer token', async () => {
+    const { GET } = await import('../../src/app/api/cron/reconcile-property-charges/route.js');
+    const res = await GET(makeGetRequest('Bearer wrong'));
+    expect(res.status).toBe(401);
+  });
+
+  it('401s with no Authorization header at all (the real Vercel-cron-without-CRON_SECRET-configured scenario)', async () => {
+    const { GET } = await import('../../src/app/api/cron/reconcile-property-charges/route.js');
+    const res = await GET(makeGetRequest(null));
+    expect(res.status).toBe(401);
+  });
+
+  it('records a charge for a property that is missing one, and reports the count', async () => {
+    fakeDb._seed('properties', 'prop1', { userId: 'agent1', address: '1 Test St' });
+    fakeDb._seed('users', 'agent1', { firstName: 'Jo', lastName: 'Lee' });
+    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [] });
+
+    const { GET } = await import('../../src/app/api/cron/reconcile-property-charges/route.js');
+    const res = await GET(makeGetRequest('Bearer test-secret'));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.created).toBe(1);
+    expect(fakeDb._store.propertyCharges.prop1.status).toBe('pending');
+  });
+
+  it('is a safe no-op (never a duplicate) when every property already has a charge', async () => {
+    fakeDb._seed('properties', 'prop1', { userId: 'agent1', address: '1 Test St' });
+    fakeDb._seed('propertyCharges', 'prop1', { status: 'pending' });
+
+    const { GET } = await import('../../src/app/api/cron/reconcile-property-charges/route.js');
+    const res = await GET(makeGetRequest('Bearer test-secret'));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.created).toBe(0);
+    expect(data.skipped).toBe(1);
   });
 });

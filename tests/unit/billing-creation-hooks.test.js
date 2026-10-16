@@ -13,8 +13,13 @@ function read(relPath) {
 // edit/archive/visibility-toggle path, or the two confirmed-unreachable
 // legacy forms.
 
-describe('property-creation paths all call recordPropertyCharge exactly once', () => {
-  it('dashboard/add/page.js (manual creation) calls the record-charge endpoint right after addDoc', () => {
+describe('property-creation paths all record a charge exactly once', () => {
+  it('dashboard/add/page.js (manual, client-side creation) calls the record-charge endpoint right after addDoc', () => {
+    // The only one of the three paths that can't create the property +
+    // charge in one transaction (the property is created via the
+    // browser's own Firestore SDK, which has no write access to
+    // propertyCharges at all) — so this is the best-effort, retroactive
+    // record-charge call, backstopped by the reconciliation sweep/cron.
     const source = read('../../src/app/dashboard/add/page.js');
     const addDocIdx = source.indexOf("addDoc(collection(db, 'properties'), propertyData)");
     const callIdx = source.indexOf('/api/properties/${propertyId}/record-charge');
@@ -22,25 +27,24 @@ describe('property-creation paths all call recordPropertyCharge exactly once', (
     expect(callIdx).toBeGreaterThan(addDocIdx);
   });
 
-  it('propertyScrapeService.js (SMS-created listings) calls recordPropertyCharge after creating the property', () => {
+  it('propertyScrapeService.js (SMS-created listings) creates the property and its charge atomically', () => {
     const source = read('../../src/app/api/services/propertyScrapeService.js');
     expect(source).toContain("from './billingService'");
-    const addIdx = source.indexOf("adminDb.collection('properties').add(propertyData)");
-    const chargeIdx = source.indexOf('recordPropertyCharge({ id: ref.id, ...propertyData })');
-    expect(addIdx).toBeGreaterThan(-1);
-    expect(chargeIdx).toBeGreaterThan(addIdx);
+    expect(source).toContain('createPropertyAndChargeAtomically(propertyData)');
+    // Not the old two-step add() + recordPropertyCharge() — this path
+    // is fully server-side, so it gets the stronger transactional
+    // guarantee instead.
+    expect(source).not.toContain("adminDb.collection('properties').add(propertyData)");
   });
 
-  it('AgentBox import records a charge for a real import, but never for a demo-mode import', () => {
+  it('AgentBox import creates the property and its charge atomically, skipping the charge only for a demo-mode import', () => {
     const source = read('../../src/app/api/integrations/agentbox/import/route.js');
-    expect(source).toContain('if (!isDemo) {');
-    expect(source).toContain('recordPropertyCharge({ id: docRef.id, ...propertyData })');
+    expect(source).toContain('createPropertyAndChargeAtomically(propertyData, { skipCharge: isDemo })');
   });
 
-  it('Rex import records a charge for a real import, but never for a demo-mode import', () => {
+  it('Rex import creates the property and its charge atomically, skipping the charge only for a demo-mode import', () => {
     const source = read('../../src/app/api/integrations/rex/import/route.js');
-    expect(source).toContain('if (!isDemo) {');
-    expect(source).toContain('recordPropertyCharge({ id: docRef.id, ...propertyData })');
+    expect(source).toContain('createPropertyAndChargeAtomically(propertyData, { skipCharge: isDemo })');
   });
 });
 

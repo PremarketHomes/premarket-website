@@ -1,7 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '../../firebase/adminApp';
 import { generatePropertyTitleAndDescription } from './openAiService';
-import { recordPropertyCharge } from './billingService';
+import { createPropertyAndChargeAtomically } from './billingService';
 
 const PROPERTY_TYPE_LABELS = ['House', 'Apartment', 'Villa', 'Townhouse', 'Acreage'];
 
@@ -117,20 +117,20 @@ export async function createPropertyFromScrape(user, scraped) {
     source: 'sms',
   };
 
-  const ref = await adminDb.collection('properties').add(propertyData);
-
-  // Billable the moment it exists — its private buyer link (publicUrl
-  // below) is live from this same instant, regardless of the
-  // visibility:false default above (that only controls the separate
-  // public /listings page, not this property's own direct link).
-  await recordPropertyCharge({ id: ref.id, ...propertyData });
+  // Creates the property and its charge in one Firestore transaction —
+  // billable the moment it exists (its private buyer link, publicUrl
+  // below, is live from this same instant regardless of the
+  // visibility:false default above, which only controls the separate
+  // public /listings page) with no possible gap where the property
+  // exists but silently never got charged.
+  const { propertyId } = await createPropertyAndChargeAtomically(propertyData);
 
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://premarket.homes';
-  const publicUrl = `${baseUrl}/find-property?propertyId=${ref.id}`;
-  const editUrl = `${baseUrl}/dashboard/edit/${ref.id}`;
+  const publicUrl = `${baseUrl}/find-property?propertyId=${propertyId}`;
+  const editUrl = `${baseUrl}/dashboard/edit/${propertyId}`;
 
   return {
-    propertyId: ref.id,
+    propertyId,
     title: title || scraped.address || 'New premarket listing',
     publicUrl,
     editUrl,

@@ -72,7 +72,33 @@ function makeFakeDb() {
     };
   }
 
-  return { collection, batch, _store: store };
+  // Mirrors real Firestore transaction semantics closely enough for
+  // this file's purposes: every write inside the callback is deferred
+  // until the callback itself resolves, and nothing is committed to
+  // `store` at all if it throws — exactly what
+  // createPropertyAndChargeAtomically relies on (property + charge
+  // both land, or neither does).
+  async function runTransaction(updateFn) {
+    const pendingWrites = [];
+    const tx = {
+      get: async (ref) => {
+        const data = store[ref._col]?.[ref.id];
+        return { exists: !!data, id: ref.id, data: () => data };
+      },
+      set: (ref, data) => pendingWrites.push(() => {
+        store[ref._col] = store[ref._col] || {};
+        store[ref._col][ref.id] = { ...data };
+      }),
+      update: (ref, patch) => pendingWrites.push(() => {
+        store[ref._col][ref.id] = { ...(store[ref._col][ref.id] || {}), ...patch };
+      }),
+    };
+    const result = await updateFn(tx);
+    pendingWrites.forEach((write) => write());
+    return result;
+  }
+
+  return { collection, batch, runTransaction, _store: store };
 }
 
 // doc refs created via collection(name).doc(id) above don't carry a
@@ -124,13 +150,70 @@ describe('resolveBillingEntity (pure)', () => {
     expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
   });
 
-  it('carries agencyBrandId through for future reference without using it as the grouping key', async () => {
+  it('a matched brand takes priority over companyName, keying by the stable brand id', async () => {
     const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
-    const a = resolveBillingEntity({ agentUserId: 'u1', companyName: 'Acme', agencyBrandId: 'acme-brand' });
-    const b = resolveBillingEntity({ agentUserId: 'u2', companyName: 'Acme' }); // no brand set
-    expect(a.billingEntityKey).toBe(b.billingEntityKey); // same group despite one missing a brand
-    expect(a.agencyBrandId).toBe('acme-brand');
-    expect(b.agencyBrandId).toBeNull();
+    const result = resolveBillingEntity({
+      agentUserId: 'u1',
+      companyName: 'Harcourts Prop Hub', // deliberately NOT the same string as the brand name
+      matchedBrand: { id: 'brand-123', name: 'Harcourts Property Hub' },
+    });
+    expect(result.billingEntityType).toBe('agency');
+    expect(result.billingEntityKey).toBe('brand:brand-123');
+    expect(result.billingEntityName).toBe('Harcourts Property Hub');
+    expect(result.agencyBrandId).toBe('brand-123');
+  });
+
+  it('two agents with a matched brand consolidate even though their companyName strings genuinely differ', async () => {
+    const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
+    const a = resolveBillingEntity({ agentUserId: 'u1', companyName: 'HPH', matchedBrand: { id: 'brand-123', name: 'Harcourts Property Hub' } });
+    const b = resolveBillingEntity({ agentUserId: 'u2', companyName: 'Harcourts Property Hub Pty Ltd', matchedBrand: { id: 'brand-123', name: 'Harcourts Property Hub' } });
+    expect(a.billingEntityKey).toBe(b.billingEntityKey);
+  });
+
+  it('falls back to normalised companyName when no brand matches', async () => {
+    const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
+    const a = resolveBillingEntity({ agentUserId: 'u1', companyName: 'Acme' });
+    const b = resolveBillingEntity({ agentUserId: 'u2', companyName: 'Acme' });
+    expect(a.billingEntityKey).toBe(b.billingEntityKey);
+    expect(a.agencyBrandId).toBeNull();
+  });
+});
+
+describe('resolveAgencyBrand', () => {
+  it('returns the brand pointed to by agencyBrandId when it exists', async () => {
+    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active' });
+    const result = await resolveAgencyBrand({ agencyBrandId: 'brand-123', companyName: 'something else entirely' });
+    expect(result).toEqual({ id: 'brand-123', name: 'Harcourts Property Hub' });
+  });
+
+  it('falls back to an exact companyName match when agencyBrandId is not set', async () => {
+    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active' });
+    const result = await resolveAgencyBrand({ companyName: 'harcourts property hub ' }); // no agencyBrandId, differs only by case/whitespace
+    expect(result).toEqual({ id: 'brand-123', name: 'Harcourts Property Hub' });
+  });
+
+  it('falls through to companyName matching if agencyBrandId points at a brand that no longer exists', async () => {
+    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('agencyBrands').doc('brand-456').set({ name: 'Ray White', status: 'active' });
+    const result = await resolveAgencyBrand({ agencyBrandId: 'deleted-brand', companyName: 'Ray White' });
+    expect(result).toEqual({ id: 'brand-456', name: 'Ray White' });
+  });
+
+  it('returns null when neither agencyBrandId nor companyName matches any brand', async () => {
+    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
+    const result = await resolveAgencyBrand({ companyName: 'Some Agency With No Brand' });
+    expect(result).toBeNull();
+  });
+
+  it('never writes to agencyBrandId or the brand itself — purely read-only', async () => {
+    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active' });
+    const before = JSON.stringify(fakeDb._store.agencyBrands);
+    await resolveAgencyBrand({ companyName: 'Harcourts Property Hub' });
+    expect(JSON.stringify(fakeDb._store.agencyBrands)).toBe(before);
+    expect(fakeDb._store.users || {}).toEqual({});
   });
 });
 
@@ -302,5 +385,81 @@ describe('releaseCharges / markChargesInvoiced / markChargesFailed', () => {
     const d1 = await fakeDb.collection('propertyCharges').doc('p1').get();
     expect(d1.data().status).toBe('pending');
     expect(d1.data().runId).toBeNull();
+  });
+});
+
+describe('createPropertyAndChargeAtomically', () => {
+  async function setup() {
+    const svc = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com' });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [] });
+    return svc;
+  }
+
+  it('creates both the property and its charge together', async () => {
+    const { createPropertyAndChargeAtomically } = await setup();
+    const result = await createPropertyAndChargeAtomically({ userId: 'agent1', address: '1 Test St' });
+
+    expect(result.charged).toBe(true);
+    const prop = await fakeDb.collection('properties').doc(result.propertyId).get();
+    const charge = await fakeDb.collection('propertyCharges').doc(result.propertyId).get();
+    expect(prop.exists).toBe(true);
+    expect(charge.exists).toBe(true);
+    expect(charge.data().propertyId).toBe(result.propertyId);
+    expect(charge.data().status).toBe('pending');
+  });
+
+  it('rolls back the property too if the transaction throws partway through (atomicity, not just "best effort")', async () => {
+    const { createPropertyAndChargeAtomically } = await setup();
+
+    // Force the transaction itself to fail after both writes are
+    // queued but before anything commits, by making runTransaction's
+    // updateFn throw — simulates e.g. a Firestore contention error.
+    const originalRunTransaction = fakeDb.runTransaction;
+    fakeDb.runTransaction = async (updateFn) => {
+      const tx = { set: () => {}, get: async () => ({ exists: false }) };
+      await updateFn(tx); // queued writes are discarded — tx.set above is a no-op stub
+      throw new Error('Simulated transaction failure');
+    };
+
+    await expect(createPropertyAndChargeAtomically({ userId: 'agent1', address: '1 Test St' })).rejects.toThrow('Simulated transaction failure');
+
+    // Nothing committed at all — not a property with no charge, not
+    // a charge with no property. Either both exist or neither does.
+    const allProps = await fakeDb.collection('properties').get();
+    const allCharges = await fakeDb.collection('propertyCharges').get();
+    expect(allProps.docs.length).toBe(0);
+    expect(allCharges.docs.length).toBe(0);
+
+    fakeDb.runTransaction = originalRunTransaction;
+  });
+
+  it('creates the property without a charge when skipCharge is true (demo-mode imports)', async () => {
+    const { createPropertyAndChargeAtomically } = await setup();
+    const result = await createPropertyAndChargeAtomically({ userId: 'agent1', address: '1 Test St' }, { skipCharge: true });
+
+    expect(result.charged).toBe(false);
+    const prop = await fakeDb.collection('properties').doc(result.propertyId).get();
+    const charge = await fakeDb.collection('propertyCharges').doc(result.propertyId).get();
+    expect(prop.exists).toBe(true);
+    expect(charge.exists).toBe(false);
+  });
+
+  it('creates the property without a charge when there is no agent userId at all, without throwing', async () => {
+    const { createPropertyAndChargeAtomically } = await setup();
+    const result = await createPropertyAndChargeAtomically({ address: '1 Test St' });
+
+    expect(result.charged).toBe(false);
+    const prop = await fakeDb.collection('properties').doc(result.propertyId).get();
+    expect(prop.exists).toBe(true);
+  });
+
+  it('never needs an idempotency check — the property id is always freshly generated, so there is nothing to race against', async () => {
+    const { createPropertyAndChargeAtomically } = await setup();
+    const a = await createPropertyAndChargeAtomically({ userId: 'agent1', address: '1 A St' });
+    const b = await createPropertyAndChargeAtomically({ userId: 'agent1', address: '2 B St' });
+    expect(a.propertyId).not.toBe(b.propertyId);
+    const all = await fakeDb.collection('propertyCharges').get();
+    expect(all.docs.length).toBe(2);
   });
 });

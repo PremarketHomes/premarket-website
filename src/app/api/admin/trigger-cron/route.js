@@ -26,6 +26,7 @@ import * as cleanupStale from '../../cron/cleanup-stale/route.js';
 import * as syncAgentbox from '../../cron/sync-agentbox/route.js';
 import * as compressImages from '../../cron/compress-images/route.js';
 import * as invoiceDryRun from '../../cron/invoice-dry-run/route.js';
+import * as reconcilePropertyCharges from '../../cron/reconcile-property-charges/route.js';
 import * as propertyFollowup from '../../cron/property-followup/route.js';
 import * as marketReport from '../../cron/market-report/route.js';
 import * as computeContacts from '../../cron/compute-contacts/route.js';
@@ -38,6 +39,7 @@ const JOBS = {
   'sync-agentbox':     { handler: syncAgentbox },
   'compress-images':   { handler: compressImages },
   'invoice-dry-run':   { handler: invoiceDryRun },
+  'reconcile-property-charges': { handler: reconcilePropertyCharges },
   'property-followup': { handler: propertyFollowup },
   'market-report':     { handler: marketReport },
   'compute-contacts':  { handler: computeContacts },

@@ -6,6 +6,7 @@
     { "path": "/api/cron/sync-agentbox", "schedule": "0 */2 * * *" },
     { "path": "/api/cron/compress-images", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/invoice-dry-run", "schedule": "0 4 * * *" },
+    { "path": "/api/cron/reconcile-property-charges", "schedule": "0 * * * *" },
     { "path": "/api/cron/property-followup", "schedule": "0 5 * * *" },
     { "path": "/api/cron/market-report", "schedule": "0 6 * * *" },
     { "path": "/api/cron/compute-contacts", "schedule": "0 1 * * *" },
