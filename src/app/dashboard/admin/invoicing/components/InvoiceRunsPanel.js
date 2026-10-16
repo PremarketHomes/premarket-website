@@ -6,23 +6,11 @@ import InvoiceStatusBadge from './InvoiceStatusBadge';
 import InvoiceRunDetail from './InvoiceRunDetail';
 import { authFetch } from '../../../../utils/authFetch';
 
-function getDefaultDates() {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const to = new Date(now.getFullYear(), now.getMonth(), 0);
-  return {
-    from: from.toISOString().split('T')[0],
-    to: to.toISOString().split('T')[0],
-  };
-}
-
-export default function InvoiceRunsPanel({ user }) {
+export default function InvoiceRunsPanel({ user, pricePerListing }) {
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [dateFrom, setDateFrom] = useState(getDefaultDates().from);
-  const [dateTo, setDateTo] = useState(getDefaultDates().to);
   const [selectedRunId, setSelectedRunId] = useState(null);
   const [selectedRun, setSelectedRun] = useState(null);
   const [selectedItems, setSelectedItems] = useState([]);
@@ -67,15 +55,15 @@ export default function InvoiceRunsPanel({ user }) {
   async function handleCreateRun() {
     setCreating(true);
     try {
-      const res = await authFetch('/api/admin/invoicing/runs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dateFrom, dateTo }),
-      });
+      const res = await authFetch('/api/admin/invoicing/runs', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setSelectedRunId(data.runId);
         setShowCreateForm(false);
+        if (data.runId) {
+          setSelectedRunId(data.runId);
+        } else {
+          alert(data.message || 'No pending charges to invoice right now.');
+        }
         await fetchRuns();
       } else {
         alert(data.error || 'Failed to create run');
@@ -148,7 +136,8 @@ export default function InvoiceRunsPanel({ user }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-500">
-          Invoice runs for monthly agency billing at $200/listing.
+          Invoice runs for monthly agency billing
+          {typeof pricePerListing === 'number' ? ` at $${pricePerListing}/listing (set in Settings)` : ''}.
         </p>
         <button
           onClick={() => setShowCreateForm(!showCreateForm)}
@@ -163,28 +152,10 @@ export default function InvoiceRunsPanel({ user }) {
       {showCreateForm && (
         <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
           <h3 className="text-sm font-semibold text-slate-700">Create Invoice Run</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Date From</label>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full px-3 py-2 text-slate-900 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Date To</label>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-full px-3 py-2 text-slate-900 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none"
-              />
-            </div>
-          </div>
           <p className="text-xs text-slate-400">
-            Properties created between these dates that haven't been invoiced will be included.
+            Every property charge recorded since the last run — one charge per property, from
+            the moment it was created — will be bundled into a new draft run, grouped by agency.
+            Nothing is sent to Xero yet; you'll review and approve this run first.
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -213,7 +184,7 @@ export default function InvoiceRunsPanel({ user }) {
         <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
           <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
           <p className="text-slate-500 text-sm">No invoice runs yet</p>
-          <p className="text-slate-400 text-xs mt-1">Create your first run to generate invoices for the previous month.</p>
+          <p className="text-slate-400 text-xs mt-1">Create your first run to bundle every pending property charge into a draft.</p>
         </div>
       ) : (
         <div className="space-y-2">

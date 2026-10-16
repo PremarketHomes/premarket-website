@@ -1,6 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '../../firebase/adminApp';
 import { generatePropertyTitleAndDescription } from './openAiService';
+import { recordPropertyCharge } from './billingService';
 
 const PROPERTY_TYPE_LABELS = ['House', 'Apartment', 'Villa', 'Townhouse', 'Acreage'];
 
@@ -117,6 +118,12 @@ export async function createPropertyFromScrape(user, scraped) {
   };
 
   const ref = await adminDb.collection('properties').add(propertyData);
+
+  // Billable the moment it exists — its private buyer link (publicUrl
+  // below) is live from this same instant, regardless of the
+  // visibility:false default above (that only controls the separate
+  // public /listings page, not this property's own direct link).
+  await recordPropertyCharge({ id: ref.id, ...propertyData });
 
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://premarket.homes';
   const publicUrl = `${baseUrl}/find-property?propertyId=${ref.id}`;

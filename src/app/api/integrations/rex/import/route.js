@@ -4,6 +4,7 @@ import { getCredentials, fetchListingById, mapRexListingToProperty } from '../..
 import { DEMO_LISTINGS } from '../../../../api/services/rexDemoData';
 import { adminDb } from '../../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
+import { recordPropertyCharge } from '../../../../api/services/billingService';
 
 export async function POST(request) {
   try {
@@ -88,6 +89,12 @@ export async function POST(request) {
           override: true,
           createdAt: FieldValue.serverTimestamp(),
         });
+
+        // Demo-mode imports are sample data, not a real listing — never
+        // billable. A real import is billable the moment it's created.
+        if (!isDemo) {
+          await recordPropertyCharge({ id: docRef.id, ...propertyData });
+        }
 
         results.push({
           listingId,

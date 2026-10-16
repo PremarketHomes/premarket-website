@@ -660,6 +660,18 @@ export default function AddPropertyPage() {
       const propertyId = docRef.id;
       await setDoc(doc(db, 'draftProperties', propertyId), { ...propertyData, override: true });
 
+      // Records the $200 agency charge for this property, the moment
+      // it's created (its private buyer link is live from this same
+      // instant — see billingService.js's own comment for why this
+      // isn't gated on the visibility toggle). Best-effort: if this
+      // call fails for any reason, the property is still fully usable
+      // and is NOT left permanently unbilled — the monthly invoice-run
+      // engine sweeps for exactly this before every run and records it
+      // then instead. Never blocks the redirect below.
+      authFetch(`/api/properties/${propertyId}/record-charge`, { method: 'POST' }).catch((err) => {
+        console.error('Failed to record property charge (will be caught by the monthly run instead):', err);
+      });
+
       // Create notification
       const userRef = doc(db, 'users', user.uid);
       const userSnap = await getDoc(userRef);

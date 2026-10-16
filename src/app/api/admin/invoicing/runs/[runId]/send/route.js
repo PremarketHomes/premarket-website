@@ -7,6 +7,7 @@ import {
   sendInvoice,
   isXeroConnected,
 } from '../../../../../services/xeroService';
+import { markChargesInvoiced, markChargesFailed } from '../../../../../services/billingService';
 import { verifyAdmin } from '../../../../../middleware/auth';
 
 /**
@@ -119,14 +120,10 @@ export async function POST(request, { params }) {
           lastSyncedAt: FieldValue.serverTimestamp(),
         });
 
-        // Mark properties as invoiced
-        for (const prop of item.properties) {
-          if (prop.propertyId) {
-            await adminDb.collection('properties').doc(prop.propertyId).update({
-              invoicedRunIds: FieldValue.arrayUnion(runId),
-            });
-          }
-        }
+        // Flip this item's charges from 'queued' to 'invoiced' — the
+        // thing that actually prevents these properties from ever
+        // being billed again, not a flag on the property itself.
+        await markChargesInvoiced(item.properties.map((p) => p.propertyId).filter(Boolean));
 
         results.push({
           agencyName: item.agencyName,
@@ -141,6 +138,11 @@ export async function POST(request, { params }) {
         });
 
         await itemRef.update({ status: 'error', lastError: err.message });
+
+        // Release this item's charges back to 'pending' — a failed
+        // send must not leave them permanently stuck 'queued' against
+        // an item that errored out; the next run will pick them up.
+        await markChargesFailed(item.properties.map((p) => p.propertyId).filter(Boolean));
       }
     }
 
