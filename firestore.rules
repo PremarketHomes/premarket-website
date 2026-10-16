@@ -265,9 +265,21 @@ service cloud.firestore {
     // Public read: Flutter reads agentPlans, introSlides,
     //   vendorPlans, phiWeights from client.
     // Write: server-managed via Admin SDK.
+    //
+    // Two doc IDs are denylisted from that public read:
+    //   - xeroTokens: live Xero OAuth access/refresh tokens. A public
+    //     read here would hand anyone on the internet a credential
+    //     with full accounting-API access to whichever Xero org is
+    //     connected.
+    //   - invoicing: wholesale pricing (pricePerListing), GST rate,
+    //     cron config, and the agent-exclusion list — internal billing
+    //     configuration with no legitimate public-read use case.
+    // Every other settings doc (phiWeights, agentSignup, etc.) keeps
+    // the same public read it already had — this only removes read
+    // access from these two specific IDs, nothing else changes.
     // ═══════════════════════════════════════════════════════════
     match /settings/{settingId} {
-      allow read: if true;
+      allow read: if settingId != 'xeroTokens' && settingId != 'invoicing';
       allow write: if false;
     }
 
@@ -367,6 +379,7 @@ service cloud.firestore {
     match /coreProperties/{docId} { allow read, write: if false; }
     match /invoiceRuns/{docId} { allow read, write: if false; }
     match /invoiceRunItems/{docId} { allow read, write: if false; }
+    match /propertyCharges/{docId} { allow read, write: if false; }
     match /docLinks/{docId} { allow read, write: if false; }
     match /docSessions/{docId} { allow read, write: if false; }
     match /phiVerifications/{docId} { allow read, write: if false; }

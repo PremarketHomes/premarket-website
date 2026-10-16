@@ -20,6 +20,7 @@ const SERVER_ONLY_COLLECTIONS = [
   'coreProperties',
   'invoiceRuns',
   'invoiceRunItems',
+  'propertyCharges',
   'docLinks',
   'docSessions',
   'phiVerifications',
