@@ -2,51 +2,6 @@ import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// EXISTING: User invoice sync (webhook-driven)
-// ═══════════════════════════════════════════════════════════════════════════
-
-export async function updateInvoiceInFirestore(invoiceData) {
-  const invoiceId = invoiceData.InvoiceID || invoiceData.invoiceId;
-  const newStatus = invoiceData.Status || invoiceData.status;
-  const updatedTotal = invoiceData.Total || invoiceData.total;
-
-  if (!invoiceId) throw new Error('Missing InvoiceID in payload');
-
-  const userSnap = await adminDb
-    .collection('users')
-    .where('invoiceIds', 'array-contains', invoiceId)
-    .get();
-
-  if (userSnap.empty) {
-    console.warn(`No user found for invoice ${invoiceId}`);
-    return null;
-  }
-
-  const userDoc = userSnap.docs[0];
-  const userRef = userDoc.ref;
-  const userData = userDoc.data();
-  const invoices = userData.invoices || [];
-
-  const updatedInvoices = invoices.map((inv) =>
-    inv.InvoiceID === invoiceId
-      ? {
-          ...inv,
-          Status: newStatus || inv.Status,
-          Total: updatedTotal || inv.Total,
-          UpdatedAt: new Date().toISOString(),
-        }
-      : inv
-  );
-
-  await userRef.update({
-    invoices: updatedInvoices,
-    lastInvoiceSync: FieldValue.serverTimestamp(),
-  });
-
-  return userRef.id;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // XERO API: Token management
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -228,14 +183,20 @@ export async function updateInvoiceRunItem(xeroInvoiceId, statusData) {
   if (snap.empty) return null;
 
   const docRef = snap.docs[0].ref;
+  const status = statusData.Status || statusData.status;
   const updates = {
-    xeroStatus: statusData.Status || statusData.status,
+    xeroStatus: status,
     lastSyncedAt: FieldValue.serverTimestamp(),
   };
 
-  if (statusData.Status === 'PAID' || statusData.FullyPaidOnDate) {
+  // Mirrors the exact same status handling as the manual "Sync" action
+  // (runs/[runId]/sync/route.js) — the webhook and the manual sync must
+  // never disagree about what a given Xero status means locally.
+  if (status === 'PAID' || statusData.FullyPaidOnDate) {
     updates.paidAt = statusData.FullyPaidOnDate || new Date().toISOString();
     updates.status = 'paid';
+  } else if (status === 'VOIDED') {
+    updates.status = 'voided';
   }
 
   await docRef.update(updates);
