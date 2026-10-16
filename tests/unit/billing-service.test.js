@@ -463,3 +463,149 @@ describe('createPropertyAndChargeAtomically', () => {
     expect(all.docs.length).toBe(2);
   });
 });
+
+describe('namesLikelySameAgency (pure)', () => {
+  it('flags one name as a likely duplicate when it is wholly contained in the other', async () => {
+    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
+    expect(namesLikelySameAgency('Harcourts', 'Harcourts Property Hub')).toBe(true);
+    expect(namesLikelySameAgency('Harcourts Property Hub', 'harcourts')).toBe(true); // case-insensitive
+  });
+
+  it('flags two names sharing a distinctive first word', async () => {
+    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
+    expect(namesLikelySameAgency('Harcourts Prop Hub', 'Harcourts Pty Ltd')).toBe(true);
+  });
+
+  it('does not flag two genuinely unrelated names', async () => {
+    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
+    expect(namesLikelySameAgency('Ray White', 'LJ Hooker')).toBe(false);
+  });
+
+  it('does not flag two already-identical (normalised) names — that is not this function\'s job', async () => {
+    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
+    expect(namesLikelySameAgency('Harcourts Property Hub', 'harcourts property hub ')).toBe(false);
+  });
+
+  it('known limitation: an abbreviation with no shared prefix or substring is not caught', async () => {
+    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
+    expect(namesLikelySameAgency('HPH', 'Harcourts Property Hub')).toBe(false);
+  });
+
+  it('is false for empty/missing names rather than throwing', async () => {
+    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
+    expect(namesLikelySameAgency('', 'Harcourts')).toBe(false);
+    expect(namesLikelySameAgency(null, undefined)).toBe(false);
+  });
+});
+
+describe('resolveBillingOverride / mergeIntoBillingEntity', () => {
+  it('returns null when no override exists', async () => {
+    const { resolveBillingOverride } = await import('../../src/app/api/services/billingService.js');
+    expect(await resolveBillingOverride('agent1')).toBeNull();
+  });
+
+  it('mergeIntoBillingEntity writes an override for every given agent, with a required reason and admin recorded', async () => {
+    const { mergeIntoBillingEntity, resolveBillingOverride } = await import('../../src/app/api/services/billingService.js');
+    const result = await mergeIntoBillingEntity({
+      agentUserIds: ['agent1', 'agent2'],
+      targetBillingEntityKey: 'agency:harcourts property hub',
+      targetBillingEntityName: 'Harcourts Property Hub',
+      adminUid: 'admin1',
+      reason: 'Same agency, different spelling',
+    });
+    expect(result.merged).toBe(2);
+
+    const override1 = await resolveBillingOverride('agent1');
+    expect(override1.billingEntityKey).toBe('agency:harcourts property hub');
+    expect(override1.billingEntityName).toBe('Harcourts Property Hub');
+
+    expect(fakeDb._store.billingAgencyOverrides.agent1.setBy).toBe('admin1');
+    expect(fakeDb._store.billingAgencyOverrides.agent1.reason).toBe('Same agency, different spelling');
+  });
+
+  it('rejects a merge with no agentUserIds or no target entity', async () => {
+    const { mergeIntoBillingEntity } = await import('../../src/app/api/services/billingService.js');
+    await expect(mergeIntoBillingEntity({ agentUserIds: [], targetBillingEntityKey: 'x', targetBillingEntityName: 'X', adminUid: 'a', reason: 'r' })).rejects.toThrow();
+    await expect(mergeIntoBillingEntity({ agentUserIds: ['agent1'], targetBillingEntityKey: '', targetBillingEntityName: '', adminUid: 'a', reason: 'r' })).rejects.toThrow();
+  });
+
+  it('an override takes priority over brand/companyName resolution in an actual charge', async () => {
+    const { recordPropertyCharge, mergeIntoBillingEntity } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'HPH', email: 'jo@example.com' });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [] });
+
+    await mergeIntoBillingEntity({
+      agentUserIds: ['agent1'],
+      targetBillingEntityKey: 'agency:harcourts property hub',
+      targetBillingEntityName: 'Harcourts Property Hub',
+      adminUid: 'admin1',
+      reason: 'Confirmed same agency',
+    });
+
+    await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St' });
+    const charge = await fakeDb.collection('propertyCharges').doc('prop1').get();
+    expect(charge.data().billingEntityKey).toBe('agency:harcourts property hub');
+    expect(charge.data().billingEntityName).toBe('Harcourts Property Hub');
+  });
+});
+
+describe('findPossibleDuplicateAgencies', () => {
+  it('flags two agency groups with similar names as a possible duplicate pair', async () => {
+    const { findPossibleDuplicateAgencies } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ roles: ['agent'], companyName: 'Harcourts', firstName: 'Jo', lastName: 'Lee' });
+    fakeDb.collection('users').doc('agent2').set({ roles: ['agent'], companyName: 'Harcourts Property Hub', firstName: 'Max', lastName: 'Tan' });
+
+    const pairs = await findPossibleDuplicateAgencies();
+    expect(pairs.length).toBe(1);
+    const names = [pairs[0].groupA.billingEntityName, pairs[0].groupB.billingEntityName];
+    expect(names).toContain('Harcourts');
+    expect(names).toContain('Harcourts Property Hub');
+  });
+
+  it('does not flag agents who already consolidate via an exact companyName match', async () => {
+    const { findPossibleDuplicateAgencies } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ roles: ['agent'], companyName: 'Ray White', firstName: 'Jo', lastName: 'Lee' });
+    fakeDb.collection('users').doc('agent2').set({ roles: ['agent'], companyName: 'ray white', firstName: 'Max', lastName: 'Tan' });
+
+    const pairs = await findPossibleDuplicateAgencies();
+    expect(pairs.length).toBe(0);
+  });
+
+  it('does not flag two genuinely unrelated agencies', async () => {
+    const { findPossibleDuplicateAgencies } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ roles: ['agent'], companyName: 'Ray White', firstName: 'Jo', lastName: 'Lee' });
+    fakeDb.collection('users').doc('agent2').set({ roles: ['agent'], companyName: 'LJ Hooker', firstName: 'Max', lastName: 'Tan' });
+
+    const pairs = await findPossibleDuplicateAgencies();
+    expect(pairs.length).toBe(0);
+  });
+
+  it('ignores independent agents (no companyName) entirely', async () => {
+    const { findPossibleDuplicateAgencies } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ roles: ['agent'], firstName: 'Jo', lastName: 'Lee' });
+    fakeDb.collection('users').doc('agent2').set({ roles: ['agent'], firstName: 'Max', lastName: 'Tan' });
+
+    const pairs = await findPossibleDuplicateAgencies();
+    expect(pairs.length).toBe(0);
+  });
+
+  it('a pair already merged via an admin override no longer appears as a duplicate', async () => {
+    const { findPossibleDuplicateAgencies, mergeIntoBillingEntity } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ roles: ['agent'], companyName: 'Harcourts', firstName: 'Jo', lastName: 'Lee' });
+    fakeDb.collection('users').doc('agent2').set({ roles: ['agent'], companyName: 'Harcourts Property Hub', firstName: 'Max', lastName: 'Tan' });
+
+    const before = await findPossibleDuplicateAgencies();
+    expect(before.length).toBe(1);
+
+    await mergeIntoBillingEntity({
+      agentUserIds: ['agent1'],
+      targetBillingEntityKey: 'agency:harcourts property hub',
+      targetBillingEntityName: 'Harcourts Property Hub',
+      adminUid: 'admin1',
+      reason: 'Confirmed duplicate',
+    });
+
+    const after = await findPossibleDuplicateAgencies();
+    expect(after.length).toBe(0);
+  });
+});

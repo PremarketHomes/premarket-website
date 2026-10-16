@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { DollarSign, TrendingUp, TrendingDown, AlertCircle, Building2 } from 'lucide-react';
 import RevenueChart from './RevenueChart';
+import DuplicateAgenciesWarning from './DuplicateAgenciesWarning';
 import { authFetch } from '../../../../utils/authFetch';
 
 function StatCard({ label, value, icon: Icon, color, subtext, trend }) {
@@ -86,6 +87,8 @@ export default function InvoicingOverview({ user }) {
 
   return (
     <div className="space-y-6">
+      <DuplicateAgenciesWarning />
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard

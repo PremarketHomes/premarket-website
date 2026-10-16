@@ -36,7 +36,11 @@ function makeFakeDb() {
       },
       where(field, op, value) {
         const all = Object.entries(store[name]).map(([docId, data]) => ({ id: docId, data: () => data, _raw: data }));
-        const filtered = all.filter((d) => (op === '==' ? d._raw[field] === value : true));
+        const filtered = all.filter((d) => {
+          if (op === '==') return d._raw[field] === value;
+          if (op === 'array-contains') return Array.isArray(d._raw[field]) && d._raw[field].includes(value);
+          return true;
+        });
         return { get: async () => ({ docs: filtered, empty: filtered.length === 0, size: filtered.length }) };
       },
       async get() {
@@ -45,7 +49,17 @@ function makeFakeDb() {
       },
     };
   }
-  return { collection: col, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
+  function batch() {
+    const ops = [];
+    return {
+      set: (ref, data) => ops.push(() => { store[ref._col] = store[ref._col] || {}; store[ref._col][ref.id] = { ...data }; }),
+      update: (ref, patch) => ops.push(() => { store[ref._col][ref.id] = { ...(store[ref._col][ref.id] || {}), ...patch }; }),
+      delete: (ref) => ops.push(() => { delete store[ref._col][ref.id]; }),
+      commit: async () => { ops.forEach((op) => op()); },
+    };
+  }
+
+  return { collection: col, batch, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
 }
 
 let fakeDb;
@@ -231,6 +245,13 @@ describe('GET /api/cron/reconcile-property-charges', () => {
     expect(res.status).toBe(401);
   });
 
+  it('fails closed when CRON_SECRET itself is unset — even a literal "Bearer undefined" header is rejected', async () => {
+    delete process.env.CRON_SECRET;
+    const { GET } = await import('../../src/app/api/cron/reconcile-property-charges/route.js');
+    const res = await GET(makeGetRequest('Bearer undefined'));
+    expect(res.status).toBe(401);
+  });
+
   it('records a charge for a property that is missing one, and reports the count', async () => {
     fakeDb._seed('properties', 'prop1', { userId: 'agent1', address: '1 Test St' });
     fakeDb._seed('users', 'agent1', { firstName: 'Jo', lastName: 'Lee' });
@@ -256,5 +277,88 @@ describe('GET /api/cron/reconcile-property-charges', () => {
     expect(res.status).toBe(200);
     expect(data.created).toBe(0);
     expect(data.skipped).toBe(1);
+  });
+});
+
+describe('GET /api/admin/invoicing/agencies', () => {
+  it('401s with no auth', async () => {
+    const { GET } = await import('../../src/app/api/admin/invoicing/agencies/route.js');
+    const res = await GET(makeRequest({ method: 'GET' }));
+    expect(res.status).toBe(401);
+  });
+
+  it('403s for a non-admin', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
+    fakeDb._seed('users', 'agent1', { superAdmin: false });
+    const { GET } = await import('../../src/app/api/admin/invoicing/agencies/route.js');
+    const res = await GET(makeRequest({ method: 'GET', authHeader: 'Bearer t' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('returns possible duplicate pairs for an admin', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    fakeDb._seed('users', 'agent1', { roles: ['agent'], companyName: 'Harcourts', firstName: 'Jo', lastName: 'Lee' });
+    fakeDb._seed('users', 'agent2', { roles: ['agent'], companyName: 'Harcourts Property Hub', firstName: 'Max', lastName: 'Tan' });
+
+    const { GET } = await import('../../src/app/api/admin/invoicing/agencies/route.js');
+    const res = await GET(makeRequest({ method: 'GET', authHeader: 'Bearer t' }));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.possibleDuplicates.length).toBe(1);
+  });
+});
+
+describe('POST /api/admin/invoicing/agencies/merge', () => {
+  it('401s with no auth', async () => {
+    const { POST } = await import('../../src/app/api/admin/invoicing/agencies/merge/route.js');
+    const res = await POST(makeRequest({ body: {} }));
+    expect(res.status).toBe(401);
+  });
+
+  it('403s for a non-admin', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
+    fakeDb._seed('users', 'agent1', { superAdmin: false });
+    const { POST } = await import('../../src/app/api/admin/invoicing/agencies/merge/route.js');
+    const res = await POST(makeRequest({ body: {}, authHeader: 'Bearer t' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('400s with no reason', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    const { POST } = await import('../../src/app/api/admin/invoicing/agencies/merge/route.js');
+    const res = await POST(makeRequest({
+      body: { agentUserIds: ['agent1'], targetBillingEntityKey: 'agency:x', targetBillingEntityName: 'X' },
+      authHeader: 'Bearer t',
+    }));
+    expect(res.status).toBe(400);
+  });
+
+  it('merges an agent into the target billing entity, recording the admin and reason, never touching branding', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    fakeDb._seed('users', 'agent1', { companyName: 'Harcourts', agencyBrandId: null });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/agencies/merge/route.js');
+    const res = await POST(makeRequest({
+      body: {
+        agentUserIds: ['agent1'],
+        targetBillingEntityKey: 'agency:harcourts property hub',
+        targetBillingEntityName: 'Harcourts Property Hub',
+        reason: 'Confirmed same agency',
+      },
+      authHeader: 'Bearer t',
+    }));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.merged).toBe(1);
+    expect(fakeDb._store.billingAgencyOverrides.agent1.billingEntityKey).toBe('agency:harcourts property hub');
+    expect(fakeDb._store.billingAgencyOverrides.agent1.setBy).toBe('admin1');
+    // companyName / agencyBrandId on the agent's own user doc are untouched.
+    expect(fakeDb._store.users.agent1.companyName).toBe('Harcourts');
+    expect(fakeDb._store.users.agent1.agencyBrandId).toBeNull();
   });
 });

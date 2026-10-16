@@ -380,6 +380,7 @@ service cloud.firestore {
     match /invoiceRuns/{docId} { allow read, write: if false; }
     match /invoiceRunItems/{docId} { allow read, write: if false; }
     match /propertyCharges/{docId} { allow read, write: if false; }
+    match /billingAgencyOverrides/{docId} { allow read, write: if false; }
     match /docLinks/{docId} { allow read, write: if false; }
     match /docSessions/{docId} { allow read, write: if false; }
     match /phiVerifications/{docId} { allow read, write: if false; }

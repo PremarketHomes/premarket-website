@@ -31,6 +31,18 @@ import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { findBrandByExactName } from './brandProfileService';
 
+// $200 (or whatever settings/invoicing.pricePerListing is set to) is the
+// GST-INCLUSIVE total an agency is charged per property — confirmed
+// consistent with the admin settings UI itself (InvoicingSettings.js
+// explicitly labels the field "Price per listing (inc GST)" and shows
+// the inc/ex breakdown live) and with how the Xero invoice line item is
+// built (send/route.js backs the ex-GST unit amount out of this same
+// figure and sends it with LineAmountTypes: 'Exclusive' + TaxType:
+// 'OUTPUT', so Xero adds GST back on top at render time — ex-GST unit
+// + 10% GST reproduces this same inclusive total). computeChargeAmounts
+// below is the one place that does this inc -> ex/GST split; every
+// other place that needs the ex-GST or GST component derives it from
+// here rather than recomputing independently.
 export const DEFAULT_PRICE_PER_LISTING = 200;
 export const DEFAULT_GST_RATE = 0.1;
 
@@ -135,8 +147,166 @@ export function resolveBillingEntity({ agentUserId, companyName, firstName, last
   };
 }
 
+/**
+ * Admin override — an admin's explicit decision that a specific agent
+ * bills under a different entity than brand/companyName resolution
+ * would otherwise give them (see mergeIntoBillingEntity below, and the
+ * "Possible Duplicate Agencies" admin UI that calls it). Read-only
+ * here; never written except through that one function. Checked first
+ * by resolveChargeForAgent, ahead of agencyBrandId and companyName.
+ */
+export async function resolveBillingOverride(agentUserId) {
+  const doc = await adminDb.collection('billingAgencyOverrides').doc(agentUserId).get();
+  if (!doc.exists) return null;
+  const data = doc.data();
+  return {
+    billingEntityType: 'agency',
+    billingEntityKey: data.billingEntityKey,
+    billingEntityName: data.billingEntityName,
+    agencyBrandId: data.agencyBrandId || null,
+  };
+}
+
+/**
+ * Admin action — "these agents are actually the same agency," without
+ * touching branding or companyName at all. Writes a
+ * billingAgencyOverrides/{agentUserId} doc for each agent in
+ * `agentUserIds`, pointing their FUTURE charges at
+ * `targetBillingEntityKey`/`targetBillingEntityName` (normally one of
+ * the two entities a duplicate-detection pair already resolved to —
+ * see findPossibleDuplicateAgencies). Deliberately does not touch any
+ * already-recorded charge (those keep the billing entity they were
+ * actually recorded under — financial history is never silently
+ * rewritten) or any agencyBrands/agencyBrandId data (branding
+ * assignments are a completely separate concern, per the "without
+ * changing their branding" requirement this exists to satisfy).
+ */
+export async function mergeIntoBillingEntity({ agentUserIds, targetBillingEntityKey, targetBillingEntityName, adminUid, reason }) {
+  if (!agentUserIds?.length) throw new Error('At least one agentUserId is required');
+  if (!targetBillingEntityKey || !targetBillingEntityName) throw new Error('A target billing entity is required');
+
+  const batch = adminDb.batch();
+  for (const agentUserId of agentUserIds) {
+    batch.set(adminDb.collection('billingAgencyOverrides').doc(agentUserId), {
+      agentUserId,
+      billingEntityKey: targetBillingEntityKey,
+      billingEntityName: targetBillingEntityName,
+      setBy: adminUid,
+      setAt: FieldValue.serverTimestamp(),
+      reason: reason || null,
+    });
+  }
+  await batch.commit();
+
+  return { merged: agentUserIds.length, billingEntityKey: targetBillingEntityKey };
+}
+
+/** Pure (no Firestore) — normalises a company/agency name the same way
+ * findBrandByExactName and resolveBillingEntity's own companyName
+ * fallback do (trim, lower-case), plus stripping punctuation so
+ * "Harcourts Pty. Ltd." and "Harcourts Pty Ltd" compare the same. */
+function normalizeAgencyName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[.,()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Pure (no Firestore) — a deliberately simple, explainable heuristic
+ * for "might this be the same real agency, spelled differently,"
+ * never a fuzzy-matching library. Two names are flagged as possibly
+ * the same agency when, after normalising:
+ *   - they're identical (callers only ever compare names from DIFFERENT
+ *     billing entities, so two groups already sharing a normalised
+ *     name would mean something else is wrong — not this function's
+ *     job to catch), or
+ *   - one is wholly contained in the other ("Harcourts" inside
+ *     "Harcourts Property Hub" — a common abbreviation pattern), or
+ *   - they share the same first word, at least 3 characters long (two
+ *     different-looking names for what's likely the same brand
+ *     prefix, e.g. "Harcourts Prop Hub" / "Harcourts Pty Ltd").
+ * Known limitation, deliberately not solved here: two names with no
+ * shared prefix or substring at all (e.g. "HPH" vs "Harcourts Property
+ * Hub") will never be flagged — that case still needs a human to
+ * notice, same as before this feature existed.
+ */
+export function namesLikelySameAgency(nameA, nameB) {
+  const a = normalizeAgencyName(nameA);
+  const b = normalizeAgencyName(nameB);
+  if (!a || !b || a === b) return false;
+  if (a.includes(b) || b.includes(a)) return true;
+  const firstWordA = a.split(' ')[0];
+  const firstWordB = b.split(' ')[0];
+  return firstWordA.length >= 3 && firstWordA === firstWordB;
+}
+
+/**
+ * Scans every agent (users with 'agent' in their roles) and resolves
+ * each one's CURRENT billing entity exactly as a real charge would
+ * (brand -> companyName fallback -> independent, including any
+ * existing override), then looks for pairs of DIFFERENT entities whose
+ * names look like they might be the same real agency
+ * (namesLikelySameAgency). Read-only — never merges anything itself;
+ * the admin UI calls mergeIntoBillingEntity separately once a human
+ * has reviewed and confirmed a pair really is a duplicate.
+ *
+ * Scoped to agents only (roles array-contains 'agent'), not every user
+ * — buyers/homeowners never have a billing entity to begin with.
+ */
+export async function findPossibleDuplicateAgencies() {
+  const snap = await adminDb.collection('users').where('roles', 'array-contains', 'agent').get();
+  const agents = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((a) => a.companyName && a.companyName.trim());
+
+  const groups = {};
+  for (const agent of agents) {
+    const override = await resolveBillingOverride(agent.id);
+    const matchedBrand = override ? null : await resolveAgencyBrand(agent);
+    const entity = override || resolveBillingEntity({
+      agentUserId: agent.id,
+      companyName: agent.companyName,
+      firstName: agent.firstName,
+      lastName: agent.lastName,
+      matchedBrand,
+    });
+
+    // Independent agents (no companyName) are filtered out above
+    // already, but resolveBillingEntity could still land there if
+    // companyName was whitespace-only — skip, nothing to dedupe for.
+    if (entity.billingEntityType !== 'agency') continue;
+
+    groups[entity.billingEntityKey] = groups[entity.billingEntityKey] || {
+      billingEntityKey: entity.billingEntityKey,
+      billingEntityName: entity.billingEntityName,
+      agents: [],
+    };
+    groups[entity.billingEntityKey].agents.push({
+      agentUserId: agent.id,
+      agentName: `${agent.firstName || ''} ${agent.lastName || ''}`.trim() || 'Unknown agent',
+      companyName: agent.companyName.trim(),
+    });
+  }
+
+  const groupList = Object.values(groups);
+  const possibleDuplicates = [];
+  for (let i = 0; i < groupList.length; i++) {
+    for (let j = i + 1; j < groupList.length; j++) {
+      if (namesLikelySameAgency(groupList[i].billingEntityName, groupList[j].billingEntityName)) {
+        possibleDuplicates.push({ groupA: groupList[i], groupB: groupList[j] });
+      }
+    }
+  }
+  return possibleDuplicates;
+}
+
 /** Pure (no Firestore) — the three amounts a single property's charge
- * carries, derived once from the price/GST in force at charge time. */
+ * carries, derived once from the price/GST in force at charge time.
+ * `pricePerListing` is GST-INCLUSIVE (see the module-level comment
+ * above) — this backs the ex-GST subtotal and GST component out of it,
+ * never the other way around. */
 export function computeChargeAmounts(pricePerListing, gstRate) {
   const totalInc = pricePerListing;
   const subtotalEx = totalInc / (1 + gstRate);
@@ -173,13 +343,19 @@ async function resolveChargeForAgent({ propertyId, propertyAddress, agentUserId 
     return null;
   }
 
-  const matchedBrand = await resolveAgencyBrand(agent);
-  const entity = resolveBillingEntity({
+  // An admin's explicit "these are the same agency" merge (see
+  // mergeIntoBillingEntity below) always wins over brand/companyName
+  // resolution — it exists specifically for the case neither of those
+  // can bridge (two genuinely different-looking company names, neither
+  // with a brand). Checked first so there's only ever one code path
+  // that decides an agent's billing group.
+  const override = await resolveBillingOverride(agentUserId);
+  const entity = override || resolveBillingEntity({
     agentUserId,
     companyName: agent.companyName,
     firstName: agent.firstName,
     lastName: agent.lastName,
-    matchedBrand,
+    matchedBrand: await resolveAgencyBrand(agent),
   });
   const amounts = computeChargeAmounts(settings.pricePerListing, settings.gstRate);
 
