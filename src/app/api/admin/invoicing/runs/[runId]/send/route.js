@@ -76,13 +76,18 @@ export async function POST(request, { params }) {
           throw new Error(`Failed to create Xero contact for ${item.agencyName}`);
         }
 
-        // Build line items - one per property, ex-GST unit amount
-        const unitAmountExGst = item.pricePerListing / (1 + (runData.gstRate || 0.1));
+        // Build line items - one per property, ex-GST unit amount.
+        // `?? 0` matters here: gstRate is legitimately 0 (not GST
+        // registered), and `0 || 0.1` would silently resurrect a 10%
+        // rate.
+        const gstRate = typeof runData.gstRate === 'number' ? runData.gstRate : 0;
+        const unitAmountExGst = item.pricePerListing / (1 + gstRate);
         const lineItems = item.properties.map((prop) => ({
           description: `Premarket listing: ${prop.address}`,
           quantity: 1,
           unitAmount: Math.round(unitAmountExGst * 100) / 100,
         }));
+        const taxType = gstRate > 0 ? 'OUTPUT' : 'NONE';
 
         // Due date
         const dueDate = new Date();
@@ -100,6 +105,7 @@ export async function POST(request, { params }) {
           reference: `${invoicePrefix}${periodStr} - ${item.agencyName}`,
           dueDate: dueDateStr,
           accountCode,
+          taxType,
         });
 
         if (!invoice?.InvoiceID) {

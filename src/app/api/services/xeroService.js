@@ -130,7 +130,12 @@ export async function findOrCreateContact({ name, email, firstName, lastName }) 
 // XERO API: Invoices
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode }) {
+export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType }) {
+  // 'NONE' (not GST registered — Premarket's actual status) or
+  // 'OUTPUT' (GST on income, 10%, if that ever changes). Always passed
+  // explicitly by the caller from the current settings.gstRate — never
+  // defaulted here, so this function can't silently add tax on its own.
+  const resolvedTaxType = taxType || 'NONE';
   const invoice = {
     Type: 'ACCREC',
     Contact: { ContactID: contactId },
@@ -139,7 +144,7 @@ export async function createInvoice({ contactId, lineItems, reference, dueDate, 
       Quantity: li.quantity,
       UnitAmount: li.unitAmount, // ex-GST
       AccountCode: accountCode || '200',
-      TaxType: 'OUTPUT', // Xero auto-calculates 10% GST
+      TaxType: resolvedTaxType,
     })),
     Reference: reference || '',
     DueDate: dueDate || '',

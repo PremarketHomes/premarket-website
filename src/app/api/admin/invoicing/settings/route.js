@@ -4,7 +4,7 @@ import { verifyAdmin } from '../../../middleware/auth';
 
 const DEFAULT_SETTINGS = {
   pricePerListing: 200,
-  gstRate: 0.1,
+  gstRate: 0, // Premarket Group Pty Ltd is not GST registered
   paymentTermsDays: 14,
   invoicePrefix: 'PM-',
   xeroAccountCode: '200',

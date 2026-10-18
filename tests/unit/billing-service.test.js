@@ -226,6 +226,27 @@ describe('computeChargeAmounts (pure)', () => {
     expect(result.gstAmount).toBeCloseTo(18.18, 2);
     expect(result.subtotalEx + result.gstAmount).toBeCloseTo(result.totalInc, 5);
   });
+
+  it('charges $0 GST at gstRate 0 (Premarket is not GST registered)', async () => {
+    const { computeChargeAmounts } = await import('../../src/app/api/services/billingService.js');
+    const result = computeChargeAmounts(200, 0);
+    expect(result.totalInc).toBe(200);
+    expect(result.subtotalEx).toBe(200);
+    expect(result.gstAmount).toBe(0);
+  });
+});
+
+describe('DEFAULT_GST_RATE', () => {
+  it('defaults to 0 — not GST registered — so a missing settings doc never charges GST', async () => {
+    const { DEFAULT_GST_RATE } = await import('../../src/app/api/services/billingService.js');
+    expect(DEFAULT_GST_RATE).toBe(0);
+  });
+
+  it('getInvoicingSettings falls back to gstRate 0 when settings/invoicing has no doc', async () => {
+    const { getInvoicingSettings } = await import('../../src/app/api/services/billingService.js');
+    const settings = await getInvoicingSettings();
+    expect(settings.gstRate).toBe(0);
+  });
 });
 
 describe('recordPropertyCharge', () => {

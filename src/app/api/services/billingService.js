@@ -35,16 +35,17 @@ import { findBrandByExactName } from './brandProfileService';
 // GST-INCLUSIVE total an agency is charged per property — confirmed
 // consistent with the admin settings UI itself (InvoicingSettings.js
 // explicitly labels the field "Price per listing (inc GST)" and shows
-// the inc/ex breakdown live) and with how the Xero invoice line item is
-// built (send/route.js backs the ex-GST unit amount out of this same
-// figure and sends it with LineAmountTypes: 'Exclusive' + TaxType:
-// 'OUTPUT', so Xero adds GST back on top at render time — ex-GST unit
-// + 10% GST reproduces this same inclusive total). computeChargeAmounts
-// below is the one place that does this inc -> ex/GST split; every
-// other place that needs the ex-GST or GST component derives it from
-// here rather than recomputing independently.
+// the inc/ex breakdown live). Premarket Group Pty Ltd is NOT GST
+// registered, so gstRate defaults to 0 — the $200 is $200 ex-GST too,
+// $0 GST — and send/route.js tells Xero not to apply any tax (TaxType
+// derived from this same rate, never hardcoded). computeChargeAmounts
+// below is the one place that does the inc -> ex/GST split; every other
+// place that needs the ex-GST or GST component derives it from here
+// rather than recomputing independently. If Premarket ever registers
+// for GST, update settings/invoicing.gstRate (not this default) so the
+// change is deliberate and visible, not a silent code default.
 export const DEFAULT_PRICE_PER_LISTING = 200;
-export const DEFAULT_GST_RATE = 0.1;
+export const DEFAULT_GST_RATE = 0;
 
 export async function getInvoicingSettings() {
   const doc = await adminDb.collection('settings').doc('invoicing').get();

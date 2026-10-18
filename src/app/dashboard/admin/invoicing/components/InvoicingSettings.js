@@ -136,7 +136,9 @@ export default function InvoicingSettings({ user, xeroConnected }) {
                 />
               </div>
               <span className="text-xs text-slate-400">
-                = ${priceExGst.toFixed(2)} + ${gstAmount.toFixed(2)} GST
+                {settings.gstRate > 0
+                  ? `= $${priceExGst.toFixed(2)} + $${gstAmount.toFixed(2)} GST`
+                  : 'Not GST registered — no GST added'}
               </span>
             </div>
           </div>
