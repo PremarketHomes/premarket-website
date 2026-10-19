@@ -114,4 +114,69 @@ describe('createInvoice — tax type is never assumed', () => {
     const body = JSON.parse(options.body);
     expect(body.Invoices[0].LineItems[0].TaxType).toBe('OUTPUT');
   });
+
+  it('defaults Status to AUTHORISED when no status is passed (every real send/route.js call)', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Invoices: [{ InvoiceID: 'inv1' }] }) });
+    const { createInvoice } = await import('../../src/app/api/services/xeroService.js');
+    await createInvoice({ contactId: 'c1', lineItems: [{ description: 'x', quantity: 1, unitAmount: 200 }] });
+
+    const [, options] = global.fetch.mock.calls[0];
+    expect(JSON.parse(options.body).Invoices[0].Status).toBe('AUTHORISED');
+  });
+
+  it('uses DRAFT only when explicitly passed (the Xero diagnostic path)', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Invoices: [{ InvoiceID: 'inv1' }] }) });
+    const { createInvoice } = await import('../../src/app/api/services/xeroService.js');
+    await createInvoice({ contactId: 'c1', lineItems: [{ description: 'x', quantity: 1, unitAmount: 200 }], status: 'DRAFT' });
+
+    const [, options] = global.fetch.mock.calls[0];
+    expect(JSON.parse(options.body).Invoices[0].Status).toBe('DRAFT');
+  });
+});
+
+describe('read-only Xero helpers — never create or modify anything', () => {
+  beforeEach(() => {
+    fakeDb._seed('settings', 'xeroTokens', {
+      access_token: 'tok',
+      refresh_token: 'refresh',
+      expires_at: Date.now() + 60 * 60 * 1000,
+      tenant_id: 'tenant1',
+    });
+  });
+
+  it('searchContactByName does a GET, never a POST, and returns null when nothing matches', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Contacts: [] }) });
+    const { searchContactByName } = await import('../../src/app/api/services/xeroService.js');
+    const result = await searchContactByName('Nobody');
+
+    expect(result).toBeNull();
+    expect(global.fetch.mock.calls[0][1].method).toBe('GET');
+    expect(global.fetch.mock.calls[0][1].body).toBeNull();
+  });
+
+  it('getOrganisation returns the connected org, read-only', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Organisations: [{ Name: 'Premarket Group Pty Ltd' }] }) });
+    const { getOrganisation } = await import('../../src/app/api/services/xeroService.js');
+    const org = await getOrganisation();
+
+    expect(org.Name).toBe('Premarket Group Pty Ltd');
+    expect(global.fetch.mock.calls[0][1].method).toBe('GET');
+  });
+
+  it('getAccountByCode returns null when the code does not exist in the chart of accounts', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Accounts: [] }) });
+    const { getAccountByCode } = await import('../../src/app/api/services/xeroService.js');
+    const account = await getAccountByCode('999');
+
+    expect(account).toBeNull();
+    expect(global.fetch.mock.calls[0][1].method).toBe('GET');
+  });
+
+  it('getAccountByCode returns the account when it exists', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Accounts: [{ Code: '200', Name: 'Sales' }] }) });
+    const { getAccountByCode } = await import('../../src/app/api/services/xeroService.js');
+    const account = await getAccountByCode('200');
+
+    expect(account).toEqual({ Code: '200', Name: 'Sales' });
+  });
 });

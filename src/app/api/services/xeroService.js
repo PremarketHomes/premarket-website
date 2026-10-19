@@ -126,11 +126,37 @@ export async function findOrCreateContact({ name, email, firstName, lastName }) 
   return result.Contacts?.[0] || null;
 }
 
+/** Read-only — never creates. Used by the Xero connection diagnostic
+ * to check whether its dedicated test contact already exists, without
+ * ever causing a side effect itself. */
+export async function searchContactByName(name) {
+  const searchName = name.replace(/"/g, '\\"');
+  const result = await makeXeroRequest('GET', `/Contacts?where=Name=="${searchName}"`);
+  return result.Contacts?.[0] || null;
+}
+
+/** Read-only. Confirms which Xero organisation the stored tokens are
+ * actually connected to — distinct from isXeroConnected (which only
+ * checks that SOME token is stored, not that it's valid or for the
+ * org you expect). */
+export async function getOrganisation() {
+  const result = await makeXeroRequest('GET', '/Organisation');
+  return result.Organisations?.[0] || null;
+}
+
+/** Read-only. Confirms a given account code actually exists in the
+ * connected org's chart of accounts before anything tries to invoice
+ * against it. */
+export async function getAccountByCode(code) {
+  const result = await makeXeroRequest('GET', `/Accounts?where=Code=="${code}"`);
+  return result.Accounts?.[0] || null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // XERO API: Invoices
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType }) {
+export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType, status }) {
   // 'NONE' (not GST registered — Premarket's actual status) or
   // 'OUTPUT' (GST on income, 10%, if that ever changes). Each line
   // item normally carries its own taxType (send/route.js derives it
@@ -153,7 +179,11 @@ export async function createInvoice({ contactId, lineItems, reference, dueDate, 
     })),
     Reference: reference || '',
     DueDate: dueDate || '',
-    Status: 'AUTHORISED',
+    // Every real caller (send/route.js) relies on this defaulting to
+    // AUTHORISED — unchanged. Only the Xero connection diagnostic
+    // passes 'DRAFT' explicitly, specifically so it never becomes
+    // payable or reaches Xero's own invoice-reminder automation.
+    Status: status || 'AUTHORISED',
     LineAmountTypes: 'Exclusive',
   };
 
