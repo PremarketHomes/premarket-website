@@ -57,6 +57,56 @@ export async function isXeroConnected() {
   return !!tokens.refresh_token;
 }
 
+const XERO_CONNECTIONS_URL = 'https://api.xero.com/connections';
+
+/**
+ * The previous "Disconnect" button only rewrote an unrelated settings
+ * field and reloaded the page — it never actually touched
+ * settings/xeroTokens, so Xero stayed connected underneath regardless
+ * of what the UI showed. This is the real thing: best-effort revokes
+ * our app's authorisation at Xero's end (DELETE /connections/{id} —
+ * so "Premarket" also disappears from the org's own Connected Apps
+ * list, not just from our side), then ALWAYS deletes the local
+ * settings/xeroTokens doc regardless of whether the remote revoke
+ * succeeded — a network hiccup calling Xero must never leave this
+ * stuck "still connected" locally when the actual goal is "Premarket
+ * can no longer use this token." Touches nothing else: no
+ * propertyCharges, no invoiceRuns, no billing settings, and makes no
+ * call that could create or send an invoice.
+ */
+export async function disconnectXero() {
+  const tokens = await getXeroTokens();
+  if (!tokens?.access_token) {
+    return { wasConnected: false, revokedAtXero: false };
+  }
+
+  let revokedAtXero = false;
+  try {
+    const connRes = await fetch(XERO_CONNECTIONS_URL, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    if (connRes.ok) {
+      const connections = await connRes.json();
+      const connection = connections.find((c) => c.tenantId === tokens.tenant_id) || connections[0];
+      if (connection?.id) {
+        const delRes = await fetch(`${XERO_CONNECTIONS_URL}/${connection.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        });
+        revokedAtXero = delRes.ok;
+      }
+    }
+  } catch (err) {
+    // Best-effort — an expired token or network issue here must never
+    // block clearing our own local copy below.
+    console.error('Xero connection revocation failed (clearing local tokens regardless):', err);
+  }
+
+  await adminDb.collection('settings').doc('xeroTokens').delete();
+
+  return { wasConnected: true, revokedAtXero };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // XERO API: HTTP helper with auto-refresh
 // ═══════════════════════════════════════════════════════════════════════════

@@ -25,6 +25,9 @@ function makeFakeDb() {
           store[name] = store[name] || {};
           store[name][id] = opts?.merge ? { ...store[name][id], ...data } : data;
         },
+        delete: async () => {
+          if (store[name]) delete store[name][id];
+        },
       }),
     }),
     _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; },
@@ -178,5 +181,72 @@ describe('read-only Xero helpers — never create or modify anything', () => {
     const account = await getAccountByCode('200');
 
     expect(account).toEqual({ Code: '200', Name: 'Sales' });
+  });
+});
+
+describe('disconnectXero — the real disconnect, replacing the old no-op', () => {
+  it('reports wasConnected: false and touches nothing when there was no connection to begin with', async () => {
+    const { disconnectXero } = await import('../../src/app/api/services/xeroService.js');
+    const result = await disconnectXero();
+    expect(result).toEqual({ wasConnected: false, revokedAtXero: false });
+  });
+
+  it('revokes at Xero (DELETE /connections/{id}) and deletes the local tokens doc', async () => {
+    fakeDb._seed('settings', 'xeroTokens', {
+      access_token: 'tok', refresh_token: 'refresh', expires_at: Date.now() + 60000, tenant_id: 'tenant1',
+    });
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ([{ id: 'connection-1', tenantId: 'tenant1' }]) })
+      .mockResolvedValueOnce({ ok: true });
+
+    const { disconnectXero } = await import('../../src/app/api/services/xeroService.js');
+    const result = await disconnectXero();
+
+    expect(result).toEqual({ wasConnected: true, revokedAtXero: true });
+    expect(fakeDb._store.settings.xeroTokens).toBeUndefined(); // deleted
+    const deleteCall = global.fetch.mock.calls[1];
+    expect(deleteCall[0]).toBe('https://api.xero.com/connections/connection-1');
+    expect(deleteCall[1].method).toBe('DELETE');
+  });
+
+  it('still deletes the local tokens doc even when the Xero-side revocation call fails', async () => {
+    fakeDb._seed('settings', 'xeroTokens', {
+      access_token: 'tok', refresh_token: 'refresh', expires_at: Date.now() + 60000, tenant_id: 'tenant1',
+    });
+    global.fetch = vi.fn().mockRejectedValue(new Error('network error'));
+
+    const { disconnectXero } = await import('../../src/app/api/services/xeroService.js');
+    const result = await disconnectXero();
+
+    expect(result).toEqual({ wasConnected: true, revokedAtXero: false });
+    expect(fakeDb._store.settings.xeroTokens).toBeUndefined(); // deleted regardless
+  });
+
+  it('still deletes the local tokens doc when no matching connection is found at Xero', async () => {
+    fakeDb._seed('settings', 'xeroTokens', {
+      access_token: 'tok', refresh_token: 'refresh', expires_at: Date.now() + 60000, tenant_id: 'tenant1',
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ([]) });
+
+    const { disconnectXero } = await import('../../src/app/api/services/xeroService.js');
+    const result = await disconnectXero();
+
+    expect(result.revokedAtXero).toBe(false);
+    expect(fakeDb._store.settings.xeroTokens).toBeUndefined();
+  });
+
+  it('never touches propertyCharges, invoiceRuns, or settings/invoicing', async () => {
+    fakeDb._seed('settings', 'xeroTokens', {
+      access_token: 'tok', refresh_token: 'refresh', expires_at: Date.now() + 60000, tenant_id: 'tenant1',
+    });
+    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, billingActivatedAt: null });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ([{ id: 'connection-1', tenantId: 'tenant1' }]) });
+
+    const { disconnectXero } = await import('../../src/app/api/services/xeroService.js');
+    await disconnectXero();
+
+    expect(fakeDb._store.propertyCharges).toBeUndefined();
+    expect(fakeDb._store.invoiceRuns).toBeUndefined();
+    expect(fakeDb._store.settings.invoicing).toEqual({ pricePerListing: 200, billingActivatedAt: null }); // untouched
   });
 });

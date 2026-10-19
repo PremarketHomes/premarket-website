@@ -9,6 +9,11 @@ vi.mock('firebase-admin/firestore', () => ({
   FieldValue: { serverTimestamp: () => 'TIMESTAMP' },
 }));
 
+const mockDisconnectXero = vi.fn();
+vi.mock('../../src/app/api/services/xeroService', () => ({
+  disconnectXero: (...args) => mockDisconnectXero(...args),
+}));
+
 function makeFakeDb() {
   const store = {};
   function col(name) {
@@ -512,5 +517,49 @@ describe('POST /api/admin/invoicing/billing-contacts', () => {
 
     expect(fakeDb._store.invoiceRunItems.item1.agentEmail).toBe('new@example.com');
     expect(fakeDb._store.invoiceRunItems.item1.agentName).toBe('New Contact');
+  });
+});
+
+describe('POST /api/admin/invoicing/disconnect-xero', () => {
+  it('401s with no auth header', async () => {
+    const { POST } = await import('../../src/app/api/admin/invoicing/disconnect-xero/route.js');
+    const res = await POST(makeRequest({}));
+    expect(res.status).toBe(401);
+    expect(mockDisconnectXero).not.toHaveBeenCalled();
+  });
+
+  it('403s for a non-admin', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
+    fakeDb._seed('users', 'agent1', { superAdmin: false });
+    const { POST } = await import('../../src/app/api/admin/invoicing/disconnect-xero/route.js');
+    const res = await POST(makeRequest({ authHeader: 'Bearer t' }));
+    expect(res.status).toBe(403);
+    expect(mockDisconnectXero).not.toHaveBeenCalled();
+  });
+
+  it('disconnects for an admin and reports whether Xero-side revocation succeeded', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    mockDisconnectXero.mockResolvedValue({ wasConnected: true, revokedAtXero: true });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/disconnect-xero/route.js');
+    const res = await POST(makeRequest({ authHeader: 'Bearer t' }));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.wasConnected).toBe(true);
+    expect(data.revokedAtXero).toBe(true);
+    expect(mockDisconnectXero).toHaveBeenCalledTimes(1);
+  });
+
+  it('500s with a clear error if disconnectXero itself throws, rather than silently reporting success', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    mockDisconnectXero.mockRejectedValue(new Error('boom'));
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/disconnect-xero/route.js');
+    const res = await POST(makeRequest({ authHeader: 'Bearer t' }));
+    expect(res.status).toBe(500);
   });
 });

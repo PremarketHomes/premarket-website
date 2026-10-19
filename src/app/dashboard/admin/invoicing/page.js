@@ -115,7 +115,14 @@ function InvoicingPageContent() {
       {activeTab === 'overview' && <InvoicingOverview user={user} />}
       {activeTab === 'charges' && <ChargesPanel />}
       {activeTab === 'runs' && <InvoiceRunsPanel user={user} pricePerListing={pricePerListing} />}
-      {activeTab === 'settings' && <InvoicingSettings user={user} xeroConnected={xeroConnected} xeroError={xeroError} />}
+      {activeTab === 'settings' && (
+        <InvoicingSettings
+          user={user}
+          xeroConnected={xeroConnected}
+          xeroError={xeroError}
+          onXeroDisconnected={() => setXeroConnected(false)}
+        />
+      )}
     </div>
   );
 }

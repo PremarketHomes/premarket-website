@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Save, Plug, Unplug, Loader2, AlertTriangle, PlayCircle } from 'lucide-react';
+import { Save, Plug, Unplug, Loader2, AlertTriangle, PlayCircle, CheckCircle2 } from 'lucide-react';
 import { authFetch } from '../../../../utils/authFetch';
 import XeroDiagnosticPanel from './XeroDiagnosticPanel'; // TEMPORARY — see that file's own comment
 
@@ -25,7 +25,7 @@ const XERO_ERROR_MESSAGES = {
   unknown: 'Something went wrong connecting to Xero. Check the Vercel function logs for details.',
 };
 
-export default function InvoicingSettings({ user, xeroConnected, xeroError }) {
+export default function InvoicingSettings({ user, xeroConnected, xeroError, onXeroDisconnected }) {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -36,6 +36,8 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError }) {
   );
   const [activating, setActivating] = useState(false);
   const [activateError, setActivateError] = useState(null);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectMessage, setDisconnectMessage] = useState(null); // { type: 'success' | 'error', text }
 
   useEffect(() => {
     async function fetchSettings() {
@@ -120,18 +122,30 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError }) {
   }
 
   async function disconnectXero() {
-    if (!confirm('Disconnect Xero? You will need to re-authenticate to send invoices.')) return;
+    if (!confirm(
+      'Disconnect Xero? Premarket will no longer be able to create or send invoices until you reconnect. ' +
+      'This only removes the stored connection — no historical invoices, charges, or billing records are affected.'
+    )) return;
+
+    setDisconnecting(true);
+    setDisconnectMessage(null);
     try {
-      await authFetch('/api/admin/invoicing/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: {} }),
+      const res = await authFetch('/api/admin/invoicing/disconnect-xero', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to disconnect Xero');
+
+      onXeroDisconnected?.();
+      setDisconnectMessage({
+        type: 'success',
+        text: data.revokedAtXero
+          ? 'Disconnected. The connection was also revoked at Xero — Premarket no longer appears in that org\'s Connected Apps.'
+          : 'Disconnected. The stored connection was removed from Premarket. (Xero-side revocation could not be confirmed — you can also remove "Premarket" from your Xero account\'s Connected Apps directly, if you want to be certain.)',
       });
-      // We store tokens separately, so we just note disconnection
-      // In a full implementation we'd revoke the token
-      window.location.reload();
     } catch (err) {
       console.error('Disconnect error:', err);
+      setDisconnectMessage({ type: 'error', text: err.message || 'Failed to disconnect Xero.' });
+    } finally {
+      setDisconnecting(false);
     }
   }
 
@@ -197,10 +211,11 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError }) {
           {xeroConnected ? (
             <button
               onClick={disconnectXero}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100"
+              disabled={disconnecting}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 disabled:opacity-60"
             >
-              <Unplug className="w-3.5 h-3.5" />
-              Disconnect
+              {disconnecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Unplug className="w-3.5 h-3.5" />}
+              {disconnecting ? 'Disconnecting…' : 'Disconnect'}
             </button>
           ) : (
             <button
@@ -217,6 +232,20 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError }) {
           <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
             <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-red-700">{connectError}</p>
+          </div>
+        )}
+        {disconnectMessage && (
+          <div className={`mt-3 flex items-start gap-2 rounded-lg p-3 border ${
+            disconnectMessage.type === 'success' ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'
+          }`}>
+            {disconnectMessage.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+            )}
+            <p className={`text-xs ${disconnectMessage.type === 'success' ? 'text-emerald-700' : 'text-red-700'}`}>
+              {disconnectMessage.text}
+            </p>
           </div>
         )}
       </div>
