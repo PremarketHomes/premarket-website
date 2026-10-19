@@ -1,14 +1,27 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Save, Plug, Unplug, Loader2 } from 'lucide-react';
+import { Save, Plug, Unplug, Loader2, AlertTriangle } from 'lucide-react';
 import { authFetch } from '../../../../utils/authFetch';
 
-export default function InvoicingSettings({ user, xeroConnected }) {
+const XERO_ERROR_MESSAGES = {
+  no_code: 'Xero did not return an authorisation code. Try connecting again.',
+  bad_state: 'The response from Xero could not be read. Try connecting again.',
+  csrf: 'This connection attempt could not be verified as coming from this browser session, so it was rejected for safety. Try connecting again, and complete it in the same browser tab throughout.',
+  unauthorized: 'Your admin session could not be verified. Try logging in again, then reconnect.',
+  token_exchange: "Xero rejected the connection request. This usually means the Client ID, Client Secret, or Redirect URI don't match what's configured in Vercel — or Vercel hasn't redeployed since they were added.",
+  unknown: 'Something went wrong connecting to Xero. Check the Vercel function logs for details.',
+};
+
+export default function InvoicingSettings({ user, xeroConnected, xeroError }) {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState(
+    xeroError ? (XERO_ERROR_MESSAGES[xeroError] || XERO_ERROR_MESSAGES.unknown) : null
+  );
 
   useEffect(() => {
     async function fetchSettings() {
@@ -50,13 +63,22 @@ export default function InvoicingSettings({ user, xeroConnected }) {
   }
 
   async function connectXero() {
+    setConnecting(true);
+    setConnectError(null);
     try {
       const res = await authFetch('/api/auth/xero');
-      if (!res.ok) throw new Error('Failed to start Xero OAuth');
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Failed to start Xero OAuth (${res.status})`);
+      }
       const { url } = await res.json();
+      if (!url) throw new Error('Xero did not return a login URL');
       window.location.href = url;
+      // Intentionally leave `connecting` true — the page is navigating away.
     } catch (err) {
       console.error('Xero connect error:', err);
+      setConnectError(err.message || 'Failed to start the Xero connection. Check the browser console and Vercel logs.');
+      setConnecting(false);
     }
   }
 
@@ -110,13 +132,20 @@ export default function InvoicingSettings({ user, xeroConnected }) {
           ) : (
             <button
               onClick={connectXero}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+              disabled={connecting}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
             >
-              <Plug className="w-3.5 h-3.5" />
-              Connect Xero
+              {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plug className="w-3.5 h-3.5" />}
+              {connecting ? 'Connecting…' : 'Connect Xero'}
             </button>
           )}
         </div>
+        {connectError && (
+          <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
+            <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-red-700">{connectError}</p>
+          </div>
+        )}
       </div>
 
       {/* Billing Settings */}
