@@ -22,6 +22,7 @@ const SERVER_ONLY_COLLECTIONS = [
   'invoiceRunItems',
   'propertyCharges',
   'billingAgencyOverrides',
+  'billingContacts',
   'docLinks',
   'docSessions',
   'phiVerifications',
