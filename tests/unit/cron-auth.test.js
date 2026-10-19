@@ -23,6 +23,7 @@ const CRON_SECRET_ROUTES = [
   '../../src/app/api/cron/compute-scores/route.js',
   '../../src/app/api/cron/cleanup-stale/route.js',
   '../../src/app/api/cron/reconcile-property-charges/route.js',
+  '../../src/app/api/cron/sync-xero-invoices/route.js',
   '../../src/app/api/cron/compress-images/route.js',
   '../../src/app/api/images/backfill-compress/route.js',
   '../../src/app/api/newsletter/send/route.js',

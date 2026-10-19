@@ -2,18 +2,25 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
 import { sendEmail } from '../../services/resendService';
 import { createInvoiceRunFromPendingCharges } from '../../services/invoiceRunService';
+import { getDueBillingEntityKeys } from '../../services/billingService';
 import { verifyCron } from '../../middleware/auth';
 
 export const maxDuration = 120;
 
 /**
  * GET /api/cron/invoice-dry-run
- * Runs daily. On the configured cronDay, bundles every pending property
- * charge into a new draft run (see invoiceRunService.js — the same
- * aggregation the manual "Create Run" admin action uses) and emails
- * superAdmins that it's ready to review. Creates a run even if there's
- * nothing pending is skipped (the shared function returns null) rather
- * than creating an empty one.
+ * Runs daily. Each agency has its own rolling 30-day billing cycle
+ * (see billingService.getDueBillingEntityKeys) rather than everyone
+ * sharing one fixed calendar day — this checks, every day, which
+ * agencies' oldest pending charge has reached 30 days old, and
+ * bundles ONLY those agencies into a new draft run (see
+ * invoiceRunService.js — the same aggregation the manual "Create Run"
+ * admin action uses, just filtered). Every other agency's charges are
+ * left untouched at 'pending' for a later day. Emails superAdmins
+ * that the run is ready to review — never the agencies themselves,
+ * and never auto-approved or auto-sent; that still requires an
+ * explicit admin action (see runs/[runId]/route.js PATCH and
+ * runs/[runId]/send/route.js).
  */
 export async function GET(request) {
   const auth = verifyCron(request);
@@ -29,33 +36,36 @@ export async function GET(request) {
       return NextResponse.json({ message: 'Cron disabled', skipped: true });
     }
 
-    const today = new Date();
-    const cronDay = settings.cronDay || 1;
+    const pendingSnap = await adminDb.collection('propertyCharges').where('status', '==', 'pending').get();
+    const pendingCharges = pendingSnap.docs.map((d) => d.data());
+    const dueEntityKeys = getDueBillingEntityKeys(pendingCharges, new Date());
 
-    if (today.getDate() !== cronDay) {
-      return NextResponse.json({ message: `Not cron day (today=${today.getDate()}, configured=${cronDay})`, skipped: true });
+    if (dueEntityKeys.length === 0) {
+      return NextResponse.json({ message: 'No agency has reached its 30-day billing cycle yet', skipped: true });
     }
 
-    const result = await createInvoiceRunFromPendingCharges({ createdBy: 'cron' });
+    const result = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: dueEntityKeys });
 
     if (!result) {
       return NextResponse.json({ message: 'No pending charges to invoice', skipped: true });
     }
 
-    // Notify superAdmins
+    // Notify superAdmins — never the agencies themselves, and this
+    // creates a draft only; sending still requires a separate explicit
+    // admin approval + send action.
     const adminsSnap = await adminDb.collection('users').where('superAdmin', '==', true).get();
-    const periodStr = today.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+    const todayStr = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
 
     for (const adminDoc of adminsSnap.docs) {
       const adminData = adminDoc.data();
       if (adminData.email) {
         await sendEmail({
           to: adminData.email,
-          subject: `Invoice Dry Run Ready: ${periodStr}`,
+          subject: `Invoice Run Ready for Review: ${todayStr}`,
           html: `
             <body style="font-family: Arial, sans-serif; padding: 20px;">
-              <h2>Monthly Invoice Dry Run</h2>
-              <p>A new invoice dry run has been created, bundling every property charge recorded since the last run.</p>
+              <h2>Draft Invoice Run Ready</h2>
+              <p>${result.totalAgencies} agenc${result.totalAgencies === 1 ? 'y' : 'ies'} reached its 30-day billing cycle and has been bundled into a new draft run.</p>
               <ul>
                 <li>Properties: ${result.totalProperties}</li>
                 <li>Agencies: ${result.totalAgencies}</li>

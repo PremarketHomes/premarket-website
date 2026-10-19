@@ -41,16 +41,25 @@ function makeFakeDb() {
         };
       },
       where(field, op, value) {
-        const all = Object.entries(store[name]).map(([id, data]) => ({ id, data: () => data, _raw: data }));
-        const filtered = all.filter((d) => {
-          if (op === '==') return d._raw[field] === value;
-          if (op === 'array-contains') return Array.isArray(d._raw[field]) && d._raw[field].includes(value);
+        function matches(raw, f, o, v) {
+          if (o === '==') return raw[f] === v;
+          if (o === 'array-contains') return Array.isArray(raw[f]) && raw[f].includes(v);
           return true;
-        });
-        return {
-          get: async () => ({ docs: filtered, empty: filtered.length === 0, size: filtered.length }),
-          limit: () => ({ get: async () => ({ docs: filtered.slice(0, 1), empty: filtered.length === 0 }) }),
-        };
+        }
+        function makeQuery(docs) {
+          return {
+            where: (f2, o2, v2) => makeQuery(docs.filter((d) => matches(d._raw, f2, o2, v2))),
+            get: async () => ({ docs, empty: docs.length === 0, size: docs.length }),
+            limit: () => ({ get: async () => ({ docs: docs.slice(0, 1), empty: docs.length === 0 }) }),
+          };
+        }
+        const all = Object.entries(store[name]).map(([id, data]) => ({
+          id,
+          data: () => data,
+          _raw: data,
+          ref: { update: async (patch) => { store[name][id] = { ...(store[name][id] || {}), ...patch }; } },
+        }));
+        return makeQuery(all.filter((d) => matches(d._raw, field, op, value)));
       },
       async get() {
         const docs = Object.entries(store[name]).map(([id, data]) => ({ id, data: () => data }));
@@ -796,5 +805,101 @@ describe('billing go-live cutoff — every charge-creation pathway respects it',
 
     const doc = await fakeDb.collection('propertyCharges').doc('prop1').get();
     expect(doc.data()).toEqual(existingCharge); // byte-for-byte unchanged
+  });
+});
+
+describe('getDueBillingEntityKeys (pure) — each agency on its own 30-day cycle', () => {
+  it('is due once the OLDEST pending charge for that entity reaches 30 days old', async () => {
+    const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
+    const now = new Date('2026-07-01');
+    const charges = [
+      { billingEntityKey: 'agency:a', createdAt: new Date('2026-06-01') }, // exactly 30 days
+      { billingEntityKey: 'agency:b', createdAt: new Date('2026-06-15') }, // 16 days — not due
+    ];
+    expect(getDueBillingEntityKeys(charges, now)).toEqual(['agency:a']);
+  });
+
+  it('an entity with multiple charges is due based on its OLDEST one, not its newest', async () => {
+    const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
+    const now = new Date('2026-07-01');
+    const charges = [
+      { billingEntityKey: 'agency:a', createdAt: new Date('2026-06-01') }, // 30 days — due
+      { billingEntityKey: 'agency:a', createdAt: new Date('2026-06-28') }, // 3 days — but same entity
+    ];
+    expect(getDueBillingEntityKeys(charges, now)).toEqual(['agency:a']);
+  });
+
+  it('two different agencies become due independently, on their own cadence', async () => {
+    const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
+    const now = new Date('2026-07-01');
+    const charges = [
+      { billingEntityKey: 'agency:a', createdAt: new Date('2026-06-01') }, // 30 days — due
+      { billingEntityKey: 'agency:b', createdAt: new Date('2026-05-01') }, // 61 days — also due
+      { billingEntityKey: 'agency:c', createdAt: new Date('2026-06-20') }, // 11 days — not due
+    ];
+    const due = getDueBillingEntityKeys(charges, now);
+    expect(due.sort()).toEqual(['agency:a', 'agency:b']);
+  });
+
+  it('respects a custom cycle length', async () => {
+    const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
+    const now = new Date('2026-07-01');
+    const charges = [{ billingEntityKey: 'agency:a', createdAt: new Date('2026-06-25') }]; // 6 days
+    expect(getDueBillingEntityKeys(charges, now, 30)).toEqual([]);
+    expect(getDueBillingEntityKeys(charges, now, 5)).toEqual(['agency:a']);
+  });
+
+  it('is empty when nothing is pending', async () => {
+    const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
+    expect(getDueBillingEntityKeys([], new Date())).toEqual([]);
+  });
+
+  it('ignores a charge with no usable createdAt rather than throwing', async () => {
+    const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
+    const charges = [{ billingEntityKey: 'agency:a', createdAt: null }];
+    expect(getDueBillingEntityKeys(charges, new Date())).toEqual([]);
+  });
+});
+
+describe('resolveBillingContact / setBillingContact', () => {
+  it('returns null when no contact has ever been designated', async () => {
+    const { resolveBillingContact } = await import('../../src/app/api/services/billingService.js');
+    expect(await resolveBillingContact('agency:harcourts')).toBeNull();
+  });
+
+  it('setBillingContact requires a valid email', async () => {
+    const { setBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await expect(setBillingContact({ billingEntityKey: 'agency:a', name: 'Jo', email: '', adminUid: 'admin1' })).rejects.toThrow(/email/i);
+    await expect(setBillingContact({ billingEntityKey: 'agency:a', name: 'Jo', email: 'not-an-email', adminUid: 'admin1' })).rejects.toThrow(/email/i);
+  });
+
+  it('setBillingContact requires a billingEntityKey', async () => {
+    const { setBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await expect(setBillingContact({ billingEntityKey: '', name: 'Jo', email: 'jo@example.com', adminUid: 'admin1' })).rejects.toThrow(/billingEntityKey/i);
+  });
+
+  it('designates a contact, then resolveBillingContact returns it', async () => {
+    const { setBillingContact, resolveBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await setBillingContact({ billingEntityKey: 'agency:a', name: 'Jo Lee', email: 'jo@example.com', adminUid: 'admin1' });
+    const contact = await resolveBillingContact('agency:a');
+    expect(contact).toEqual({ name: 'Jo Lee', email: 'jo@example.com' });
+    expect(fakeDb._store.billingContacts['agency:a'].setBy).toBe('admin1');
+  });
+
+  it('updates any open (item-level pending) invoiceRunItems for this entity immediately', async () => {
+    const { setBillingContact } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('invoiceRunItems').doc('item1').set({ billingEntityKey: 'agency:a', status: 'pending', agentName: 'Old Name', agentEmail: 'old@example.com' });
+    fakeDb.collection('invoiceRunItems').doc('item2').set({ billingEntityKey: 'agency:a', status: 'sent', agentName: 'Old Name', agentEmail: 'old@example.com' });
+    fakeDb.collection('invoiceRunItems').doc('item3').set({ billingEntityKey: 'agency:b', status: 'pending', agentName: 'Unrelated', agentEmail: 'unrelated@example.com' });
+
+    const result = await setBillingContact({ billingEntityKey: 'agency:a', name: 'New Contact', email: 'new@example.com', adminUid: 'admin1' });
+
+    expect(result.updatedOpenItems).toBe(1);
+    expect(fakeDb._store.invoiceRunItems.item1.agentEmail).toBe('new@example.com');
+    expect(fakeDb._store.invoiceRunItems.item1.agentName).toBe('New Contact');
+    // Already-sent item is financial history — untouched.
+    expect(fakeDb._store.invoiceRunItems.item2.agentEmail).toBe('old@example.com');
+    // A different agency's item is untouched.
+    expect(fakeDb._store.invoiceRunItems.item3.agentEmail).toBe('unrelated@example.com');
   });
 });

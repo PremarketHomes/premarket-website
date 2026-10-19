@@ -37,13 +37,24 @@ function makeFakeDb() {
         };
       },
       where(field, op, value) {
-        const all = Object.entries(store[name]).map(([docId, data]) => ({ id: docId, data: () => data, _raw: data }));
-        const filtered = all.filter((d) => {
-          if (op === '==') return d._raw[field] === value;
-          if (op === 'array-contains') return Array.isArray(d._raw[field]) && d._raw[field].includes(value);
+        function matches(raw, f, o, v) {
+          if (o === '==') return raw[f] === v;
+          if (o === 'array-contains') return Array.isArray(raw[f]) && raw[f].includes(v);
           return true;
-        });
-        return { get: async () => ({ docs: filtered, empty: filtered.length === 0, size: filtered.length }) };
+        }
+        function makeQuery(docs) {
+          return {
+            where: (f2, o2, v2) => makeQuery(docs.filter((d) => matches(d._raw, f2, o2, v2))),
+            get: async () => ({ docs, empty: docs.length === 0, size: docs.length }),
+          };
+        }
+        const all = Object.entries(store[name]).map(([docId, data]) => ({
+          id: docId,
+          data: () => data,
+          _raw: data,
+          ref: { update: async (patch) => { store[name][docId] = { ...(store[name][docId] || {}), ...patch }; } },
+        }));
+        return makeQuery(all.filter((d) => matches(d._raw, field, op, value)));
       },
       async get() {
         const docs = Object.entries(store[name]).map(([docId, data]) => ({ id: docId, data: () => data }));
@@ -446,5 +457,60 @@ describe('POST /api/admin/invoicing/activate-billing', () => {
     expect(fakeDb._store.settings.invoicing.pricePerListing).toBe(200);
     expect(fakeDb._store.settings.invoicing.excludeAgentIds).toEqual(['agentX']);
     expect(fakeDb._store.settings.invoicing.invoicePrefix).toBe('PM-');
+  });
+});
+
+describe('POST /api/admin/invoicing/billing-contacts', () => {
+  it('401s with no auth header', async () => {
+    const { POST } = await import('../../src/app/api/admin/invoicing/billing-contacts/route.js');
+    const res = await POST(makeRequest({ body: { billingEntityKey: 'agency:a', email: 'a@example.com' } }));
+    expect(res.status).toBe(401);
+  });
+
+  it('403s for a non-admin', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
+    fakeDb._seed('users', 'agent1', { superAdmin: false });
+    const { POST } = await import('../../src/app/api/admin/invoicing/billing-contacts/route.js');
+    const res = await POST(makeRequest({ body: { billingEntityKey: 'agency:a', email: 'a@example.com' }, authHeader: 'Bearer t' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('400s on a missing/invalid email', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    const { POST } = await import('../../src/app/api/admin/invoicing/billing-contacts/route.js');
+    const res = await POST(makeRequest({ body: { billingEntityKey: 'agency:a', email: 'not-an-email' }, authHeader: 'Bearer t' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('designates a billing contact for an admin', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    const { POST } = await import('../../src/app/api/admin/invoicing/billing-contacts/route.js');
+    const res = await POST(makeRequest({
+      body: { billingEntityKey: 'agency:a', name: 'Accounts Payable', email: 'accounts@agency-a.example.com' },
+      authHeader: 'Bearer t',
+    }));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(fakeDb._store.billingContacts['agency:a'].email).toBe('accounts@agency-a.example.com');
+    expect(fakeDb._store.billingContacts['agency:a'].setBy).toBe('admin1');
+  });
+
+  it('immediately updates a still-open invoiceRunItem for the same entity', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    fakeDb._seed('invoiceRunItems', 'item1', { billingEntityKey: 'agency:a', status: 'pending', agentName: 'Old', agentEmail: 'old@example.com' });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/billing-contacts/route.js');
+    await POST(makeRequest({
+      body: { billingEntityKey: 'agency:a', name: 'New Contact', email: 'new@example.com' },
+      authHeader: 'Bearer t',
+    }));
+
+    expect(fakeDb._store.invoiceRunItems.item1.agentEmail).toBe('new@example.com');
+    expect(fakeDb._store.invoiceRunItems.item1.agentName).toBe('New Contact');
   });
 });

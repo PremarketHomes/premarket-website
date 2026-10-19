@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink, Send, RefreshCw, XCircle, CheckCircle, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, ExternalLink, Send, RefreshCw, XCircle, CheckCircle, Trash2, Pencil } from 'lucide-react';
 import InvoiceStatusBadge from './InvoiceStatusBadge';
 import { authFetch } from '../../../../utils/authFetch';
 
@@ -10,8 +10,12 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
   const [actionLoading, setActionLoading] = useState(null);
   const [removingItem, setRemovingItem] = useState(null);
   const [removingProp, setRemovingProp] = useState(null);
+  const [editingContact, setEditingContact] = useState(null);
 
   const isDraft = run.status === 'draft';
+  // Not yet sent to Xero — a correction here still changes what
+  // actually gets emailed. Once sent, this is financial history.
+  const canEditBillingContact = ['draft', 'approved'].includes(run.status);
 
   const periodStart = run.periodStart?.toDate?.()
     || (run.periodStart?._seconds ? new Date(run.periodStart._seconds * 1000) : new Date(run.periodStart));
@@ -67,6 +71,36 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
       console.error('Remove agency error:', err);
     } finally {
       setRemovingItem(null);
+    }
+  }
+
+  async function handleEditBillingContact(item) {
+    const email = window.prompt(
+      `Billing contact email for "${item.agencyName}" — this is who the consolidated invoice gets emailed to.`,
+      item.agentEmail || ''
+    );
+    if (email === null) return; // cancelled
+    if (!email.trim()) { alert('An email is required'); return; }
+    const name = window.prompt('Billing contact name (optional):', item.agentName || '') || '';
+
+    setEditingContact(item.billingEntityKey);
+    try {
+      const res = await authFetch('/api/admin/invoicing/billing-contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ billingEntityKey: item.billingEntityKey, name: name.trim(), email: email.trim() }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || 'Failed to update billing contact');
+        return;
+      }
+      onRefresh?.();
+    } catch (err) {
+      console.error('Edit billing contact error:', err);
+      alert('Failed to update billing contact');
+    } finally {
+      setEditingContact(null);
     }
   }
 
@@ -178,7 +212,7 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">Agency</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">Agent</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">Billing Contact</th>
                 <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">Listings</th>
                 <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">NET</th>
                 <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">GST</th>
@@ -193,6 +227,9 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
                   key={item.id}
                   item={item}
                   isDraft={isDraft}
+                  canEditBillingContact={canEditBillingContact}
+                  editingContact={editingContact === item.billingEntityKey}
+                  onEditBillingContact={() => handleEditBillingContact(item)}
                   expanded={expandedAgency === item.id}
                   onToggle={() => setExpandedAgency(expandedAgency === item.id ? null : item.id)}
                   onRemoveAgency={() => handleRemoveAgency(item.id, item.agencyName)}
@@ -224,12 +261,32 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
   );
 }
 
-function AgencyRow({ item, isDraft, expanded, onToggle, onRemoveAgency, onRemoveProperty, removingItem, removingProp }) {
+function AgencyRow({
+  item, isDraft, canEditBillingContact, editingContact, onEditBillingContact,
+  expanded, onToggle, onRemoveAgency, onRemoveProperty, removingItem, removingProp,
+}) {
   return (
     <>
       <tr className="hover:bg-slate-50 cursor-pointer" onClick={onToggle}>
         <td className="px-4 py-3 font-medium text-slate-900">{item.agencyName}</td>
-        <td className="px-4 py-3 text-slate-600">{item.agentName}</td>
+        <td className="px-4 py-3 text-slate-600">
+          <div className="flex items-center gap-1.5">
+            <div>
+              <div>{item.agentName}</div>
+              <div className="text-xs text-slate-400">{item.agentEmail}</div>
+            </div>
+            {canEditBillingContact && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onEditBillingContact(); }}
+                disabled={editingContact}
+                title="Edit billing contact"
+                className="p-1 text-slate-400 hover:text-orange-500 rounded hover:bg-orange-50 transition-colors disabled:opacity-50 flex-shrink-0"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </td>
         <td className="px-4 py-3 text-center text-slate-600">{item.propertyCount}</td>
         <td className="px-4 py-3 text-right text-slate-600">${item.subtotalEx?.toLocaleString()}</td>
         <td className="px-4 py-3 text-right text-slate-400">${item.gstAmount?.toLocaleString()}</td>

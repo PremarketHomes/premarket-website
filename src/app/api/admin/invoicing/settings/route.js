@@ -8,7 +8,11 @@ const DEFAULT_SETTINGS = {
   paymentTermsDays: 14,
   invoicePrefix: 'PM-',
   xeroAccountCode: '200',
-  cronDay: 1,
+  // Each agency bills on its own rolling 30-day cycle now (see
+  // billingService.getDueBillingEntityKeys) — there's no shared
+  // "day of the month" any more, so cronDay was removed. cronEnabled
+  // is still the on/off switch for whether the daily cron creates
+  // draft runs automatically at all.
   cronEnabled: false,
   excludeAgentIds: [],
   marketReportRecipients: [],
@@ -55,7 +59,7 @@ export async function PUT(request) {
 
     const allowedFields = [
       'pricePerListing', 'gstRate', 'paymentTermsDays', 'invoicePrefix',
-      'xeroAccountCode', 'cronDay', 'cronEnabled', 'excludeAgentIds',
+      'xeroAccountCode', 'cronEnabled', 'excludeAgentIds',
       'marketReportRecipients',
     ];
 

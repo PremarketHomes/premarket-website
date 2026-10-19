@@ -180,4 +180,68 @@ describe('createInvoiceRunFromPendingCharges', () => {
     expect(result.totalAmountEx).toBeCloseTo(545.46, 2);
     expect(result.totalGst).toBeCloseTo(54.54, 2);
   });
+
+  describe('onlyEntityKeys — the 30-day-per-agency cron filter', () => {
+    it('bundles only the given entities, leaving every other agency\'s charges untouched at pending', async () => {
+      await seedPendingCharge('propA', { billingEntityKey: 'agency:due', billingEntityName: 'Due Agency' });
+      await seedPendingCharge('propB', { billingEntityKey: 'agency:not-due', billingEntityName: 'Not Due Agency' });
+      const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+
+      const result = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agency:due'] });
+
+      expect(result.totalProperties).toBe(1);
+      expect(result.totalAgencies).toBe(1);
+
+      const chargeA = await fakeDb.collection('propertyCharges').doc('propA').get();
+      const chargeB = await fakeDb.collection('propertyCharges').doc('propB').get();
+      expect(chargeA.data().status).toBe('queued');
+      expect(chargeB.data().status).toBe('pending'); // left alone — not due yet
+    });
+
+    it('returns null (no run created) when none of the given entities have anything pending', async () => {
+      await seedPendingCharge('propA', { billingEntityKey: 'agency:not-due' });
+      const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+
+      const result = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agency:due'] });
+      expect(result).toBeNull();
+      const charge = await fakeDb.collection('propertyCharges').doc('propA').get();
+      expect(charge.data().status).toBe('pending'); // never touched
+    });
+
+    it('a retry (same due set, called again) never double-bundles — the second call finds nothing left pending for that entity', async () => {
+      await seedPendingCharge('propA', { billingEntityKey: 'agency:due' });
+      const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+
+      const first = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agency:due'] });
+      expect(first.totalProperties).toBe(1);
+
+      const second = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agency:due'] });
+      expect(second).toBeNull();
+    });
+  });
+
+  describe('designated billing contact override', () => {
+    it('uses the designated billing contact instead of the charge\'s own agent, when one has been set', async () => {
+      await seedPendingCharge('propA', { billingEntityKey: 'agency:a', agentName: 'Jo (whoever created the first charge)', agentEmail: 'jo@example.com' });
+      fakeDb.collection('billingContacts').doc('agency:a').set({ billingEntityKey: 'agency:a', name: 'Accounts Payable', email: 'accounts@agency-a.example.com' });
+
+      const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+      await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
+
+      const items = await fakeDb.collection('invoiceRunItems').get();
+      expect(items.docs[0].data().agentName).toBe('Accounts Payable');
+      expect(items.docs[0].data().agentEmail).toBe('accounts@agency-a.example.com');
+    });
+
+    it('falls back to the triggering agent\'s own name/email when no contact has been designated', async () => {
+      await seedPendingCharge('propA', { billingEntityKey: 'agency:a', agentName: 'Jo Lee', agentEmail: 'jo@example.com' });
+
+      const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+      await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
+
+      const items = await fakeDb.collection('invoiceRunItems').get();
+      expect(items.docs[0].data().agentName).toBe('Jo Lee');
+      expect(items.docs[0].data().agentEmail).toBe('jo@example.com');
+    });
+  });
 });

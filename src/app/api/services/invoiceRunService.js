@@ -18,7 +18,7 @@
 
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
-import { reconcileMissingCharges } from './billingService';
+import { reconcileMissingCharges, resolveBillingContact } from './billingService';
 
 /**
  * Groups a list of { id, ...chargeData } charge docs by
@@ -85,19 +85,45 @@ function groupChargesByEntity(charges) {
 }
 
 /**
- * Creates a new draft invoice run from every currently-pending charge.
+ * Creates a new draft invoice run from currently-pending charges.
  * Returns null (no run created) if there's nothing to bill — callers
  * decide what that means for them (the cron treats it as "nothing to
  * do today"; the manual admin action can just say so).
+ *
+ * `onlyEntityKeys`, when given, restricts this to charges belonging
+ * to those billingEntityKeys — used by the daily cron to bundle only
+ * the agencies whose 30-day cycle is actually due (see
+ * billingService.getDueBillingEntityKeys), leaving every other
+ * agency's charges untouched at 'pending' for a later day. The manual
+ * "Create Run" admin action never passes this — it always bundles
+ * everything currently pending, on demand, which is what lets testing
+ * happen without waiting out a real 30-day cycle.
  */
-export async function createInvoiceRunFromPendingCharges({ createdBy }) {
+export async function createInvoiceRunFromPendingCharges({ createdBy, onlyEntityKeys }) {
   await reconcileMissingCharges();
 
   const pendingSnap = await adminDb.collection('propertyCharges').where('status', '==', 'pending').get();
   if (pendingSnap.empty) return null;
 
-  const charges = pendingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  let charges = pendingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  if (onlyEntityKeys) {
+    const allowed = new Set(onlyEntityKeys);
+    charges = charges.filter((c) => allowed.has(c.billingEntityKey));
+  }
+  if (charges.length === 0) return null;
+
   const items = groupChargesByEntity(charges);
+
+  // The agency's designated billing contact (if one has been set)
+  // overrides whichever agent's charge happened to be grouped first —
+  // see billingService.setBillingContact.
+  for (const item of items) {
+    const contact = await resolveBillingContact(item.billingEntityKey);
+    if (contact) {
+      item.agentName = contact.name;
+      item.agentEmail = contact.email;
+    }
+  }
 
   const totalProperties = items.reduce((sum, i) => sum + i.propertyCount, 0);
   const totalAmountInc = items.reduce((sum, i) => sum + i.totalInc, 0);

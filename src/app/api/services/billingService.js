@@ -96,6 +96,102 @@ export function isPropertyBillable(propertyCreatedAt, billingActivatedAt) {
   return createdMs >= activatedMs;
 }
 
+// Each agency runs its own rolling 30-day billing cycle rather than
+// everyone sharing one fixed calendar day — deliberately not tracked
+// as a separate "cycle anchor" doc per agency. Instead it's derived
+// statelessly from the charges themselves: an agency becomes "due"
+// the moment its OLDEST still-pending charge turns 30 days old, which
+// means no charge ever waits longer than 30 days, different agencies
+// naturally fall on their own independent cadence (whoever's oldest
+// unbilled campaign crosses the line triggers just that agency), and
+// nothing needs to be initialised or migrated when a new agency's
+// first charge is recorded — the same `propertyCharges` data this
+// whole ledger already relies on is the only input.
+export const DEFAULT_BILLING_CYCLE_DAYS = 30;
+
+/**
+ * Pure — given every currently-pending charge, returns the set of
+ * billingEntityKeys that are due for consolidation right now: at
+ * least one of that entity's pending charges is `cycleDays` or older.
+ * Used by the daily cron (see invoiceRunService.createInvoiceRunFromPendingCharges's
+ * `onlyEntityKeys` filter) to decide which agencies to bundle today —
+ * the manual "Create Run" admin action deliberately does NOT call
+ * this and bundles everything pending on demand instead, so testing
+ * never has to wait out a real 30-day cycle.
+ */
+export function getDueBillingEntityKeys(charges, now = new Date(), cycleDays = DEFAULT_BILLING_CYCLE_DAYS) {
+  const nowMs = toMillis(now) ?? Date.now();
+  const cycleMs = cycleDays * 24 * 60 * 60 * 1000;
+  const oldestByEntity = {};
+
+  for (const charge of charges) {
+    const key = charge.billingEntityKey;
+    if (!key) continue;
+    const createdMs = toMillis(charge.createdAt);
+    if (createdMs === null) continue;
+    if (oldestByEntity[key] === undefined || createdMs < oldestByEntity[key]) {
+      oldestByEntity[key] = createdMs;
+    }
+  }
+
+  return Object.entries(oldestByEntity)
+    .filter(([, oldestMs]) => nowMs - oldestMs >= cycleMs)
+    .map(([key]) => key);
+}
+
+/**
+ * The agency's designated billing contact — who the consolidated
+ * invoice actually gets emailed to, overriding whichever agent's
+ * charge happened to be grouped first (see invoiceRunService.js). A
+ * deliberate admin action (setBillingContact below), never inferred.
+ * Returns null if none has been set — callers fall back to the
+ * triggering agent's own name/email, today's existing behaviour.
+ */
+export async function resolveBillingContact(billingEntityKey) {
+  if (!billingEntityKey) return null;
+  const doc = await adminDb.collection('billingContacts').doc(billingEntityKey).get();
+  if (!doc.exists) return null;
+  const data = doc.data();
+  if (!data.email) return null;
+  return { name: data.name || '', email: data.email };
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Admin action — designates who an agency's invoices get emailed to,
+ * going forward. Also immediately updates any invoiceRunItems for
+ * this entity still sitting at item-level status 'pending' (i.e. in a
+ * draft/approved-but-not-yet-sent run) so a correction made before
+ * sending takes effect on what's about to be sent, not just future
+ * runs — items already sent are financial history and are never
+ * touched here.
+ */
+export async function setBillingContact({ billingEntityKey, name, email, adminUid }) {
+  if (!billingEntityKey) throw new Error('billingEntityKey is required');
+  if (!email || !EMAIL_RE.test(email)) throw new Error('A valid email is required');
+
+  await adminDb.collection('billingContacts').doc(billingEntityKey).set({
+    billingEntityKey,
+    name: name || '',
+    email,
+    setBy: adminUid,
+    setAt: FieldValue.serverTimestamp(),
+  });
+
+  const pendingItemsSnap = await adminDb
+    .collection('invoiceRunItems')
+    .where('billingEntityKey', '==', billingEntityKey)
+    .where('status', '==', 'pending')
+    .get();
+
+  for (const itemDoc of pendingItemsSnap.docs) {
+    await itemDoc.ref.update({ agentName: name || '', agentEmail: email });
+  }
+
+  return { billingEntityKey, email, updatedOpenItems: pendingItemsSnap.size };
+}
+
 /**
  * Finds the agencyBrands entity (if any) that an agent's billing should
  * key off, read-only — never creates, links, or modifies a brand or an

@@ -279,39 +279,26 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError }) {
 
       {/* Automation */}
       <div className="bg-white rounded-xl border border-slate-200 p-6">
-        <h3 className="text-sm font-semibold text-slate-700 mb-4">Monthly Automation</h3>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-700">Auto-generate dry run</p>
-              <p className="text-xs text-slate-400">Creates a draft invoice run on the configured day each month</p>
-            </div>
-            <button
-              onClick={() => handleChange('cronEnabled', !settings.cronEnabled)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                settings.cronEnabled ? 'bg-orange-600' : 'bg-slate-200'
-              }`}
-            >
-              <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                settings.cronEnabled ? 'translate-x-6' : 'translate-x-1'
-              }`} />
-            </button>
+        <h3 className="text-sm font-semibold text-slate-700 mb-4">30-Day Billing Cycle</h3>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-slate-700">Auto-generate draft runs</p>
+            <p className="text-xs text-slate-400">
+              Each agency bills on its own rolling 30-day cycle. When enabled, a daily check creates a draft run for
+              any agency whose oldest uninvoiced campaign has reached 30 days old — sending still requires your
+              explicit approval below, this only creates the draft for review.
+            </p>
           </div>
-
-          {settings.cronEnabled && (
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Day of month</label>
-              <select
-                value={settings.cronDay}
-                onChange={(e) => handleChange('cronDay', parseInt(e.target.value))}
-                className="px-3 py-2 text-slate-900 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none"
-              >
-                {Array.from({ length: 28 }, (_, i) => i + 1).map((day) => (
-                  <option key={day} value={day}>{day}{day === 1 ? 'st' : day === 2 ? 'nd' : day === 3 ? 'rd' : 'th'}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <button
+            onClick={() => handleChange('cronEnabled', !settings.cronEnabled)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ml-4 ${
+              settings.cronEnabled ? 'bg-orange-600' : 'bg-slate-200'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+              settings.cronEnabled ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
         </div>
       </div>
 
