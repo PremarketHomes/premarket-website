@@ -132,10 +132,15 @@ export async function findOrCreateContact({ name, email, firstName, lastName }) 
 
 export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType }) {
   // 'NONE' (not GST registered — Premarket's actual status) or
-  // 'OUTPUT' (GST on income, 10%, if that ever changes). Always passed
-  // explicitly by the caller from the current settings.gstRate — never
-  // defaulted here, so this function can't silently add tax on its own.
-  const resolvedTaxType = taxType || 'NONE';
+  // 'OUTPUT' (GST on income, 10%, if that ever changes). Each line
+  // item normally carries its own taxType (send/route.js derives it
+  // per property, from that property's own snapshotted gstAmount —
+  // different properties in the same consolidated invoice could in
+  // principle have been charged under different settings if gstRate
+  // changed between them). `taxType` here is only a fallback default
+  // for a line item that doesn't specify its own — never a value this
+  // function invents or defaults to GST on its own.
+  const defaultTaxType = taxType || 'NONE';
   const invoice = {
     Type: 'ACCREC',
     Contact: { ContactID: contactId },
@@ -144,7 +149,7 @@ export async function createInvoice({ contactId, lineItems, reference, dueDate, 
       Quantity: li.quantity,
       UnitAmount: li.unitAmount, // ex-GST
       AccountCode: accountCode || '200',
-      TaxType: resolvedTaxType,
+      TaxType: li.taxType || defaultTaxType,
     })),
     Reference: reference || '',
     DueDate: dueDate || '',

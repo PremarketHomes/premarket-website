@@ -88,15 +88,25 @@ beforeEach(() => {
 });
 
 describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
-  it('passes taxType NONE and the full $200 as the unit amount when the run has gstRate 0', async () => {
-    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', gstRate: 0, periodStart: new Date('2026-10-01') });
+  // Fixtures here deliberately match the REAL shape
+  // invoiceRunService.groupChargesByEntity actually produces: no
+  // pricePerListing on the item, no gstRate on the run — only each
+  // property's own already-computed subtotalEx/gstAmount, snapshotted
+  // per charge. An earlier version of these tests seeded an item-level
+  // pricePerListing and a run-level gstRate that groupChargesByEntity
+  // never actually sets, which masked a real bug: item.pricePerListing
+  // was always undefined in production, so every real unitAmount sent
+  // to Xero would have been NaN. Fixed in send/route.js to derive
+  // unitAmount/taxType from each property's own numbers instead.
+
+  it('passes taxType NONE and each property\'s own ex-GST subtotal as the unit amount when not GST registered', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
       agencyName: 'Acme Agency',
       agentName: 'Jo Bloggs',
       agentEmail: 'jo@example.com',
-      pricePerListing: 200,
-      properties: [{ propertyId: 'p1', address: '1 Test St' }],
+      properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
     });
 
     const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
@@ -106,48 +116,48 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
     expect(body.success).toBe(true);
     expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
     const call = mockCreateInvoice.mock.calls[0][0];
-    expect(call.taxType).toBe('NONE');
     expect(call.lineItems[0].unitAmount).toBe(200);
+    expect(call.lineItems[0].taxType).toBe('NONE');
   });
 
-  it('passes taxType OUTPUT and backs out the ex-GST amount when gstRate is explicitly 0.1', async () => {
-    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', gstRate: 0.1, periodStart: new Date('2026-10-01') });
+  it('passes taxType OUTPUT and that property\'s own ex-GST amount when its charge was snapshotted with GST', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
       agencyName: 'Acme Agency',
       agentName: 'Jo Bloggs',
       agentEmail: 'jo@example.com',
-      pricePerListing: 200,
-      properties: [{ propertyId: 'p1', address: '1 Test St' }],
+      properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 181.82, gstAmount: 18.18, totalInc: 200 }],
     });
 
     const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
     await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
 
     const call = mockCreateInvoice.mock.calls[0][0];
-    expect(call.taxType).toBe('OUTPUT');
+    expect(call.lineItems[0].taxType).toBe('OUTPUT');
     expect(call.lineItems[0].unitAmount).toBeCloseTo(181.82, 2);
   });
 
-  it('a falsy-but-explicit gstRate of 0 is never resurrected into a 10% default (the `?? 0`, not `|| 0.1`, regression)', async () => {
-    // gstRate: 0 is a legitimate, deliberate "not GST registered" value —
-    // `runData.gstRate || 0.1` would wrongly treat it as unset and fall
-    // back to 10%. Confirms the fix stays fixed.
-    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', gstRate: 0, periodStart: new Date('2026-10-01') });
+  it('a consolidated invoice itemises every property with ITS OWN amount and tax status, never a single run-wide value', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
       agencyName: 'Acme Agency',
       agentName: 'Jo Bloggs',
       agentEmail: 'jo@example.com',
-      pricePerListing: 200,
-      properties: [{ propertyId: 'p1', address: '1 Test St' }],
+      properties: [
+        { propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 },
+        { propertyId: 'p2', address: '2 Test St', subtotalEx: 181.82, gstAmount: 18.18, totalInc: 200 },
+      ],
     });
 
     const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
     await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
 
     const call = mockCreateInvoice.mock.calls[0][0];
-    expect(call.lineItems[0].unitAmount).toBe(200); // not 181.82
-    expect(call.taxType).toBe('NONE'); // not 'OUTPUT'
+    expect(call.lineItems).toHaveLength(2);
+    expect(call.lineItems[0]).toMatchObject({ unitAmount: 200, taxType: 'NONE' });
+    expect(call.lineItems[1]).toMatchObject({ taxType: 'OUTPUT' });
+    expect(call.lineItems[1].unitAmount).toBeCloseTo(181.82, 2);
   });
 });

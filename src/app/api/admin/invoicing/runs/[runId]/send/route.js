@@ -76,18 +76,22 @@ export async function POST(request, { params }) {
           throw new Error(`Failed to create Xero contact for ${item.agencyName}`);
         }
 
-        // Build line items - one per property, ex-GST unit amount.
-        // `?? 0` matters here: gstRate is legitimately 0 (not GST
-        // registered), and `0 || 0.1` would silently resurrect a 10%
-        // rate.
-        const gstRate = typeof runData.gstRate === 'number' ? runData.gstRate : 0;
-        const unitAmountExGst = item.pricePerListing / (1 + gstRate);
+        // Build line items — one per property, using THAT property's
+        // own already ex-GST subtotalEx and already-computed gstAmount
+        // (both snapshotted onto the charge at charge-creation time,
+        // see billingService.js). Deliberately never derives a single
+        // run-wide unit amount or tax rate from the item or the run —
+        // neither carries a pricePerListing/gstRate field at all
+        // (an item consolidates possibly-differently-priced charges),
+        // so each property's own numbers are the only source of truth,
+        // same principle runs/[runId]/route.js's removeProperties
+        // already follows when recalculating a run's totals.
         const lineItems = item.properties.map((prop) => ({
           description: `Premarket listing: ${prop.address}`,
           quantity: 1,
-          unitAmount: Math.round(unitAmountExGst * 100) / 100,
+          unitAmount: prop.subtotalEx,
+          taxType: prop.gstAmount > 0 ? 'OUTPUT' : 'NONE',
         }));
-        const taxType = gstRate > 0 ? 'OUTPUT' : 'NONE';
 
         // Due date
         const dueDate = new Date();
@@ -105,7 +109,6 @@ export async function POST(request, { params }) {
           reference: `${invoicePrefix}${periodStr} - ${item.agencyName}`,
           dueDate: dueDateStr,
           accountCode,
-          taxType,
         });
 
         if (!invoice?.InvoiceID) {
