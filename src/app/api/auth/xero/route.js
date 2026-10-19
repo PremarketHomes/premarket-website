@@ -31,7 +31,19 @@ export async function GET(request) {
     return NextResponse.json({ error: 'Xero OAuth not configured' }, { status: 500 });
   }
 
-  const scopes = 'openid profile email accounting.transactions accounting.contacts offline_access';
+  // Xero retired the broad `accounting.transactions` scope for every
+  // app created on or after 2 March 2026 — it was split into granular
+  // scopes (accounting.invoices, accounting.payments,
+  // accounting.banktransactions, accounting.manualjournals, etc.) and
+  // the old name is now flatly rejected ("invalid_scope") for a new
+  // app, which is exactly what this Premarket Xero app is. We only
+  // ever create invoices (ACCREC) and read their status back — both
+  // the same Invoices resource — so accounting.invoices alone (full
+  // access, not .read-only, since we write) covers it; we never touch
+  // Payments/BankTransactions/ManualJournals directly, so those
+  // granular scopes are deliberately left out. accounting.contacts is
+  // unaffected by this change and unchanged.
+  const scopes = 'openid profile email accounting.invoices accounting.contacts offline_access';
   const nonce = crypto.randomBytes(16).toString('hex');
   const state = Buffer.from(JSON.stringify({ adminUid: auth.uid, nonce })).toString('base64');
 

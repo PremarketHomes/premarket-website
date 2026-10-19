@@ -58,6 +58,23 @@ describe('GET /api/auth/xero — starts the flow with a CSRF nonce', () => {
     expect(res.headers.get('set-cookie')).toMatch(/HttpOnly/i);
   });
 
+  it('requests the granular accounting.invoices scope, never the retired broad accounting.transactions scope', async () => {
+    // Xero rejects accounting.transactions with invalid_scope for any
+    // app created on/after 2 March 2026 — this Premarket app is one.
+    // accounting.invoices is the correct granular replacement for
+    // creating invoices and reading their status back.
+    mockVerifyAdmin.mockResolvedValue({ authenticated: true, uid: 'admin1' });
+    const { GET } = await import('../../src/app/api/auth/xero/route.js');
+    const res = await GET(new Request('http://localhost/api/auth/xero'));
+    const body = await res.json();
+
+    const url = new URL(body.url);
+    const scopes = url.searchParams.get('scope').split(' ');
+    expect(scopes).toContain('accounting.invoices');
+    expect(scopes).toContain('accounting.contacts');
+    expect(scopes).not.toContain('accounting.transactions');
+  });
+
   it('refuses non-admins before ever generating a nonce', async () => {
     mockVerifyAdmin.mockResolvedValue({ authenticated: false, error: 'Forbidden', status: 403 });
     const { GET } = await import('../../src/app/api/auth/xero/route.js');
