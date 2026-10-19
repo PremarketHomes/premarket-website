@@ -249,17 +249,24 @@ describe('DEFAULT_GST_RATE', () => {
   });
 });
 
+// Fixed, safely-in-the-past activation instant used throughout this
+// file's pre-existing tests (all about charge-creation mechanics, not
+// the go-live cutoff itself) so a property "created now" is billable
+// by default — see the dedicated `isPropertyBillable` / billing
+// go-live describe blocks below for the cutoff behaviour itself.
+const BILLING_ACTIVATED = new Date('2020-01-01');
+
 describe('recordPropertyCharge', () => {
   async function setup() {
     const svc = await import('../../src/app/api/services/billingService.js');
     fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com' });
-    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [] });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: BILLING_ACTIVATED });
     return svc;
   }
 
   it('creates exactly one charge for a new property', async () => {
     const { recordPropertyCharge } = await setup();
-    const result = await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St' });
+    const result = await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() });
     expect(result.created).toBe(true);
     const doc = await fakeDb.collection('propertyCharges').doc('prop1').get();
     expect(doc.exists).toBe(true);
@@ -271,8 +278,8 @@ describe('recordPropertyCharge', () => {
 
   it('is idempotent — calling it again for the same property is a safe no-op', async () => {
     const { recordPropertyCharge } = await setup();
-    await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St' });
-    const second = await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St' });
+    await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() });
+    const second = await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() });
     expect(second.created).toBe(false);
     expect(second.reason).toBe('already-recorded');
 
@@ -284,8 +291,8 @@ describe('recordPropertyCharge', () => {
   it('survives a .create() race (two near-simultaneous calls) without creating two charges or throwing', async () => {
     const { recordPropertyCharge } = await setup();
     const [a, b] = await Promise.all([
-      recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St' }),
-      recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St' }),
+      recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() }),
+      recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() }),
     ]);
     const createdCount = [a, b].filter((r) => r.created).length;
     expect(createdCount).toBe(1);
@@ -295,10 +302,10 @@ describe('recordPropertyCharge', () => {
 
   it('snapshots the price/GST in force at the time it is called, not a later value', async () => {
     const { recordPropertyCharge } = await setup();
-    await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St' });
+    await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() });
 
     // Price changes after the charge was recorded.
-    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 350, gstRate: 0.1, excludeAgentIds: [] });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 350, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: BILLING_ACTIVATED });
 
     const doc = await fakeDb.collection('propertyCharges').doc('prop1').get();
     expect(doc.data().pricePerListing).toBe(200);
@@ -307,17 +314,17 @@ describe('recordPropertyCharge', () => {
 
   it('skips an agent on the exclusion list, recording no charge', async () => {
     const { recordPropertyCharge } = await setup();
-    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: ['agent1'] });
-    const result = await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St' });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: ['agent1'], billingActivatedAt: BILLING_ACTIVATED });
+    const result = await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() });
     expect(result.created).toBe(false);
-    expect(result.reason).toBe('agent-excluded');
+    expect(result.reason).toBe('not-billable');
     const doc = await fakeDb.collection('propertyCharges').doc('prop1').get();
     expect(doc.exists).toBe(false);
   });
 
   it('skips gracefully (no throw) when the property has no agent userId', async () => {
     const { recordPropertyCharge } = await setup();
-    const result = await recordPropertyCharge({ id: 'prop1', address: '1 Test St' });
+    const result = await recordPropertyCharge({ id: 'prop1', address: '1 Test St', createdAt: new Date() });
     expect(result.created).toBe(false);
     expect(result.reason).toBe('no-agent');
   });
@@ -326,8 +333,8 @@ describe('recordPropertyCharge', () => {
     const { recordPropertyCharge } = await setup();
     fakeDb.collection('users').doc('agent2').set({ firstName: 'Max', lastName: 'Tan', companyName: 'harcourts property hub', email: 'max@example.com' });
 
-    await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St' });
-    await recordPropertyCharge({ id: 'propB', userId: 'agent2', address: '2 B St' });
+    await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
+    await recordPropertyCharge({ id: 'propB', userId: 'agent2', address: '2 B St', createdAt: new Date() });
 
     const docA = await fakeDb.collection('propertyCharges').doc('propA').get();
     const docB = await fakeDb.collection('propertyCharges').doc('propB').get();
@@ -413,7 +420,7 @@ describe('createPropertyAndChargeAtomically', () => {
   async function setup() {
     const svc = await import('../../src/app/api/services/billingService.js');
     fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com' });
-    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [] });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: BILLING_ACTIVATED });
     return svc;
   }
 
@@ -553,7 +560,7 @@ describe('resolveBillingOverride / mergeIntoBillingEntity', () => {
   it('an override takes priority over brand/companyName resolution in an actual charge', async () => {
     const { recordPropertyCharge, mergeIntoBillingEntity } = await import('../../src/app/api/services/billingService.js');
     fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'HPH', email: 'jo@example.com' });
-    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [] });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: BILLING_ACTIVATED });
 
     await mergeIntoBillingEntity({
       agentUserIds: ['agent1'],
@@ -563,7 +570,7 @@ describe('resolveBillingOverride / mergeIntoBillingEntity', () => {
       reason: 'Confirmed same agency',
     });
 
-    await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St' });
+    await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() });
     const charge = await fakeDb.collection('propertyCharges').doc('prop1').get();
     expect(charge.data().billingEntityKey).toBe('agency:harcourts property hub');
     expect(charge.data().billingEntityName).toBe('Harcourts Property Hub');
@@ -628,5 +635,166 @@ describe('findPossibleDuplicateAgencies', () => {
 
     const after = await findPossibleDuplicateAgencies();
     expect(after.length).toBe(0);
+  });
+});
+
+describe('isPropertyBillable (pure)', () => {
+  it('is false when billing has never been activated, regardless of how recent the property is', async () => {
+    const { isPropertyBillable } = await import('../../src/app/api/services/billingService.js');
+    expect(isPropertyBillable(new Date(), null)).toBe(false);
+    expect(isPropertyBillable(new Date(), undefined)).toBe(false);
+  });
+
+  it('is false for a property created before activation (historical)', async () => {
+    const { isPropertyBillable } = await import('../../src/app/api/services/billingService.js');
+    const activatedAt = new Date('2026-06-01');
+    const createdAt = new Date('2026-01-01');
+    expect(isPropertyBillable(createdAt, activatedAt)).toBe(false);
+  });
+
+  it('is true for a property created on or after activation', async () => {
+    const { isPropertyBillable } = await import('../../src/app/api/services/billingService.js');
+    const activatedAt = new Date('2026-06-01T00:00:00Z');
+    expect(isPropertyBillable(new Date('2026-06-01T00:00:00Z'), activatedAt)).toBe(true);
+    expect(isPropertyBillable(new Date('2026-07-01'), activatedAt)).toBe(true);
+  });
+
+  it('is false when the property has no usable createdAt at all — never guesses yes', async () => {
+    const { isPropertyBillable } = await import('../../src/app/api/services/billingService.js');
+    expect(isPropertyBillable(null, new Date('2020-01-01'))).toBe(false);
+    expect(isPropertyBillable(undefined, new Date('2020-01-01'))).toBe(false);
+  });
+
+  it('handles a Firestore-shaped {_seconds} timestamp the same as a real Date', async () => {
+    const { isPropertyBillable } = await import('../../src/app/api/services/billingService.js');
+    const activatedAt = new Date('2026-06-01');
+    const createdAtSeconds = { _seconds: Math.floor(new Date('2026-07-01').getTime() / 1000) };
+    expect(isPropertyBillable(createdAtSeconds, activatedAt)).toBe(true);
+  });
+});
+
+describe('billing go-live cutoff — every charge-creation pathway respects it', () => {
+  it('recordPropertyCharge never charges a historical property, even though everything else about it is valid', async () => {
+    const { recordPropertyCharge } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts', email: 'jo@example.com' });
+    fakeDb.collection('settings').doc('invoicing').set({
+      pricePerListing: 200, gstRate: 0, excludeAgentIds: [],
+      billingActivatedAt: new Date('2026-06-01'),
+    });
+
+    const result = await recordPropertyCharge({ id: 'old-prop', userId: 'agent1', address: '1 Old St', createdAt: new Date('2026-01-01') });
+
+    expect(result.created).toBe(false);
+    expect(result.reason).toBe('not-billable');
+    const doc = await fakeDb.collection('propertyCharges').doc('old-prop').get();
+    expect(doc.exists).toBe(false);
+  });
+
+  it('recordPropertyCharge charges a property created after activation', async () => {
+    const { recordPropertyCharge } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts', email: 'jo@example.com' });
+    fakeDb.collection('settings').doc('invoicing').set({
+      pricePerListing: 200, gstRate: 0, excludeAgentIds: [],
+      billingActivatedAt: new Date('2026-06-01'),
+    });
+
+    const result = await recordPropertyCharge({ id: 'new-prop', userId: 'agent1', address: '1 New St', createdAt: new Date('2026-07-01') });
+
+    expect(result.created).toBe(true);
+    const doc = await fakeDb.collection('propertyCharges').doc('new-prop').get();
+    expect(doc.exists).toBe(true);
+  });
+
+  it('billing defaults OFF: no charge is ever created while billingActivatedAt is unset, however new the property is', async () => {
+    const { recordPropertyCharge } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts', email: 'jo@example.com' });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0, excludeAgentIds: [] }); // no billingActivatedAt at all
+
+    const result = await recordPropertyCharge({ id: 'brand-new', userId: 'agent1', address: '1 New St', createdAt: new Date() });
+
+    expect(result.created).toBe(false);
+    expect(result.reason).toBe('not-billable');
+  });
+
+  it('createPropertyAndChargeAtomically (SMS/AgentBox/Rex path) never charges while billing is off', async () => {
+    const { createPropertyAndChargeAtomically } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts', email: 'jo@example.com' });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0, excludeAgentIds: [] }); // off
+
+    const result = await createPropertyAndChargeAtomically({ userId: 'agent1', address: '1 New St' });
+
+    expect(result.charged).toBe(false);
+    const prop = await fakeDb.collection('properties').doc(result.propertyId).get();
+    const charge = await fakeDb.collection('propertyCharges').doc(result.propertyId).get();
+    expect(prop.exists).toBe(true); // property still created normally
+    expect(charge.exists).toBe(false);
+  });
+
+  it('createPropertyAndChargeAtomically charges normally once billing is activated (property is being created "now", which is after any past activation)', async () => {
+    const { createPropertyAndChargeAtomically } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts', email: 'jo@example.com' });
+    fakeDb.collection('settings').doc('invoicing').set({
+      pricePerListing: 200, gstRate: 0, excludeAgentIds: [],
+      billingActivatedAt: new Date('2020-01-01'),
+    });
+
+    const result = await createPropertyAndChargeAtomically({ userId: 'agent1', address: '1 New St' });
+    expect(result.charged).toBe(true);
+  });
+
+  it('ensureChargesForProperties (the reconciliation sweep) skips historical properties and only charges post-activation ones — the exact "don\'t backfill history" guarantee', async () => {
+    const { ensureChargesForProperties } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts', email: 'jo@example.com' });
+    fakeDb.collection('settings').doc('invoicing').set({
+      pricePerListing: 200, gstRate: 0, excludeAgentIds: [],
+      billingActivatedAt: new Date('2026-06-01'),
+    });
+
+    const properties = [
+      { id: 'historical-1', userId: 'agent1', address: '1 Old St', createdAt: new Date('2024-01-01') },
+      { id: 'historical-2', userId: 'agent1', address: '2 Old St', createdAt: new Date('2026-05-31') }, // one day before cutoff
+      { id: 'new-1', userId: 'agent1', address: '1 New St', createdAt: new Date('2026-06-02') },
+    ];
+
+    const result = await ensureChargesForProperties(properties);
+
+    expect(result.created).toBe(1);
+    expect(result.skipped).toBe(2);
+    expect((await fakeDb.collection('propertyCharges').doc('historical-1').get()).exists).toBe(false);
+    expect((await fakeDb.collection('propertyCharges').doc('historical-2').get()).exists).toBe(false);
+    expect((await fakeDb.collection('propertyCharges').doc('new-1').get()).exists).toBe(true);
+  });
+
+  it('reconcileMissingCharges (the hourly cron\'s own function) sweeps the whole properties collection but still only ever charges post-activation ones', async () => {
+    const { reconcileMissingCharges } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts', email: 'jo@example.com' });
+    fakeDb.collection('settings').doc('invoicing').set({
+      pricePerListing: 200, gstRate: 0, excludeAgentIds: [],
+      billingActivatedAt: new Date('2026-06-01'),
+    });
+    fakeDb.collection('properties').doc('historical-1').set({ userId: 'agent1', address: '1 Old St', createdAt: new Date('2024-01-01') });
+    fakeDb.collection('properties').doc('new-1').set({ userId: 'agent1', address: '1 New St', createdAt: new Date('2026-07-01') });
+
+    const result = await reconcileMissingCharges();
+
+    expect(result.created).toBe(1);
+    expect((await fakeDb.collection('propertyCharges').doc('historical-1').get()).exists).toBe(false);
+    expect((await fakeDb.collection('propertyCharges').doc('new-1').get()).exists).toBe(true);
+  });
+
+  it('reconcileMissingCharges never touches an existing charge\'s data, even an already-excluded/reversed one', async () => {
+    const { reconcileMissingCharges } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('settings').doc('invoicing').set({
+      pricePerListing: 200, gstRate: 0, excludeAgentIds: [],
+      billingActivatedAt: new Date('2020-01-01'),
+    });
+    fakeDb.collection('properties').doc('prop1').set({ userId: 'agent1', address: '1 Test St', createdAt: new Date('2026-07-01') });
+    const existingCharge = { propertyId: 'prop1', status: 'excluded', totalInc: 999, adjustment: { reason: 'test' } };
+    fakeDb.collection('propertyCharges').doc('prop1').set(existingCharge);
+
+    await reconcileMissingCharges();
+
+    const doc = await fakeDb.collection('propertyCharges').doc('prop1').get();
+    expect(doc.data()).toEqual(existingCharge); // byte-for-byte unchanged
   });
 });

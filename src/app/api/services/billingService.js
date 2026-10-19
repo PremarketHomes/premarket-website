@@ -54,7 +54,46 @@ export async function getInvoicingSettings() {
     pricePerListing: data.pricePerListing || DEFAULT_PRICE_PER_LISTING,
     gstRate: typeof data.gstRate === 'number' ? data.gstRate : DEFAULT_GST_RATE,
     excludeAgentIds: data.excludeAgentIds || [],
+    // null/unset = billing has never been activated — the master
+    // switch defaults OFF (see isPropertyBillable below), set only by
+    // the dedicated activate-billing admin action, never by deploying
+    // code or editing this doc's other fields.
+    billingActivatedAt: data.billingActivatedAt || null,
   };
+}
+
+// Accepts whatever shape a timestamp happens to be in across this
+// codebase: a Firestore Timestamp (has toMillis/toDate), a plain JS
+// Date, a serialized {_seconds} (seen e.g. in InvoicingOverview.js),
+// or an ISO string. Returns null for anything unusable — callers treat
+// "can't tell" the same as "no", never guess yes.
+function toMillis(value) {
+  if (!value) return null;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value.toDate === 'function') return value.toDate().getTime();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value._seconds === 'number') return value._seconds * 1000;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
+/**
+ * The one rule every charge-creation pathway must agree on: a property
+ * is billable only if billing has been explicitly activated (a null
+ * billingActivatedAt means never — billing defaults OFF) AND this
+ * property was created on or after that activation moment. A property
+ * that predates activation is excluded permanently — this same check
+ * runs identically whether it's being decided right now (a brand new
+ * property) or retroactively (the reconciliation sweep revisiting an
+ * old one), so there is no separate "backfill" path that could ever
+ * disagree with it.
+ */
+export function isPropertyBillable(propertyCreatedAt, billingActivatedAt) {
+  const activatedMs = toMillis(billingActivatedAt);
+  if (activatedMs === null) return false;
+  const createdMs = toMillis(propertyCreatedAt);
+  if (createdMs === null) return false;
+  return createdMs >= activatedMs;
 }
 
 /**
@@ -322,23 +361,35 @@ export function computeChargeAmounts(pricePerListing, gstRate) {
 /**
  * Looks up everything needed to build a charge for a given agent
  * (their user doc, current invoicing settings, and their resolved
- * billing entity/brand) and, unless they're on the exclusion list,
+ * billing entity/brand) and, unless they're on the exclusion list OR
+ * this property predates billing activation (see isPropertyBillable),
  * returns the exact document a charge for them should contain. Shared
  * by recordPropertyCharge (retroactive — property already exists) and
  * createPropertyAndChargeAtomically (property is being created right
- * now) so the two never drift into computing a charge's shape
- * differently depending on which path recorded it.
+ * now) so the two never drift into computing a charge's shape — or
+ * deciding eligibility — differently depending on which path recorded
+ * it. This is the one and only place that decision is made.
  *
- * Returns null if this agent should not be charged at all (on the
- * exclusion list) — callers treat that as "create the property, skip
- * the charge," never as an error.
+ * `propertyCreatedAt` is required: pass the property's real createdAt
+ * for a retroactive call, or `new Date()` for a brand new property
+ * being created in this same call (its real serverTimestamp will
+ * resolve to effectively the same instant).
+ *
+ * Returns null if this charge should not be created at all — on the
+ * exclusion list, or the property predates billing activation —
+ * callers treat that as "create/leave the property, skip the charge,"
+ * never as an error.
  */
-async function resolveChargeForAgent({ propertyId, propertyAddress, agentUserId }) {
+async function resolveChargeForAgent({ propertyId, propertyAddress, agentUserId, propertyCreatedAt }) {
   const [agentDoc, settings] = await Promise.all([
     adminDb.collection('users').doc(agentUserId).get(),
     getInvoicingSettings(),
   ]);
   const agent = agentDoc.exists ? agentDoc.data() : {};
+
+  if (!isPropertyBillable(propertyCreatedAt, settings.billingActivatedAt)) {
+    return null;
+  }
 
   if (settings.excludeAgentIds.includes(agentUserId)) {
     return null;
@@ -417,8 +468,9 @@ export async function recordPropertyCharge(property) {
     propertyId,
     propertyAddress: property.address || property.formattedAddress,
     agentUserId,
+    propertyCreatedAt: property.createdAt,
   });
-  if (!chargeData) return { created: false, reason: 'agent-excluded' };
+  if (!chargeData) return { created: false, reason: 'not-billable' };
 
   try {
     await chargeRef.create(chargeData);
@@ -481,6 +533,11 @@ export async function createPropertyAndChargeAtomically(propertyData, { skipChar
       propertyId: propRef.id,
       propertyAddress: propertyData.address || propertyData.formattedAddress,
       agentUserId,
+      // This property doesn't exist yet — its real createdAt will
+      // resolve via FieldValue.serverTimestamp() to effectively this
+      // same instant, which is what matters for the billing-cutoff
+      // check (see isPropertyBillable).
+      propertyCreatedAt: new Date(),
     });
   } else if (!skipCharge) {
     console.warn(`createPropertyAndChargeAtomically: property ${propRef.id} has no agent userId — created without a charge`);

@@ -1,8 +1,19 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Save, Plug, Unplug, Loader2, AlertTriangle } from 'lucide-react';
+import { Save, Plug, Unplug, Loader2, AlertTriangle, PlayCircle } from 'lucide-react';
 import { authFetch } from '../../../../utils/authFetch';
+
+// Firestore can hand this back as a real Timestamp, a serialized
+// {_seconds}, or a plain Date — same multi-shape handling used
+// elsewhere in this dashboard (see InvoicingOverview.js).
+function toDate(value) {
+  if (!value) return null;
+  if (typeof value.toDate === 'function') return value.toDate();
+  if (typeof value._seconds === 'number') return new Date(value._seconds * 1000);
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 const XERO_ERROR_MESSAGES = {
   no_code: 'Xero did not return an authorisation code. Try connecting again.',
@@ -22,6 +33,8 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError }) {
   const [connectError, setConnectError] = useState(
     xeroError ? (XERO_ERROR_MESSAGES[xeroError] || XERO_ERROR_MESSAGES.unknown) : null
   );
+  const [activating, setActivating] = useState(false);
+  const [activateError, setActivateError] = useState(null);
 
   useEffect(() => {
     async function fetchSettings() {
@@ -82,6 +95,29 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError }) {
     }
   }
 
+  async function activateBilling() {
+    const activatedDisplay = new Date().toLocaleString('en-AU');
+    if (!confirm(
+      `Activate billing now (${activatedDisplay})?\n\n` +
+      `From this moment on, every NEW property created will generate a $${settings.pricePerListing} charge. ` +
+      `Every property that already exists today will NEVER be charged, even retroactively — this cannot be undone or re-run with a different date.`
+    )) return;
+
+    setActivating(true);
+    setActivateError(null);
+    try {
+      const res = await authFetch('/api/admin/invoicing/activate-billing', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to activate billing');
+      setSettings((prev) => ({ ...prev, billingActivatedAt: data.billingActivatedAt || new Date().toISOString() }));
+    } catch (err) {
+      console.error('Activate billing error:', err);
+      setActivateError(err.message || 'Failed to activate billing.');
+    } finally {
+      setActivating(false);
+    }
+  }
+
   async function disconnectXero() {
     if (!confirm('Disconnect Xero? You will need to re-authenticate to send invoices.')) return;
     try {
@@ -109,8 +145,44 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError }) {
   const priceExGst = settings.pricePerListing / (1 + settings.gstRate);
   const gstAmount = settings.pricePerListing - priceExGst;
 
+  const billingActivatedDate = toDate(settings.billingActivatedAt);
+
   return (
     <div className="space-y-6 max-w-2xl">
+      {/* Billing Activation */}
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <h3 className="text-sm font-semibold text-slate-700 mb-4">Billing Activation</h3>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${billingActivatedDate ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+            <span className="text-sm text-slate-600">
+              {billingActivatedDate
+                ? `Active since ${billingActivatedDate.toLocaleString('en-AU')}`
+                : 'Not active — no property has ever been charged'}
+            </span>
+          </div>
+          {!billingActivatedDate && (
+            <button
+              onClick={activateBilling}
+              disabled={activating}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {activating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+              {activating ? 'Activating…' : 'Activate Billing'}
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-slate-400 mt-3">
+          Billing is off by default. Properties created before activation are never charged, even retroactively — only properties created from the activation moment onward ever generate a charge.
+        </p>
+        {activateError && (
+          <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
+            <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-red-700">{activateError}</p>
+          </div>
+        )}
+      </div>
+
       {/* Xero Connection */}
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h3 className="text-sm font-semibold text-slate-700 mb-4">Xero Integration</h3>

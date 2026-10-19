@@ -30,7 +30,9 @@ function makeFakeDb() {
             }
             store[name][id] = { ...data };
           },
-          async set(data) { store[name][id] = { ...data }; },
+          async set(data, opts) {
+            store[name][id] = opts?.merge ? { ...(store[name][id] || {}), ...data } : { ...data };
+          },
           async update(patch) { store[name][id] = { ...(store[name][id] || {}), ...patch }; },
         };
       },
@@ -107,9 +109,9 @@ describe('POST /api/properties/[id]/record-charge', () => {
 
   it('succeeds for the property owner and records a charge', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
-    fakeDb._seed('properties', 'prop1', { userId: 'agent1', address: '1 Test St' });
+    fakeDb._seed('properties', 'prop1', { userId: 'agent1', address: '1 Test St', createdAt: new Date() });
     fakeDb._seed('users', 'agent1', { firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts' });
-    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [] });
+    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: new Date('2020-01-01') });
 
     const { POST } = await import('../../src/app/api/properties/[id]/record-charge/route.js');
     const res = await POST(makeRequest({ body: {}, authHeader: 'Bearer t' }), { params: Promise.resolve({ id: 'prop1' }) });
@@ -134,9 +136,9 @@ describe('POST /api/properties/[id]/record-charge', () => {
 
   it('is idempotent at the HTTP level too — a second call reports created: false', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
-    fakeDb._seed('properties', 'prop1', { userId: 'agent1', address: '1 Test St' });
+    fakeDb._seed('properties', 'prop1', { userId: 'agent1', address: '1 Test St', createdAt: new Date() });
     fakeDb._seed('users', 'agent1', { firstName: 'Jo', lastName: 'Lee' });
-    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [] });
+    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: new Date('2020-01-01') });
 
     const { POST } = await import('../../src/app/api/properties/[id]/record-charge/route.js');
     await POST(makeRequest({ body: {}, authHeader: 'Bearer t' }), { params: Promise.resolve({ id: 'prop1' }) });
@@ -253,9 +255,9 @@ describe('GET /api/cron/reconcile-property-charges', () => {
   });
 
   it('records a charge for a property that is missing one, and reports the count', async () => {
-    fakeDb._seed('properties', 'prop1', { userId: 'agent1', address: '1 Test St' });
+    fakeDb._seed('properties', 'prop1', { userId: 'agent1', address: '1 Test St', createdAt: new Date() });
     fakeDb._seed('users', 'agent1', { firstName: 'Jo', lastName: 'Lee' });
-    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [] });
+    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: new Date('2020-01-01') });
 
     const { GET } = await import('../../src/app/api/cron/reconcile-property-charges/route.js');
     const res = await GET(makeGetRequest('Bearer test-secret'));
@@ -277,6 +279,33 @@ describe('GET /api/cron/reconcile-property-charges', () => {
     expect(res.status).toBe(200);
     expect(data.created).toBe(0);
     expect(data.skipped).toBe(1);
+  });
+
+  it('never backfills a historical property that predates billing activation — the exact production-readiness concern this cron raised', async () => {
+    fakeDb._seed('properties', 'historical', { userId: 'agent1', address: '1 Old St', createdAt: new Date('2024-01-01') });
+    fakeDb._seed('users', 'agent1', { firstName: 'Jo', lastName: 'Lee' });
+    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0, excludeAgentIds: [], billingActivatedAt: new Date('2026-06-01') });
+
+    const { GET } = await import('../../src/app/api/cron/reconcile-property-charges/route.js');
+    const res = await GET(makeGetRequest('Bearer test-secret'));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.created).toBe(0);
+    expect(fakeDb._store.propertyCharges.historical).toBeUndefined();
+  });
+
+  it('never creates any charge at all while billing is not yet activated, even for a brand new property', async () => {
+    fakeDb._seed('properties', 'brand-new', { userId: 'agent1', address: '1 New St', createdAt: new Date() });
+    fakeDb._seed('users', 'agent1', { firstName: 'Jo', lastName: 'Lee' });
+    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0, excludeAgentIds: [] }); // billingActivatedAt unset — off
+
+    const { GET } = await import('../../src/app/api/cron/reconcile-property-charges/route.js');
+    const res = await GET(makeGetRequest('Bearer test-secret'));
+    const data = await res.json();
+
+    expect(data.created).toBe(0);
+    expect(fakeDb._store.propertyCharges['brand-new']).toBeUndefined();
   });
 });
 
@@ -360,5 +389,62 @@ describe('POST /api/admin/invoicing/agencies/merge', () => {
     // companyName / agencyBrandId on the agent's own user doc are untouched.
     expect(fakeDb._store.users.agent1.companyName).toBe('Harcourts');
     expect(fakeDb._store.users.agent1.agencyBrandId).toBeNull();
+  });
+});
+
+describe('POST /api/admin/invoicing/activate-billing', () => {
+  it('401s with no auth header', async () => {
+    const { POST } = await import('../../src/app/api/admin/invoicing/activate-billing/route.js');
+    const res = await POST(makeRequest({}));
+    expect(res.status).toBe(401);
+  });
+
+  it('403s for a non-admin', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
+    fakeDb._seed('users', 'agent1', { superAdmin: false });
+    const { POST } = await import('../../src/app/api/admin/invoicing/activate-billing/route.js');
+    const res = await POST(makeRequest({ authHeader: 'Bearer t' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('activates billing for the first time, setting billingActivatedAt', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0, excludeAgentIds: [] });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/activate-billing/route.js');
+    const res = await POST(makeRequest({ authHeader: 'Bearer t' }));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.alreadyActive).toBe(false);
+    expect(fakeDb._store.settings.invoicing.billingActivatedAt).toBe('TIMESTAMP');
+  });
+
+  it('never overwrites an already-set activation timestamp — one-way, idempotent', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0, excludeAgentIds: [], billingActivatedAt: 'ALREADY-SET' });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/activate-billing/route.js');
+    const res = await POST(makeRequest({ authHeader: 'Bearer t' }));
+    const data = await res.json();
+
+    expect(data.alreadyActive).toBe(true);
+    expect(fakeDb._store.settings.invoicing.billingActivatedAt).toBe('ALREADY-SET'); // unchanged
+  });
+
+  it('activating preserves every other existing setting — a merge, not an overwrite', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    fakeDb._seed('settings', 'invoicing', { pricePerListing: 200, gstRate: 0, excludeAgentIds: ['agentX'], invoicePrefix: 'PM-' });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/activate-billing/route.js');
+    await POST(makeRequest({ authHeader: 'Bearer t' }));
+
+    expect(fakeDb._store.settings.invoicing.pricePerListing).toBe(200);
+    expect(fakeDb._store.settings.invoicing.excludeAgentIds).toEqual(['agentX']);
+    expect(fakeDb._store.settings.invoicing.invoicePrefix).toBe('PM-');
   });
 });

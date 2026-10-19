@@ -144,8 +144,8 @@ describe('createInvoiceRunFromPendingCharges', () => {
 
   it('sweeps for a property with no charge yet and records one before aggregating (the safety net)', async () => {
     fakeDb.collection('users').doc('agent1').set({ companyName: 'Harcourts', firstName: 'Jo', lastName: 'Lee' });
-    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [] });
-    fakeDb.collection('properties').doc('propC').set({ userId: 'agent1', address: '3 C St' });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: new Date('2020-01-01') });
+    fakeDb.collection('properties').doc('propC').set({ userId: 'agent1', address: '3 C St', createdAt: new Date() });
 
     const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
     const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
@@ -154,6 +154,19 @@ describe('createInvoiceRunFromPendingCharges', () => {
     const charge = await fakeDb.collection('propertyCharges').doc('propC').get();
     expect(charge.exists).toBe(true);
     expect(charge.data().status).toBe('queued'); // swept, then immediately included
+  });
+
+  it('the pre-run sweep never backfills a historical property into this (or any) run', async () => {
+    fakeDb.collection('users').doc('agent1').set({ companyName: 'Harcourts', firstName: 'Jo', lastName: 'Lee' });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: new Date('2026-06-01') });
+    fakeDb.collection('properties').doc('historical').set({ userId: 'agent1', address: '1 Old St', createdAt: new Date('2024-01-01') });
+
+    const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+    const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
+
+    expect(result).toBeNull(); // nothing pending — the historical property was correctly never charged
+    const charge = await fakeDb.collection('propertyCharges').doc('historical').get();
+    expect(charge.exists).toBe(false);
   });
 
   it('sums GST-inclusive totals accurately across multiple properties for one agency', async () => {

@@ -12,6 +12,13 @@ const DEFAULT_SETTINGS = {
   cronEnabled: false,
   excludeAgentIds: [],
   marketReportRecipients: [],
+  // null = billing has never been activated (the default — see
+  // billingService.js's isPropertyBillable). Deliberately NOT in PUT's
+  // allowedFields below — this can only be set by the dedicated
+  // POST /api/admin/invoicing/activate-billing action, never by
+  // editing it like any other setting, so it's never backdated or
+  // accidentally reset by a routine settings save.
+  billingActivatedAt: null,
 };
 
 export async function GET(request) {
