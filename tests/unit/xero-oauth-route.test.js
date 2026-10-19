@@ -75,6 +75,18 @@ describe('GET /api/auth/xero — starts the flow with a CSRF nonce', () => {
     expect(scopes).not.toContain('accounting.transactions');
   });
 
+  it('requests accounting.settings.read — Organisation/Accounts (used only by the Xero diagnostic) sit under Settings, not Invoices or Contacts', async () => {
+    mockVerifyAdmin.mockResolvedValue({ authenticated: true, uid: 'admin1' });
+    const { GET } = await import('../../src/app/api/auth/xero/route.js');
+    const res = await GET(new Request('http://localhost/api/auth/xero'));
+    const body = await res.json();
+
+    const url = new URL(body.url);
+    const scopes = url.searchParams.get('scope').split(' ');
+    expect(scopes).toContain('accounting.settings.read');
+    expect(scopes).not.toContain('accounting.settings'); // read-only — nothing here ever writes org settings/chart of accounts
+  });
+
   it('refuses non-admins before ever generating a nonce', async () => {
     mockVerifyAdmin.mockResolvedValue({ authenticated: false, error: 'Forbidden', status: 403 });
     const { GET } = await import('../../src/app/api/auth/xero/route.js');

@@ -41,21 +41,35 @@ export async function GET(request) {
     const settingsDoc = await adminDb.collection('settings').doc('invoicing').get();
     const accountCode = (settingsDoc.exists ? settingsDoc.data().xeroAccountCode : null) || '200';
 
-    const [organisation, accountDetails, existingTestContact] = await Promise.all([
+    // allSettled, not all: these three hit different Xero scopes
+    // (Organisation/Accounts need accounting.settings.read, the
+    // contact search needs accounting.contacts). If only one of them
+    // is missing its scope, `all` would reject on that one call and
+    // hide whether the other two actually work — this reports each
+    // independently so a scope/token/tenant problem is visible for
+    // exactly the call it affects, not guessed at from one error.
+    const [organisationResult, accountResult, contactResult] = await Promise.allSettled([
       getOrganisation(),
       getAccountByCode(accountCode),
       searchContactByName(TEST_CONTACT_NAME),
     ]);
 
+    const organisation = organisationResult.status === 'fulfilled' ? organisationResult.value : null;
+    const accountDetails = accountResult.status === 'fulfilled' ? accountResult.value : null;
+    const existingTestContact = contactResult.status === 'fulfilled' ? contactResult.value : null;
+
     return NextResponse.json({
       connected: true,
       organisationName: organisation?.Name || null,
+      organisationError: organisationResult.status === 'rejected' ? organisationResult.reason?.message : null,
       accountCode,
       accountCodeValid: !!accountDetails,
       accountCodeName: accountDetails?.Name || null,
+      accountCodeError: accountResult.status === 'rejected' ? accountResult.reason?.message : null,
       testContact: { name: TEST_CONTACT_NAME, email: TEST_CONTACT_EMAIL },
       existingTestContactId: existingTestContact?.ContactID || null,
-      readyToCreate: !!(organisation && accountDetails),
+      contactSearchError: contactResult.status === 'rejected' ? contactResult.reason?.message : null,
+      readyToCreate: !!(organisation && accountDetails) && contactResult.status === 'fulfilled',
     });
   } catch (err) {
     console.error('Xero diagnostic preview error:', err);

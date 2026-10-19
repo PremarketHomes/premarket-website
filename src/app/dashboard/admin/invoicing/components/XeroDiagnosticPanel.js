@@ -109,15 +109,32 @@ export default function XeroDiagnosticPanel() {
           <Row label="Connected" value={preview.connected ? 'Yes' : 'No'} good={preview.connected} />
           {preview.connected && (
             <>
-              <Row label="Xero organisation" value={preview.organisationName || 'Unknown'} good={!!preview.organisationName} />
+              <Row
+                label="Xero organisation"
+                value={preview.organisationError ? `Failed: ${preview.organisationError}` : (preview.organisationName || 'Unknown')}
+                good={!!preview.organisationName}
+              />
               <Row
                 label={`Account code "${preview.accountCode}"`}
-                value={preview.accountCodeValid ? `Valid — ${preview.accountCodeName}` : 'Not found in this org\'s chart of accounts'}
+                value={
+                  preview.accountCodeError ? `Failed: ${preview.accountCodeError}`
+                    : preview.accountCodeValid ? `Valid — ${preview.accountCodeName}`
+                    : 'Not found in this org\'s chart of accounts'
+                }
                 good={preview.accountCodeValid}
               />
-              <Row label="Test contact" value={`${preview.testContact.name} <${preview.testContact.email}>`} good />
+              <Row
+                label="Test contact search"
+                value={preview.contactSearchError ? `Failed: ${preview.contactSearchError}` : `${preview.testContact.name} <${preview.testContact.email}>`}
+                good={!preview.contactSearchError}
+              />
               {preview.existingTestContactId && (
                 <Row label="Note" value="A contact with this exact test name already exists — it will be reused, not duplicated." good />
+              )}
+              {(preview.organisationError || preview.accountCodeError || preview.contactSearchError) && (
+                <p className="text-amber-600 pt-1">
+                  A failure above usually means the connected app doesn&apos;t have a scope this check needs, or the connection needs to be re-authorised. Reconnecting Xero (Settings → Disconnect, then Connect again) re-prompts for current permissions.
+                </p>
               )}
             </>
           )}

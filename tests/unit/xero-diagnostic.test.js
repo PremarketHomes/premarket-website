@@ -165,6 +165,41 @@ describe('GET /api/admin/invoicing/xero-diagnostic/preview', () => {
       expect(mockFindOrCreateContact).not.toHaveBeenCalled();
       expect(mockCreateInvoice).not.toHaveBeenCalled();
     });
+
+    it('reports one failing check without hiding whether the other two succeeded (the exact bug a missing accounting.settings.read scope caused)', async () => {
+      mockIsXeroConnected.mockResolvedValue(true);
+      mockGetOrganisation.mockResolvedValue({ Name: 'Premarket Group Pty Ltd' });
+      mockGetAccountByCode.mockRejectedValue(new Error('Xero API GET /Accounts?where=Code=="200" failed (401): AuthorizationUnsuccessful'));
+      mockSearchContactByName.mockResolvedValue(null);
+
+      const { GET } = await import('../../src/app/api/admin/invoicing/xero-diagnostic/preview/route.js');
+      const res = await GET(makeRequest({}));
+      const data = await res.json();
+
+      expect(res.status).toBe(200); // one failed call must not 500 the whole preview
+      expect(data.connected).toBe(true);
+      expect(data.organisationName).toBe('Premarket Group Pty Ltd'); // this one still succeeded, and is still reported
+      expect(data.accountCodeValid).toBe(false);
+      expect(data.accountCodeError).toMatch(/AuthorizationUnsuccessful/);
+      expect(data.readyToCreate).toBe(false); // correctly not ready — one check failed
+    });
+
+    it('all three checks failing independently are each reported, not just the first', async () => {
+      mockIsXeroConnected.mockResolvedValue(true);
+      mockGetOrganisation.mockRejectedValue(new Error('org failed'));
+      mockGetAccountByCode.mockRejectedValue(new Error('account failed'));
+      mockSearchContactByName.mockRejectedValue(new Error('contact failed'));
+
+      const { GET } = await import('../../src/app/api/admin/invoicing/xero-diagnostic/preview/route.js');
+      const res = await GET(makeRequest({}));
+      const data = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(data.organisationError).toMatch(/org failed/);
+      expect(data.accountCodeError).toMatch(/account failed/);
+      expect(data.contactSearchError).toMatch(/contact failed/);
+      expect(data.readyToCreate).toBe(false);
+    });
   });
 });
 

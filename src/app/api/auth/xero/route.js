@@ -43,7 +43,15 @@ export async function GET(request) {
   // Payments/BankTransactions/ManualJournals directly, so those
   // granular scopes are deliberately left out. accounting.contacts is
   // unaffected by this change and unchanged.
-  const scopes = 'openid profile email accounting.invoices accounting.contacts offline_access';
+  //
+  // accounting.settings.read added separately: Organisation details
+  // and the chart of accounts (xeroService.getOrganisation /
+  // getAccountByCode — used only by the Xero connection diagnostic's
+  // read-only readiness check, never by the real invoicing flow) sit
+  // under Xero's Settings scope family, not Invoices or Contacts.
+  // Read-only because nothing in this codebase ever writes to
+  // Organisation settings or the chart of accounts.
+  const scopes = 'openid profile email accounting.invoices accounting.contacts accounting.settings.read offline_access';
   const nonce = crypto.randomBytes(16).toString('hex');
   const state = Buffer.from(JSON.stringify({ adminUid: auth.uid, nonce })).toString('base64');
 
