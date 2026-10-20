@@ -10,8 +10,14 @@ const LOGO_URL = 'https://premarketvideos.b-cdn.net/assets/logo.png';
  * @param {string} opts.bodyHTML - Main email content HTML
  * @param {string} opts.recipientEmail - For unsubscribe link
  * @param {string} [opts.reason] - Why they're getting this email
+ * @param {string} [opts.orgLabel] - Business identity shown in the header
+ *   and footer copyright. Defaults to the consumer-facing "Premarket
+ *   Australia" brand every existing caller relies on; invoicing-related
+ *   emails pass 'Premarket Group Pty Ltd' instead, since a financial
+ *   document should show the actual billing entity, not the marketing
+ *   brand. Every other email is unaffected unless it explicitly opts in.
  */
-export function wrapEmail({ previewText, bodyHTML, recipientEmail, reason }) {
+export function wrapEmail({ previewText, bodyHTML, recipientEmail, reason, orgLabel = 'Premarket Australia' }) {
   const unsubUrl = `${BASE_URL}/unsubscribe?email=${encodeURIComponent(recipientEmail || '')}`;
   const year = new Date().getFullYear();
 
@@ -37,7 +43,7 @@ export function wrapEmail({ previewText, bodyHTML, recipientEmail, reason }) {
 
         <!-- Header bar -->
         <tr><td style="background:linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius:24px 24px 0 0; padding:32px 40px; text-align:center;">
-          <p style="margin:0; font-size:13px; color:#94a3b8; letter-spacing:0.5px; text-transform:uppercase;">Premarket Australia</p>
+          <p style="margin:0; font-size:13px; color:#94a3b8; letter-spacing:0.5px; text-transform:uppercase;">${orgLabel}</p>
         </td></tr>
 
         <!-- Body -->
@@ -57,7 +63,7 @@ export function wrapEmail({ previewText, bodyHTML, recipientEmail, reason }) {
               <td style="padding:0 10px;"><a href="${BASE_URL}" style="color:#6b7280; font-size:12px; text-decoration:none;">premarket.homes</a></td>
             </tr>
           </table>
-          <p style="margin:18px 0 0 0; font-size:11px; color:#4b5563;">&copy; ${year} Premarket Australia. All rights reserved.</p>
+          <p style="margin:18px 0 0 0; font-size:11px; color:#4b5563;">&copy; ${year} ${orgLabel}. All rights reserved.</p>
         </td></tr>
 
       </table>
