@@ -124,6 +124,13 @@ export default function AddPropertyPage() {
   const [termsText, setTermsText] = useState('');
   const [termsLoading, setTermsLoading] = useState(true);
 
+  // Pricing disclosure state — fetched from the narrow public
+  // pricing-info endpoint so this always matches the real configured
+  // price/GST/terms rather than text that could silently drift out of
+  // sync with settings/invoicing (which this page has no read access
+  // to directly — see that endpoint's own comment).
+  const [pricingInfo, setPricingInfo] = useState({ pricePerListing: 200, gstRate: 0, paymentTermsDays: 14 });
+
   // UX state
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -172,6 +179,18 @@ export default function AddPropertyPage() {
     };
     loadTerms();
   }, [user, userData?.agent]);
+
+  // Fetch the current campaign fee/GST/payment-terms for the pricing
+  // disclosure below — a narrow public endpoint, not a direct read of
+  // settings/invoicing (which this page can't read at all). Falls
+  // back to the known real defaults already set as this state's
+  // initial value if the fetch fails, never a broken disclosure.
+  useEffect(() => {
+    fetch('/api/public/pricing-info')
+      .then((res) => res.json())
+      .then((data) => setPricingInfo((prev) => ({ ...prev, ...data })))
+      .catch((err) => console.error('Error loading pricing info:', err));
+  }, []);
 
   // Fetch team agents
   useEffect(() => {
@@ -1462,20 +1481,23 @@ export default function AddPropertyPage() {
       <div className="bg-white border-t border-slate-200 sticky bottom-0 z-10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4">
           {/* Pricing disclosure — shown once, directly above Submit, on
-              the terms/final step only. Wording and placement match
-              the actual billing code exactly: $200 per property
-              (pricePerListing, DEFAULT_PRICE_PER_LISTING in
-              billingService.js), $0 GST (DEFAULT_GST_RATE), the
-              rolling 30-day cycle (DEFAULT_BILLING_CYCLE_DAYS), and
-              14-day terms (paymentTermsDays default) — never
-              hardcoded independently of those. */}
+              the terms/final step only. Figures come from the live
+              /api/public/pricing-info endpoint (see pricingInfo
+              state above), which reads the real settings/invoicing
+              document server-side — never hardcoded independently of
+              it, so this can't drift out of sync if pricing/terms
+              are ever changed from the admin settings page. The
+              30-day consolidation cycle itself isn't an admin-
+              configurable setting (DEFAULT_BILLING_CYCLE_DAYS is a
+              fixed constant in billingService.js), so that figure is
+              safe to state directly. */}
           {step === STEPS.TERMS && (
             <div className="mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
               <p className="text-sm font-semibold text-slate-900">
-                Premarket campaign fee — $200 AUD (no GST charged)
+                Premarket campaign fee — ${pricingInfo.pricePerListing} AUD ({pricingInfo.gstRate === 0 ? 'no GST charged' : 'plus GST'})
               </p>
               <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                By submitting this property, you acknowledge that your agency will be charged $200. Charges are consolidated into one agency invoice every 30 days, with payment due within 14 days of issue.
+                By submitting this property, you acknowledge that your agency will be charged ${pricingInfo.pricePerListing}. Charges are consolidated into one agency invoice every 30 days, with payment due within {pricingInfo.paymentTermsDays} days of issue.
               </p>
             </div>
           )}

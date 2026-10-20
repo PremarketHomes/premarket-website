@@ -37,14 +37,18 @@ describe('property-creation paths all record a charge exactly once', () => {
     expect(source).not.toContain("adminDb.collection('properties').add(propertyData)");
   });
 
-  it('AgentBox import creates the property and its charge atomically, skipping the charge only for a demo-mode import', () => {
+  it('AgentBox import creates the property atomically but never its charge — not an agent-facing feature, no billing disclosure has ever been shown for it', () => {
     const source = read('../../src/app/api/integrations/agentbox/import/route.js');
-    expect(source).toContain('createPropertyAndChargeAtomically(propertyData, { skipCharge: isDemo })');
+    expect(source).toContain('createPropertyAndChargeAtomically(propertyData, { skipCharge: true })');
+    // Specifically not tied to isDemo — a real (non-demo) import must
+    // never become an unexpected charge the moment billing activates.
+    expect(source).not.toContain('{ skipCharge: isDemo }');
   });
 
-  it('Rex import creates the property and its charge atomically, skipping the charge only for a demo-mode import', () => {
+  it('Rex import creates the property atomically but never its charge — not an agent-facing feature, no billing disclosure has ever been shown for it', () => {
     const source = read('../../src/app/api/integrations/rex/import/route.js');
-    expect(source).toContain('createPropertyAndChargeAtomically(propertyData, { skipCharge: isDemo })');
+    expect(source).toContain('createPropertyAndChargeAtomically(propertyData, { skipCharge: true })');
+    expect(source).not.toContain('{ skipCharge: isDemo }');
   });
 });
 

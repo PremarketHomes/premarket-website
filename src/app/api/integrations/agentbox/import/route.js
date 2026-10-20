@@ -82,11 +82,18 @@ export async function POST(request) {
         // Map to Premarket property
         const propertyData = mapListingToProperty(listing, uid);
 
-        // Creates the property and its charge in one transaction — no
-        // gap where the property exists but never got charged. Demo-
-        // mode imports are sample data, not a real listing, so they
-        // skip the charge entirely (still created normally).
-        const { propertyId } = await createPropertyAndChargeAtomically(propertyData, { skipCharge: isDemo });
+        // Creates the property, never its charge — this integration
+        // is not an agent-facing feature (no link to it exists
+        // anywhere in the regular agent dashboard; it's reachable
+        // only from the admin nav), so no agent has ever seen, let
+        // alone agreed to, a billing disclosure for a CRM-synced
+        // property. skipCharge is hardcoded true, not tied to
+        // isDemo, specifically so a real (non-demo) import can never
+        // become an unexpected charge the moment billing is
+        // activated. The property itself is still created normally —
+        // only the charge is withheld. Revisit this once CRM import
+        // becomes a real, disclosed, agent-facing feature.
+        const { propertyId } = await createPropertyAndChargeAtomically(propertyData, { skipCharge: true });
 
         // Create draft backup
         await adminDb.collection('draftProperties').doc(propertyId).set({
