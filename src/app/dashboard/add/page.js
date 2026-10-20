@@ -1461,6 +1461,24 @@ export default function AddPropertyPage() {
       {/* Bottom Navigation */}
       <div className="bg-white border-t border-slate-200 sticky bottom-0 z-10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4">
+          {/* Pricing disclosure — shown once, directly above Submit, on
+              the terms/final step only. Wording and placement match
+              the actual billing code exactly: $200 per property
+              (pricePerListing, DEFAULT_PRICE_PER_LISTING in
+              billingService.js), $0 GST (DEFAULT_GST_RATE), the
+              rolling 30-day cycle (DEFAULT_BILLING_CYCLE_DAYS), and
+              14-day terms (paymentTermsDays default) — never
+              hardcoded independently of those. */}
+          {step === STEPS.TERMS && (
+            <div className="mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+              <p className="text-sm font-semibold text-slate-900">
+                Premarket campaign fee — $200 AUD (no GST charged)
+              </p>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                By submitting this property, you acknowledge that your agency will be charged $200. Charges are consolidated into one agency invoice every 30 days, with payment due within 14 days of issue.
+              </p>
+            </div>
+          )}
           <div className="flex justify-between items-center">
             {step > STEPS.ADDRESS ? (
               <button
