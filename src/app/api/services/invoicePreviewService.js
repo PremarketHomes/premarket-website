@@ -188,6 +188,11 @@ export function buildTestInvoicePreviewEmail(preview) {
       bodyHTML,
       recipientEmail,
       reason: "You're receiving this as part of a one-off system test of Premarket's invoicing feature.",
+      // A financial document should show the actual billing entity
+      // (confirmed this session as Premarket Group Pty Ltd), not the
+      // consumer-facing "Premarket Australia" marketing brand every
+      // other email correctly keeps using.
+      orgLabel: 'Premarket Group Pty Ltd',
     }),
   };
 }

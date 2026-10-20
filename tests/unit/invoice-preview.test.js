@@ -166,6 +166,16 @@ describe('buildTestInvoicePreviewEmail', () => {
     expect(email.subject).toMatch(/^\[TEST\]/);
   });
 
+  it('shows the real billing entity, Premarket Group Pty Ltd, not the consumer brand', async () => {
+    seedPhilLikeAccount();
+    const { buildAgencyInvoicePreview, buildTestInvoicePreviewEmail } = await import('../../src/app/api/services/invoicePreviewService.js');
+    const preview = await buildAgencyInvoicePreview({ agentUserId: 'philUid' });
+    const email = buildTestInvoicePreviewEmail(preview);
+
+    expect(email.html).toContain('Premarket Group Pty Ltd');
+    expect(email.html).not.toContain('Premarket Australia');
+  });
+
   it('never includes a payment button or an online-invoice link', async () => {
     seedPhilLikeAccount();
     const { buildAgencyInvoicePreview, buildTestInvoicePreviewEmail } = await import('../../src/app/api/services/invoicePreviewService.js');
