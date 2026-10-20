@@ -214,7 +214,7 @@ export async function getAccountByCode(code) {
 // XERO API: Invoices
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType, status }) {
+export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType, status, idempotencyKey }) {
   // 'NONE' (not GST registered — Premarket's actual status) or
   // 'OUTPUT' (GST on income, 10%, if that ever changes). Each line
   // item normally carries its own taxType (send/route.js derives it
@@ -245,7 +245,22 @@ export async function createInvoice({ contactId, lineItems, reference, dueDate, 
     LineAmountTypes: 'Exclusive',
   };
 
-  const result = await makeXeroRequest('POST', '/Invoices', { Invoices: [invoice] });
+  // Optional, deliberately not set by every caller (default undefined
+  // => no header => unchanged behaviour): a caller that passes one is
+  // telling Xero "if a request with this exact key already succeeded,
+  // hand me back that same invoice rather than creating a second one"
+  // — Xero's own documented idempotency support, the one mechanism
+  // that can close a true blind-timeout race (this code never learns
+  // whether its own request reached Xero, but a retry carrying the
+  // same key is safe either way). See send/route.js for the real
+  // caller that relies on this.
+  const result = await makeXeroRequest(
+    'POST',
+    '/Invoices',
+    { Invoices: [invoice] },
+    true,
+    idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}
+  );
   return result.Invoices?.[0] || null;
 }
 

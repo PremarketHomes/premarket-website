@@ -349,6 +349,83 @@ describe('recordPropertyCharge', () => {
     const docB = await fakeDb.collection('propertyCharges').doc('propB').get();
     expect(docA.data().billingEntityKey).toBe(docB.data().billingEntityKey);
   });
+
+  describe('agency billing identity stays pinned across a companyName edit (Priority 2 fix)', () => {
+    it('a later companyName rename does not change where an agent\'s future charges are billed', async () => {
+      const { recordPropertyCharge } = await setup();
+      await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
+      const firstKey = (await fakeDb.collection('propertyCharges').doc('propA').get()).data().billingEntityKey;
+
+      // Agent renames their company to something unrelated, after already being charged once.
+      fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Totally Different Name Pty Ltd', email: 'jo@example.com' });
+      await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
+      const secondKey = (await fakeDb.collection('propertyCharges').doc('propB').get()).data().billingEntityKey;
+
+      expect(secondKey).toBe(firstKey);
+      expect((await fakeDb.collection('propertyCharges').doc('propB').get()).data().billingEntityName).toBe('Harcourts Property Hub');
+    });
+
+    it('renaming to match an existing, unrelated agency\'s exact name cannot redirect charges onto that agency\'s invoice', async () => {
+      const { recordPropertyCharge } = await setup();
+      // agent1 charged once under "Harcourts Property Hub" (set up above).
+      await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
+      const agent1Key = (await fakeDb.collection('propertyCharges').doc('propA').get()).data().billingEntityKey;
+
+      // A second, genuinely different agency already exists and has its own charge.
+      fakeDb.collection('users').doc('agent2').set({ firstName: 'Max', lastName: 'Tan', companyName: 'Ray White Coastal', email: 'max@example.com' });
+      await recordPropertyCharge({ id: 'propX', userId: 'agent2', address: '9 X St', createdAt: new Date() });
+      const agent2Key = (await fakeDb.collection('propertyCharges').doc('propX').get()).data().billingEntityKey;
+      expect(agent2Key).not.toBe(agent1Key);
+
+      // agent1 now renames their company to EXACTLY agent2's company name —
+      // attempting exactly the redirection this fix exists to prevent.
+      fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Ray White Coastal', email: 'jo@example.com' });
+      await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
+      const agent1SecondKey = (await fakeDb.collection('propertyCharges').doc('propB').get()).data().billingEntityKey;
+
+      // Still pinned to agent1's own original entity — never agent2's.
+      expect(agent1SecondKey).toBe(agent1Key);
+      expect(agent1SecondKey).not.toBe(agent2Key);
+    });
+
+    it('a real brand still takes priority over pinned history — an agent can still legitimately upgrade', async () => {
+      const { recordPropertyCharge } = await setup();
+      await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
+
+      fakeDb.collection('agencyBrands').doc('brand1').set({ name: 'Harcourts Property Hub (Verified)' });
+      fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brand1' });
+
+      await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
+      const doc = await fakeDb.collection('propertyCharges').doc('propB').get();
+      expect(doc.data().billingEntityKey).toBe('brand:brand1');
+      expect(doc.data().agencyBrandId).toBe('brand1');
+    });
+
+    it('an admin override still takes priority over pinned history', async () => {
+      const { recordPropertyCharge, mergeIntoBillingEntity } = await setup();
+      await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
+
+      await mergeIntoBillingEntity({
+        agentUserIds: ['agent1'],
+        targetBillingEntityKey: 'agency:some-other-entity',
+        targetBillingEntityName: 'Some Other Entity',
+        adminUid: 'admin1',
+        reason: 'admin-confirmed duplicate',
+      });
+
+      await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
+      const doc = await fakeDb.collection('propertyCharges').doc('propB').get();
+      expect(doc.data().billingEntityKey).toBe('agency:some-other-entity');
+    });
+
+    it('a brand-new agent with no prior charges still resolves fresh from their current companyName', async () => {
+      const { recordPropertyCharge } = await setup();
+      fakeDb.collection('users').doc('agent2').set({ firstName: 'New', lastName: 'Agent', companyName: 'Never Charged Before Realty', email: 'new@example.com' });
+      await recordPropertyCharge({ id: 'propZ', userId: 'agent2', address: '1 Z St', createdAt: new Date() });
+      const doc = await fakeDb.collection('propertyCharges').doc('propZ').get();
+      expect(doc.data().billingEntityName).toBe('Never Charged Before Realty');
+    });
+  });
 });
 
 describe('excludeCharge / reverseCharge', () => {

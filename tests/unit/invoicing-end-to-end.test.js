@@ -126,7 +126,23 @@ function makeFakeDb() {
     };
   }
 
-  return { collection: withCol, batch, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
+  async function runTransaction(updateFn) {
+    const pendingWrites = [];
+    const tx = {
+      get: async (ref) => {
+        const data = store[ref._col]?.[ref.id];
+        return { exists: !!data, id: ref.id, data: () => data };
+      },
+      update: (ref, patch) => pendingWrites.push(() => {
+        store[ref._col][ref.id] = { ...(store[ref._col][ref.id] || {}), ...patch };
+      }),
+    };
+    const result = await updateFn(tx);
+    pendingWrites.forEach((write) => write());
+    return result;
+  }
+
+  return { collection: withCol, batch, runTransaction, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
 }
 
 let fakeDb;

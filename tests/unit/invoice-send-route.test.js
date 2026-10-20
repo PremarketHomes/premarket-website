@@ -45,7 +45,28 @@ function makeFakeDb() {
       },
     };
   }
-  return { collection: col, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
+  // Mirrors real Firestore transaction semantics closely enough for
+  // send/route.js's own use: tx.get reads current store state, every
+  // write inside the callback is deferred until the callback resolves
+  // (and thrown away entirely if it throws) — exactly what the
+  // approved -> sending claim at the top of that route relies on.
+  async function runTransaction(updateFn) {
+    const pendingWrites = [];
+    const tx = {
+      get: async (ref) => {
+        const data = store[ref._col]?.[ref.id];
+        return { exists: !!data, id: ref.id, data: () => data };
+      },
+      update: (ref, patch) => pendingWrites.push(() => {
+        store[ref._col][ref.id] = { ...(store[ref._col][ref.id] || {}), ...patch };
+      }),
+    };
+    const result = await updateFn(tx);
+    pendingWrites.forEach((write) => write());
+    return result;
+  }
+
+  return { collection: col, runTransaction, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
 }
 
 let fakeDb;
@@ -159,5 +180,121 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
     expect(call.lineItems[0]).toMatchObject({ unitAmount: 200, taxType: 'NONE' });
     expect(call.lineItems[1]).toMatchObject({ taxType: 'OUTPUT' });
     expect(call.lineItems[1].unitAmount).toBeCloseTo(181.82, 2);
+  });
+});
+
+function seedSingleItemRun(overrides = {}) {
+  fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+  fakeDb._seed('invoiceRunItems', 'item1', {
+    runId: 'run1',
+    agencyName: 'Acme Agency',
+    agentName: 'Jo Bloggs',
+    agentEmail: 'jo@example.com',
+    properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    ...overrides,
+  });
+}
+
+describe('POST .../send — duplicate-invoice protection (Priority 1)', () => {
+  it('Xero invoice created successfully, email fails: charges stay invoiced, not released, and no second invoice is created', async () => {
+    seedSingleItemRun();
+    mockSendInvoice.mockRejectedValue(new Error('Xero email service unavailable'));
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    const body = await res.json();
+
+    expect(body.status).toBe('failed'); // the only item failed its EMAIL step
+    expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
+    // This is the actual fix: markChargesInvoiced was called (charges are
+    // invoiced), and markChargesFailed was NEVER called for this item —
+    // a failed email must never release charges back to pending.
+    expect(mockMarkChargesInvoiced).toHaveBeenCalledWith(['p1']);
+    expect(mockMarkChargesFailed).not.toHaveBeenCalled();
+
+    const item = (await fakeDb.collection('invoiceRunItems').doc('item1').get()).data();
+    expect(item.status).toBe('email_failed');
+    expect(item.xeroInvoiceId).toBe('inv1'); // the real invoice ID is recorded
+    expect(item.lastEmailError).toMatch(/unavailable/);
+  });
+
+  it('retrying a run whose item already has a stored xeroInvoiceId never calls createInvoice again — only retries the email', async () => {
+    seedSingleItemRun({ xeroInvoiceId: 'inv-existing', xeroInvoiceNumber: 'PM-0042', xeroStatus: 'AUTHORISED', status: 'email_failed' });
+    // Approve again to re-trigger send (simulating an admin retry of a 'failed'/'partial' run moved back to approved — the point under test is what happens to an item that already has an invoice ID).
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    const body = await res.json();
+
+    expect(body.status).toBe('sent');
+    expect(mockCreateInvoice).not.toHaveBeenCalled(); // never re-created
+    expect(mockFindOrCreateContact).not.toHaveBeenCalled(); // never even looked up a contact again
+    expect(mockSendInvoice).toHaveBeenCalledWith('inv-existing'); // retried against the EXISTING invoice
+  });
+
+  it('creation itself failing (e.g. a true timeout with no response at all) still safely releases charges for retry', async () => {
+    seedSingleItemRun();
+    mockCreateInvoice.mockRejectedValue(new Error('Xero request timed out'));
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    const body = await res.json();
+
+    expect(body.status).toBe('failed');
+    expect(mockMarkChargesFailed).toHaveBeenCalledWith(['p1']);
+    expect(mockMarkChargesInvoiced).not.toHaveBeenCalled();
+
+    const item = (await fakeDb.collection('invoiceRunItems').doc('item1').get()).data();
+    expect(item.status).toBe('error');
+    expect(item.xeroInvoiceId).toBeUndefined();
+  });
+
+  it('attaches a stable, deterministic Idempotency-Key to the createInvoice call, so a blind retry after a timeout is safe at the Xero API level', async () => {
+    seedSingleItemRun();
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+
+    const key1 = mockCreateInvoice.mock.calls[0][0].idempotencyKey;
+    expect(key1).toBeTruthy();
+
+    // A second, independent send attempt for the SAME item (simulating
+    // a retried request after the first one's response was lost) must
+    // produce the exact same key.
+    mockCreateInvoice.mockClear();
+    fakeDb.collection('invoiceRunItems').doc('item1').update({ status: 'pending', xeroInvoiceId: undefined });
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    const key2 = mockCreateInvoice.mock.calls[0][0].idempotencyKey;
+
+    expect(key2).toBe(key1);
+  });
+
+  it('refuses a second concurrent send on the same run — the atomic approved -> sending claim prevents it', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'sending', periodStart: new Date('2026-10-01') }); // already claimed by "another" request
+    fakeDb._seed('invoiceRunItems', 'item1', {
+      runId: 'run1', agencyName: 'Acme Agency', agentName: 'Jo Bloggs', agentEmail: 'jo@example.com',
+      properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+
+    expect(res.status).toBe(400);
+    expect(mockCreateInvoice).not.toHaveBeenCalled();
+  });
+
+  it('never bypasses admin approval — a draft run cannot be sent at all', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'draft', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('invoiceRunItems', 'item1', {
+      runId: 'run1', agencyName: 'Acme Agency', agentName: 'Jo Bloggs', agentEmail: 'jo@example.com',
+      properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+
+    expect(res.status).toBe(400);
+    expect(mockCreateInvoice).not.toHaveBeenCalled();
   });
 });

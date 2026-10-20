@@ -55,6 +55,11 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: new Proxy({}, { get: (_, prop) => fakeDb[prop] }),
 }));
 
+const mockSendInvoice = vi.fn();
+vi.mock('../../src/app/api/services/xeroService', () => ({
+  sendInvoice: (...args) => mockSendInvoice(...args),
+}));
+
 function makeRequest(body) {
   const headers = new Headers({ authorization: 'Bearer t', 'Content-Type': 'application/json' });
   return new Request('http://localhost/test', { method: 'PATCH', headers, body: JSON.stringify(body) });
@@ -180,5 +185,58 @@ describe('DELETE .../runs/[runId] — releases charges before removing the draft
     const res = await DELETE(makeRequest({}), { params: Promise.resolve({ runId: 'run1' }) });
     expect(res.status).toBe(400);
     expect(fakeDb._store.propertyCharges.propA.status).toBe('invoiced');
+  });
+});
+
+describe('PATCH .../runs/[runId] — retrySend (resolving a failed email, Priority 1)', () => {
+  it('retries only the email for an item that already has a real Xero invoice, never creating a new one', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'partial' });
+    fakeDb._seed('invoiceRunItems', 'item1', { runId: 'run1', status: 'email_failed', xeroInvoiceId: 'inv-existing', lastEmailError: 'Xero email service unavailable' });
+    mockSendInvoice.mockResolvedValue({});
+
+    const { PATCH } = await import('../../src/app/api/admin/invoicing/runs/[runId]/route.js');
+    const res = await PATCH(makeRequest({ action: 'retrySend', itemId: 'item1' }), { params: Promise.resolve({ runId: 'run1' }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('sent');
+    expect(mockSendInvoice).toHaveBeenCalledWith('inv-existing');
+    expect(fakeDb._store.invoiceRunItems.item1.status).toBe('sent');
+    expect(fakeDb._store.invoiceRunItems.item1.lastEmailError).toBeNull();
+  });
+
+  it('refuses to retry an item that was never actually created in Xero — nothing to retry, and never a path to create one', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'failed' });
+    fakeDb._seed('invoiceRunItems', 'item1', { runId: 'run1', status: 'error', lastError: 'Failed to create Xero contact' });
+
+    const { PATCH } = await import('../../src/app/api/admin/invoicing/runs/[runId]/route.js');
+    const res = await PATCH(makeRequest({ action: 'retrySend', itemId: 'item1' }), { params: Promise.resolve({ runId: 'run1' }) });
+
+    expect(res.status).toBe(400);
+    expect(mockSendInvoice).not.toHaveBeenCalled();
+  });
+
+  it('refuses to retry an item that has already been sent', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'sent' });
+    fakeDb._seed('invoiceRunItems', 'item1', { runId: 'run1', status: 'sent', xeroInvoiceId: 'inv1' });
+
+    const { PATCH } = await import('../../src/app/api/admin/invoicing/runs/[runId]/route.js');
+    const res = await PATCH(makeRequest({ action: 'retrySend', itemId: 'item1' }), { params: Promise.resolve({ runId: 'run1' }) });
+
+    expect(res.status).toBe(400);
+    expect(mockSendInvoice).not.toHaveBeenCalled();
+  });
+
+  it('records the error and leaves the item retryable if the retry attempt itself also fails', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'partial' });
+    fakeDb._seed('invoiceRunItems', 'item1', { runId: 'run1', status: 'email_failed', xeroInvoiceId: 'inv-existing', emailAttempts: 1 });
+    mockSendInvoice.mockRejectedValue(new Error('Still unavailable'));
+
+    const { PATCH } = await import('../../src/app/api/admin/invoicing/runs/[runId]/route.js');
+    const res = await PATCH(makeRequest({ action: 'retrySend', itemId: 'item1' }), { params: Promise.resolve({ runId: 'run1' }) });
+
+    expect(res.status).toBe(500);
+    expect(fakeDb._store.invoiceRunItems.item1.status).toBe('email_failed');
+    expect(fakeDb._store.invoiceRunItems.item1.emailAttempts).toBe(2);
   });
 });
