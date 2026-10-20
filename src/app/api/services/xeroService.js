@@ -126,11 +126,11 @@ export async function makeXeroRequest(method, path, body = null, retry = true, e
     Authorization: `Bearer ${tokens.access_token}`,
     'Content-Type': 'application/json',
     Accept: 'application/json',
-    // Empty for every existing caller — none pass a 5th argument.
-    // Lets a caller add e.g. an Idempotency-Key for an operation that
-    // must survive a retry/double-click without creating a duplicate
-    // (see xeroTestInvoiceService.js) without this function needing
-    // to know anything about why.
+    // Empty unless a caller passes one — createInvoice's own
+    // idempotencyKey param is the real caller (see
+    // runs/[runId]/send/route.js), which lets an operation survive a
+    // retry/double-click without creating a duplicate, without this
+    // function needing to know anything about why.
     ...extraHeaders,
   };
   if (tokens.tenant_id) {
