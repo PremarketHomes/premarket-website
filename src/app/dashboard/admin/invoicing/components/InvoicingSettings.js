@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Save, Plug, Unplug, Loader2, AlertTriangle, PlayCircle, CheckCircle2 } from 'lucide-react';
 import { authFetch } from '../../../../utils/authFetch';
 import XeroDiagnosticPanel from './XeroDiagnosticPanel'; // TEMPORARY — see that file's own comment
+import PhilTestInvoicePanel from './PhilTestInvoicePanel'; // TEMPORARY — see that file's own comment
 
 // Firestore can hand this back as a real Timestamp, a serialized
 // {_seconds}, or a plain Date — same multi-shape handling used
@@ -376,6 +377,11 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError, onXe
 
       {/* TEMPORARY — remove after Xero connection testing is done */}
       <XeroDiagnosticPanel />
+
+      {/* TEMPORARY — remove after Phil's test invoice review is done */}
+      <div className="mt-4">
+        <PhilTestInvoicePanel />
+      </div>
     </div>
   );
 }
