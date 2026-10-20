@@ -32,14 +32,19 @@ export function getUnauthDb() {
 
 /**
  * Returns an authenticated Firestore client for a superAdmin user.
- * Creates the user doc with superAdmin: true through the rules
- * (users collection allows owner create).
+ *
+ * Seeds the user doc with superAdmin: true with security rules
+ * disabled — mirroring how superAdmin is actually ever granted in
+ * production (PATCH /api/admin/users, via the Admin SDK, which
+ * bypasses client rules entirely). This used to instead create the
+ * doc through the normal client rules, relying on exactly the
+ * privilege-escalation hole the users.test.js "SECURITY" cases now
+ * prove is closed — superAdmin can no longer be set via a client
+ * create/update at all, so this helper can't rely on that path either.
  */
 export async function getSuperAdminDb(uid = 'superAdmin1') {
-  const db = testEnv.authenticatedContext(uid).firestore();
-  // Users collection allows create: if isUser(userId) — owner can create own doc
-  await setDoc(doc(db, 'users', uid), { superAdmin: true });
-  return db;
+  await seedDoc(`users/${uid}`, { superAdmin: true });
+  return testEnv.authenticatedContext(uid).firestore();
 }
 
 /**
