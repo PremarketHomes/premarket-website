@@ -22,6 +22,8 @@ const STATUS_STYLES = {
   invoiced: 'bg-emerald-100 text-emerald-700',
   excluded: 'bg-slate-100 text-slate-400',
   reversed: 'bg-red-100 text-red-700',
+  invoice_created: 'bg-amber-100 text-amber-700',
+  email_failed: 'bg-red-100 text-red-700',
 };
 
 export default function InvoiceStatusBadge({ status }) {

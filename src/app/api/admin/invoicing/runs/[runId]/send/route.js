@@ -7,6 +7,7 @@ import {
   createInvoice,
   sendInvoice,
   isXeroConnected,
+  findInvoiceByReference,
 } from '../../../../../services/xeroService';
 import { markChargesInvoiced, markChargesFailed } from '../../../../../services/billingService';
 import { verifyAdmin } from '../../../../../middleware/auth';
@@ -154,15 +155,31 @@ export async function POST(request, { params }) {
 
           const periodStart = runData.periodStart?.toDate?.() || new Date(runData.periodStart);
           const periodStr = periodStart.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+          const reference = `${invoicePrefix}${periodStr} - ${item.agencyName}`;
 
-          invoice = await createInvoice({
-            contactId: contact.ContactID,
-            lineItems,
-            reference: `${invoicePrefix}${periodStr} - ${item.agencyName}`,
-            dueDate: dueDateStr,
-            accountCode,
-            idempotencyKey: stableInvoiceIdempotencyKey(itemDoc.id),
-          });
+          // Pre-flight reconciliation — never assume a reference or an
+          // idempotency key alone is enough. This specifically guards
+          // the case a prior attempt's request actually reached Xero
+          // and succeeded, but this process never received that
+          // response (a timeout, a dropped connection) and so never
+          // got the chance to store xeroInvoiceId at all. Checked
+          // BEFORE calling createInvoice, not instead of the
+          // Idempotency-Key below — the two are complementary (see
+          // findInvoiceByReference's own comment for why neither one
+          // alone closes every race).
+          const existing = await findInvoiceByReference(reference);
+          if (existing?.InvoiceID) {
+            invoice = existing;
+          } else {
+            invoice = await createInvoice({
+              contactId: contact.ContactID,
+              lineItems,
+              reference,
+              dueDate: dueDateStr,
+              accountCode,
+              idempotencyKey: stableInvoiceIdempotencyKey(itemDoc.id),
+            });
+          }
 
           if (!invoice?.InvoiceID) {
             throw new Error(`Failed to create Xero invoice for ${item.agencyName}`);

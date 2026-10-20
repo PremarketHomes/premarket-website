@@ -78,11 +78,13 @@ const mockFindOrCreateContact = vi.fn();
 const mockCreateInvoice = vi.fn();
 const mockSendInvoice = vi.fn();
 const mockIsXeroConnected = vi.fn();
+const mockFindInvoiceByReference = vi.fn();
 vi.mock('../../src/app/api/services/xeroService', () => ({
   findOrCreateContact: (...args) => mockFindOrCreateContact(...args),
   createInvoice: (...args) => mockCreateInvoice(...args),
   sendInvoice: (...args) => mockSendInvoice(...args),
   isXeroConnected: (...args) => mockIsXeroConnected(...args),
+  findInvoiceByReference: (...args) => mockFindInvoiceByReference(...args),
 }));
 
 const mockMarkChargesInvoiced = vi.fn();
@@ -106,6 +108,7 @@ beforeEach(() => {
   mockFindOrCreateContact.mockResolvedValue({ ContactID: 'contact1' });
   mockCreateInvoice.mockResolvedValue({ InvoiceID: 'inv1', InvoiceNumber: 'PM-1', Status: 'AUTHORISED' });
   mockSendInvoice.mockResolvedValue({});
+  mockFindInvoiceByReference.mockResolvedValue(null); // no pre-existing invoice found, by default
 });
 
 describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
@@ -268,6 +271,56 @@ describe('POST .../send — duplicate-invoice protection (Priority 1)', () => {
     const key2 = mockCreateInvoice.mock.calls[0][0].idempotencyKey;
 
     expect(key2).toBe(key1);
+  });
+
+  it('the exact ambiguous-timeout scenario: Xero actually created the invoice, our connection timed out before we found out — a retry reconciles instead of duplicating', async () => {
+    seedSingleItemRun();
+
+    // Attempt 1: the create call itself throws (simulating a true
+    // network timeout — this process never received ANY response, so
+    // it genuinely cannot tell whether Xero processed the request).
+    mockFindInvoiceByReference.mockResolvedValueOnce(null); // nothing to find yet, this is the very first attempt
+    mockCreateInvoice.mockRejectedValueOnce(new Error('ETIMEDOUT'));
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    const first = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    expect((await first.json()).status).toBe('failed');
+    expect(mockMarkChargesFailed).toHaveBeenCalledWith(['p1']); // safely released, since we don't yet know an invoice exists
+
+    // Unbeknownst to Premarket, Xero actually DID create the invoice
+    // during attempt 1 — simulate that by having the reconciliation
+    // check find it on the retry.
+    mockCreateInvoice.mockClear();
+    mockMarkChargesFailed.mockClear();
+    mockFindInvoiceByReference.mockResolvedValueOnce({ InvoiceID: 'inv-created-during-timeout', InvoiceNumber: 'PM-0007', Status: 'AUTHORISED' });
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+
+    const second = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    const secondBody = await second.json();
+
+    expect(secondBody.status).toBe('sent');
+    expect(mockCreateInvoice).not.toHaveBeenCalled(); // reconciliation found it first — never created a second one
+    expect(mockSendInvoice).toHaveBeenCalledWith('inv-created-during-timeout');
+
+    const item = (await fakeDb.collection('invoiceRunItems').doc('item1').get()).data();
+    expect(item.xeroInvoiceId).toBe('inv-created-during-timeout');
+  });
+
+  it('checks for an existing invoice by reference before ever calling createInvoice, for any item with no stored invoice ID yet', async () => {
+    seedSingleItemRun();
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+
+    expect(mockFindInvoiceByReference).toHaveBeenCalledTimes(1);
+    const referenceChecked = mockFindInvoiceByReference.mock.calls[0][0];
+    expect(referenceChecked).toContain('Acme Agency');
+
+    // createInvoice must have been called strictly after the check,
+    // not concurrently with or before it — order matters here, since
+    // the whole point is to decide based on the check's result.
+    const checkOrder = mockFindInvoiceByReference.mock.invocationCallOrder[0];
+    const createOrder = mockCreateInvoice.mock.invocationCallOrder[0];
+    expect(checkOrder).toBeLessThan(createOrder);
   });
 
   it('refuses a second concurrent send on the same run — the atomic approved -> sending claim prevents it', async () => {

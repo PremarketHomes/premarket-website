@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink, Send, RefreshCw, XCircle, CheckCircle, Trash2, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronUp, ExternalLink, Send, RefreshCw, XCircle, CheckCircle, Trash2, Pencil, AlertTriangle, Mail } from 'lucide-react';
 import InvoiceStatusBadge from './InvoiceStatusBadge';
 import { authFetch } from '../../../../utils/authFetch';
 
@@ -11,6 +11,34 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
   const [removingItem, setRemovingItem] = useState(null);
   const [removingProp, setRemovingProp] = useState(null);
   const [editingContact, setEditingContact] = useState(null);
+  // Keyed by itemId — tracks which one failed-send row is mid-retry,
+  // so its button is the only one disabled and a double-click can't
+  // fire two retries for the same item at once.
+  const [retryingItemId, setRetryingItemId] = useState(null);
+  const [retryError, setRetryError] = useState(null);
+
+  const failedSendItems = (items || []).filter((item) => item.status === 'email_failed');
+
+  async function handleRetrySend(itemId) {
+    if (retryingItemId) return; // one retry in flight at a time, defence in depth alongside the disabled button below
+    setRetryingItemId(itemId);
+    setRetryError(null);
+    try {
+      const res = await authFetch(`/api/admin/invoicing/runs/${run.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'retrySend', itemId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to retry sending this invoice');
+      onRefresh?.();
+    } catch (err) {
+      console.error('Retry send failed:', err);
+      setRetryError(err.message || 'Failed to retry sending this invoice');
+    } finally {
+      setRetryingItemId(null);
+    }
+  }
 
   const isDraft = run.status === 'draft';
   // Not yet sent to Xero — a correction here still changes what
@@ -245,6 +273,42 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
           <div className="text-center py-8 text-sm text-slate-400">No items in this run</div>
         )}
       </div>
+
+      {/* Failed sends — invoice exists in Xero, email delivery failed.
+          Retrying here only ever re-sends the existing invoice (see
+          api/admin/invoicing/runs/[runId]/route.js's retrySend action)
+          — it never creates a new invoice or a new charge. */}
+      {failedSendItems.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <AlertTriangle className="w-4 h-4 text-red-600" />
+            <p className="text-sm font-semibold text-red-700">Failed Sends — invoice created, email not delivered</p>
+          </div>
+          {failedSendItems.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-3 bg-white border border-red-200 rounded-lg px-3 py-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-900">
+                  {item.xeroInvoiceNumber || item.xeroInvoiceId} — {item.agencyName}
+                </p>
+                <p className="text-xs text-slate-500">
+                  ${item.totalInc?.toLocaleString()} · <span className="text-red-600">Email failed{item.lastEmailError ? `: ${item.lastEmailError}` : ''}</span>
+                </p>
+              </div>
+              <button
+                onClick={() => handleRetrySend(item.id)}
+                disabled={retryingItemId === item.id}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-50 flex-shrink-0"
+              >
+                <Mail className={`w-3.5 h-3.5 ${retryingItemId === item.id ? 'animate-pulse' : ''}`} />
+                {retryingItemId === item.id ? 'Retrying…' : 'Retry Email'}
+              </button>
+            </div>
+          ))}
+          {retryError && (
+            <p className="text-xs text-red-700 pt-1">{retryError}</p>
+          )}
+        </div>
+      )}
 
       {/* Errors */}
       {run.errors?.length > 0 && (

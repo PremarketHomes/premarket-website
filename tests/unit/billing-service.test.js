@@ -388,9 +388,10 @@ describe('recordPropertyCharge', () => {
       expect(agent1SecondKey).not.toBe(agent2Key);
     });
 
-    it('a real brand still takes priority over pinned history — an agent can still legitimately upgrade', async () => {
+    it('a real brand still takes priority over pinned history — an agent can still legitimately upgrade — and the historical charge is never rewritten', async () => {
       const { recordPropertyCharge } = await setup();
       await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
+      const historicalKeyBefore = (await fakeDb.collection('propertyCharges').doc('propA').get()).data().billingEntityKey;
 
       fakeDb.collection('agencyBrands').doc('brand1').set({ name: 'Harcourts Property Hub (Verified)' });
       fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brand1' });
@@ -399,6 +400,40 @@ describe('recordPropertyCharge', () => {
       const doc = await fakeDb.collection('propertyCharges').doc('propB').get();
       expect(doc.data().billingEntityKey).toBe('brand:brand1');
       expect(doc.data().agencyBrandId).toBe('brand1');
+
+      // The historical charge — recorded before the brand even
+      // existed — must never be retroactively rewritten onto the new
+      // brand-based entity. Only NEW charges are affected by this.
+      const historicalAfter = await fakeDb.collection('propertyCharges').doc('propA').get();
+      expect(historicalAfter.data().billingEntityKey).toBe(historicalKeyBefore);
+      expect(historicalAfter.data().billingEntityKey).not.toBe('brand:brand1');
+    });
+
+    it('switching from one real brand to another real brand (a genuine agency transfer) only redirects FUTURE charges — history for both stays correct', async () => {
+      const { recordPropertyCharge } = await setup();
+      fakeDb.collection('agencyBrands').doc('brandOld').set({ name: 'Harcourts Property Hub' });
+      fakeDb.collection('agencyBrands').doc('brandNew').set({ name: 'Ray White Coastal' });
+      fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brandOld' });
+
+      await recordPropertyCharge({ id: 'propOld', userId: 'agent1', address: '1 Old St', createdAt: new Date() });
+      const oldChargeKeyBefore = (await fakeDb.collection('propertyCharges').doc('propOld').get()).data().billingEntityKey;
+      expect(oldChargeKeyBefore).toBe('brand:brandOld');
+
+      // Agent genuinely moves to a different real agency.
+      fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Ray White Coastal', email: 'jo@example.com', agencyBrandId: 'brandNew' });
+      await recordPropertyCharge({ id: 'propNew', userId: 'agent1', address: '2 New St', createdAt: new Date() });
+
+      const oldChargeAfter = await fakeDb.collection('propertyCharges').doc('propOld').get();
+      const newCharge = await fakeDb.collection('propertyCharges').doc('propNew').get();
+
+      // Old charge still correctly billed to the OLD agency — untouched.
+      expect(oldChargeAfter.data().billingEntityKey).toBe('brand:brandOld');
+      // New charge correctly follows the agent to the NEW agency —
+      // this is the intended, legitimate behaviour for a real brand
+      // change (unlike a free-text companyName edit, a brand change
+      // is validated/deliberate, so it's trusted to redirect future
+      // billing — see resolveAgencyIdentity's own comment).
+      expect(newCharge.data().billingEntityKey).toBe('brand:brandNew');
     });
 
     it('an admin override still takes priority over pinned history', async () => {

@@ -268,6 +268,32 @@ export async function sendInvoice(invoiceId) {
   return makeXeroRequest('POST', `/Invoices/${invoiceId}/Email`);
 }
 
+/**
+ * Read-only. Used as a pre-flight reconciliation check before
+ * creating an invoice for an item/record that has no stored
+ * xeroInvoiceId yet — covers the scenario a reference string or an
+ * Idempotency-Key can't cover alone: this process sent a create
+ * request, got no response at all (a timeout, a dropped connection),
+ * and genuinely does not know whether Xero's side actually processed
+ * it. Checking "does an invoice with this exact reference already
+ * exist" before retrying answers that question directly, rather than
+ * assuming either way.
+ *
+ * Deliberately not the ONLY protection against a duplicate — see
+ * send/route.js's own comment for why this and the Idempotency-Key
+ * passed to createInvoice are complementary, not alternatives: this
+ * check and the eventual write are two separate round-trips, so two
+ * concurrent retries could in principle both pass this check before
+ * either one creates anything — the Idempotency-Key is what closes
+ * that specific gap, atomically, at the moment of the write itself.
+ */
+export async function findInvoiceByReference(reference) {
+  const safeReference = String(reference || '').replace(/"/g, '\\"');
+  const whereClause = `Reference=="${safeReference}"`;
+  const result = await makeXeroRequest('GET', `/Invoices?where=${encodeURIComponent(whereClause)}`);
+  return result.Invoices?.[0] || null;
+}
+
 export async function getInvoiceStatus(invoiceId) {
   const result = await makeXeroRequest('GET', `/Invoices/${invoiceId}`);
   return result.Invoices?.[0] || null;
