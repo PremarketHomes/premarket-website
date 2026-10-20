@@ -8,9 +8,10 @@ import { createXeroTestInvoice } from '../../../../services/xeroTestInvoiceServi
  * Body: { email, confirm: true }
  *
  * The ONE real write this feature makes: a single DRAFT Xero invoice
- * for the dedicated "PREMARKET INVOICE TEST — Harcourts Property Hub
- * — DO NOT PAY" contact, using the given account's real properties as
- * line items. superAdmin-only. `confirm: true` is required or this
+ * for the existing, already-confirmed Xero connection diagnostic's
+ * dedicated test contact (never the agent's real billing contact),
+ * using the given account's real properties as line items.
+ * superAdmin-only. `confirm: true` is required or this
  * refuses before calling Xero at all. Unconditionally refuses if a
  * matching test invoice already exists — there is no override; the
  * existing draft must be deleted in Xero first if a genuinely fresh

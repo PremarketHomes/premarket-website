@@ -233,6 +233,14 @@ describe('createXeroTestInvoice (the one real write)', () => {
 
     expect(capturedBody.Invoices[0].Status).toBe('DRAFT');
   });
+
+  it('uses the same dedicated contact as the existing Xero connection diagnostic, not a new one', async () => {
+    const serviceModule = await import('../../src/app/api/services/xeroTestInvoiceService.js');
+    const diagnosticConstants = await import('../../src/app/api/admin/invoicing/xero-diagnostic/constants.js');
+
+    expect(serviceModule.TEST_CONTACT_NAME).toBe(diagnosticConstants.TEST_CONTACT_NAME);
+    expect(serviceModule.TEST_CONTACT_EMAIL).toBe(diagnosticConstants.TEST_CONTACT_EMAIL);
+  });
 });
 
 describe('xeroTestInvoiceService.js never imports a real charge-creation path or sendInvoice', () => {

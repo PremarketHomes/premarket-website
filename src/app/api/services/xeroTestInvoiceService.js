@@ -22,9 +22,15 @@
 import { createHash } from 'crypto';
 import { findOrCreateContact, makeXeroRequest } from './xeroService';
 import { buildAgencyInvoicePreview } from './invoicePreviewService';
+// Reuses the SAME dedicated contact the existing Xero connection
+// diagnostic already uses and already confirmed exists in the
+// connected org — rather than creating a second, separate test
+// contact — so every one-off test invoice this app ever creates
+// lands under one unmistakable, already-known-safe Xero contact.
+import { TEST_CONTACT_NAME, TEST_CONTACT_EMAIL } from '../admin/invoicing/xero-diagnostic/constants';
 
-export const TEST_CONTACT_NAME = 'PREMARKET INVOICE TEST — Harcourts Property Hub — DO NOT PAY';
-export const TEST_REFERENCE = 'TEST ONLY — DO NOT PAY';
+export { TEST_CONTACT_NAME, TEST_CONTACT_EMAIL };
+export const TEST_REFERENCE = 'TEST ONLY — DO NOT AUTHORISE OR SEND';
 
 function buildLineItems(preview) {
   return preview.properties.map((p) => ({
@@ -168,7 +174,7 @@ export async function createXeroTestInvoice({ agentUserId, confirm }) {
     };
   }
 
-  const contact = await findOrCreateContact({ name: TEST_CONTACT_NAME });
+  const contact = await findOrCreateContact({ name: TEST_CONTACT_NAME, email: TEST_CONTACT_EMAIL });
   if (!contact?.ContactID) {
     throw new Error('Failed to find or create the dedicated test contact');
   }
