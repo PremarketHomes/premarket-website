@@ -41,15 +41,32 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════
     match /users/{userId} {
       allow read: if true;
-      allow create: if isUser(userId);
-      // agencyBrandId links an account to an agencyBrands document, which
-      // controls that account's public-facing branding. It must only ever
-      // be set by the server (see /api/branding/confirm, Admin SDK) after
-      // validating the requester actually owns/created that brand — never
-      // client-writable, or an agent could self-assign someone else's
-      // brand (e.g. a competing agency's colours/logo) directly.
+      // superAdmin must never be settable by the account itself — it's
+      // the one field isSuperAdmin() and verifyAdmin() (middleware/auth.js)
+      // both trust completely, with no secondary check. Without this,
+      // any signed-in user could self-promote at signup by including
+      // superAdmin: true in their own initial account-creation write.
+      // No legitimate signup/join/kiosk flow ever sets it (confirmed by
+      // reading signup/page.js, join/page.js, tv/[id]/page.js).
+      allow create: if isUser(userId)
+        && !request.resource.data.keys().hasAny(['superAdmin']);
+      // Allowlist, not a denylist: only fields an agent/buyer's own
+      // dashboard or settings page actually writes to their own account
+      // (confirmed by reading every client-side updateDoc(doc(db,'users',...))
+      // call site in the app — dashboard/settings, dashboard home, and the
+      // SMS-verification flow). Everything else — superAdmin, pro,
+      // agencyBrandId, isAgent/isBuyer, and any privileged field added in
+      // the future — is denied by default, rather than relying on anyone
+      // remembering to add it to a denylist. agencyBrandId's own exclusion
+      // (see the original comment this replaced) is preserved by simply
+      // never appearing in this list: it must only ever be set by the
+      // server (see /api/branding/confirm, Admin SDK) after validating the
+      // requester actually owns/created that brand — never client-writable,
+      // or an agent could self-assign someone else's brand (e.g. a
+      // competing agency's colours/logo) directly.
       allow update: if isUser(userId)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['agencyBrandId']);
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['firstName', 'lastName', 'roles', 'avatar', 'logoUrl', 'companyName', 'phone', 'mobileConfirmedAt']);
       allow delete: if false;
 
       match /adminNotes/{noteId} {
@@ -265,9 +282,21 @@ service cloud.firestore {
     // Public read: Flutter reads agentPlans, introSlides,
     //   vendorPlans, phiWeights from client.
     // Write: server-managed via Admin SDK.
+    //
+    // Two doc IDs are denylisted from that public read:
+    //   - xeroTokens: live Xero OAuth access/refresh tokens. A public
+    //     read here would hand anyone on the internet a credential
+    //     with full accounting-API access to whichever Xero org is
+    //     connected.
+    //   - invoicing: wholesale pricing (pricePerListing), GST rate,
+    //     cron config, and the agent-exclusion list — internal billing
+    //     configuration with no legitimate public-read use case.
+    // Every other settings doc (phiWeights, agentSignup, etc.) keeps
+    // the same public read it already had — this only removes read
+    // access from these two specific IDs, nothing else changes.
     // ═══════════════════════════════════════════════════════════
     match /settings/{settingId} {
-      allow read: if true;
+      allow read: if settingId != 'xeroTokens' && settingId != 'invoicing';
       allow write: if false;
     }
 
@@ -367,6 +396,9 @@ service cloud.firestore {
     match /coreProperties/{docId} { allow read, write: if false; }
     match /invoiceRuns/{docId} { allow read, write: if false; }
     match /invoiceRunItems/{docId} { allow read, write: if false; }
+    match /propertyCharges/{docId} { allow read, write: if false; }
+    match /billingAgencyOverrides/{docId} { allow read, write: if false; }
+    match /billingContacts/{docId} { allow read, write: if false; }
     match /docLinks/{docId} { allow read, write: if false; }
     match /docSessions/{docId} { allow read, write: if false; }
     match /phiVerifications/{docId} { allow read, write: if false; }
