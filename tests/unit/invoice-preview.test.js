@@ -117,6 +117,12 @@ describe('buildAgencyInvoicePreview (pure/read-only)', () => {
     expect(preview.gstAmount).toBe(0);
     expect(preview.totalInc).toBe(1000);
     expect(preview.agencyName).toBe('Harcourts Property Hub');
+    // Regression: getInvoicingSettings() (billingService.js) never
+    // returns these three fields — buildAgencyInvoicePreview must
+    // read them itself rather than silently passing through undefined.
+    expect(preview.paymentTermsDays).toBe(14);
+    expect(preview.invoicePrefix).toBe('PM-');
+    expect(preview.xeroAccountCode).toBe('200');
     expect(preview.properties.map((p) => p.address)).toEqual([
       '137-139 Crescent Ave, Hope Island QLD 4212',
       '21 Palladium Blvd, Hope Island QLD 4212',

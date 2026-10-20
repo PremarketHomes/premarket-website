@@ -83,6 +83,20 @@ export async function buildAgencyInvoicePreview({ agentUserId }) {
   }
 
   const settings = await getInvoicingSettings();
+  // getInvoicingSettings() (billingService.js) only returns the fields
+  // the real charge-recording path needs (pricePerListing, gstRate,
+  // excludeAgentIds, billingActivatedAt) — it was never extended to
+  // return paymentTermsDays/invoicePrefix/xeroAccountCode, which the
+  // real send route instead reads directly from the same document
+  // (see runs/[runId]/send/route.js). Read them here the same way,
+  // with the same defaults, rather than changing that existing,
+  // already-deployed function's return shape.
+  const settingsDoc = await adminDb.collection('settings').doc('invoicing').get();
+  const rawSettings = settingsDoc.exists ? settingsDoc.data() : {};
+  const paymentTermsDays = rawSettings.paymentTermsDays || 14;
+  const invoicePrefix = rawSettings.invoicePrefix || 'PM-';
+  const xeroAccountCode = rawSettings.xeroAccountCode || '200';
+
   const override = await resolveBillingOverride(agentUserId);
   const matchedBrand = override ? null : await resolveAgencyBrand(agent);
   const entity = override || resolveBillingEntity({
@@ -122,8 +136,9 @@ export async function buildAgencyInvoicePreview({ agentUserId }) {
     propertyCount: properties.length,
     pricePerListing: settings.pricePerListing,
     gstRate: settings.gstRate,
-    paymentTermsDays: settings.paymentTermsDays,
-    invoicePrefix: settings.invoicePrefix,
+    paymentTermsDays,
+    invoicePrefix,
+    xeroAccountCode,
     subtotalEx,
     gstAmount,
     totalInc,
