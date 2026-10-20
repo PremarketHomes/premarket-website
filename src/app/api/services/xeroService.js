@@ -214,7 +214,7 @@ export async function getAccountByCode(code) {
 // XERO API: Invoices
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType, status }) {
+export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType, status, idempotencyKey }) {
   // 'NONE' (not GST registered — Premarket's actual status) or
   // 'OUTPUT' (GST on income, 10%, if that ever changes). Each line
   // item normally carries its own taxType (send/route.js derives it
@@ -245,12 +245,53 @@ export async function createInvoice({ contactId, lineItems, reference, dueDate, 
     LineAmountTypes: 'Exclusive',
   };
 
-  const result = await makeXeroRequest('POST', '/Invoices', { Invoices: [invoice] });
+  // Optional, deliberately not set by every caller (default undefined
+  // => no header => unchanged behaviour): a caller that passes one is
+  // telling Xero "if a request with this exact key already succeeded,
+  // hand me back that same invoice rather than creating a second one"
+  // — Xero's own documented idempotency support, the one mechanism
+  // that can close a true blind-timeout race (this code never learns
+  // whether its own request reached Xero, but a retry carrying the
+  // same key is safe either way). See send/route.js for the real
+  // caller that relies on this.
+  const result = await makeXeroRequest(
+    'POST',
+    '/Invoices',
+    { Invoices: [invoice] },
+    true,
+    idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}
+  );
   return result.Invoices?.[0] || null;
 }
 
 export async function sendInvoice(invoiceId) {
   return makeXeroRequest('POST', `/Invoices/${invoiceId}/Email`);
+}
+
+/**
+ * Read-only. Used as a pre-flight reconciliation check before
+ * creating an invoice for an item/record that has no stored
+ * xeroInvoiceId yet — covers the scenario a reference string or an
+ * Idempotency-Key can't cover alone: this process sent a create
+ * request, got no response at all (a timeout, a dropped connection),
+ * and genuinely does not know whether Xero's side actually processed
+ * it. Checking "does an invoice with this exact reference already
+ * exist" before retrying answers that question directly, rather than
+ * assuming either way.
+ *
+ * Deliberately not the ONLY protection against a duplicate — see
+ * send/route.js's own comment for why this and the Idempotency-Key
+ * passed to createInvoice are complementary, not alternatives: this
+ * check and the eventual write are two separate round-trips, so two
+ * concurrent retries could in principle both pass this check before
+ * either one creates anything — the Idempotency-Key is what closes
+ * that specific gap, atomically, at the moment of the write itself.
+ */
+export async function findInvoiceByReference(reference) {
+  const safeReference = String(reference || '').replace(/"/g, '\\"');
+  const whereClause = `Reference=="${safeReference}"`;
+  const result = await makeXeroRequest('GET', `/Invoices?where=${encodeURIComponent(whereClause)}`);
+  return result.Invoices?.[0] || null;
 }
 
 export async function getInvoiceStatus(invoiceId) {

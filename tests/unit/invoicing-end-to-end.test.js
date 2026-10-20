@@ -37,12 +37,14 @@ const mockFindOrCreateContact = vi.fn();
 const mockCreateInvoice = vi.fn();
 const mockSendInvoice = vi.fn();
 const mockBatchGetInvoiceStatuses = vi.fn();
+const mockFindInvoiceByReference = vi.fn();
 vi.mock('../../src/app/api/services/xeroService', () => ({
   isXeroConnected: (...args) => mockIsXeroConnected(...args),
   findOrCreateContact: (...args) => mockFindOrCreateContact(...args),
   createInvoice: (...args) => mockCreateInvoice(...args),
   sendInvoice: (...args) => mockSendInvoice(...args),
   batchGetInvoiceStatuses: (...args) => mockBatchGetInvoiceStatuses(...args),
+  findInvoiceByReference: (...args) => mockFindInvoiceByReference(...args),
 }));
 
 function makeFakeDb() {
@@ -126,7 +128,23 @@ function makeFakeDb() {
     };
   }
 
-  return { collection: withCol, batch, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
+  async function runTransaction(updateFn) {
+    const pendingWrites = [];
+    const tx = {
+      get: async (ref) => {
+        const data = store[ref._col]?.[ref.id];
+        return { exists: !!data, id: ref.id, data: () => data };
+      },
+      update: (ref, patch) => pendingWrites.push(() => {
+        store[ref._col][ref.id] = { ...(store[ref._col][ref.id] || {}), ...patch };
+      }),
+    };
+    const result = await updateFn(tx);
+    pendingWrites.forEach((write) => write());
+    return result;
+  }
+
+  return { collection: withCol, batch, runTransaction, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
 }
 
 let fakeDb;
@@ -235,6 +253,7 @@ describe('Invoicing end-to-end — safe, fully mocked at the Xero HTTP boundary 
 
     // --- Step 6/9: send — mocked Xero call, verified GST-free (TaxType, not just $0 display) and itemised ---
     mockFindOrCreateContact.mockResolvedValue({ ContactID: 'xero-contact-1' });
+    mockFindInvoiceByReference.mockResolvedValue(null);
     mockCreateInvoice.mockResolvedValue({ InvoiceID: 'xero-inv-1', InvoiceNumber: 'PM-1', Status: 'AUTHORISED' });
     mockSendInvoice.mockResolvedValue({});
 

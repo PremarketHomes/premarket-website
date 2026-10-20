@@ -3,6 +3,7 @@ import { adminDb } from '../../../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { verifyAdmin } from '../../../../middleware/auth';
 import { releaseCharges } from '../../../../services/billingService';
+import { sendInvoice } from '../../../../services/xeroService';
 
 /** Every propertyId currently attached to a run, across all its items —
  * used to release the right charges back to 'pending' whenever the run
@@ -120,6 +121,57 @@ export async function PATCH(request, { params }) {
       await releaseCharges(propertyIds);
       await runRef.update({ status: 'cancelled', cancelledAt: FieldValue.serverTimestamp(), cancelledBy: auth.uid });
       return NextResponse.json({ success: true, status: 'cancelled' });
+    }
+
+    // Lets an admin see and resolve a failed send without re-sending
+    // the whole run: retries ONLY the email step for one item that
+    // already has a real xeroInvoiceId (the invoice itself already
+    // exists in Xero — a prior email attempt just failed). Never
+    // calls createInvoice — structurally can't, since this action
+    // never even imports it — so it can never produce a duplicate
+    // invoice, and it never touches propertyCharges at all (those
+    // were already correctly marked invoiced when the invoice was
+    // first created; nothing about a retried email changes that).
+    // Gated on the item already having a xeroInvoiceId specifically
+    // so this can never become a backdoor around the normal send
+    // route's own approval requirement — there is no way to reach
+    // 'email_failed' with a stored xeroInvoiceId except by having
+    // already gone through POST .../send on an approved run.
+    if (action === 'retrySend') {
+      const { itemId } = body;
+      if (!itemId) {
+        return NextResponse.json({ error: 'itemId is required' }, { status: 400 });
+      }
+
+      const itemRef = adminDb.collection('invoiceRunItems').doc(itemId);
+      const itemDoc = await itemRef.get();
+      if (!itemDoc.exists) {
+        return NextResponse.json({ error: 'Item not found' }, { status: 404 });
+      }
+
+      const item = itemDoc.data();
+      if (item.runId !== runId) {
+        return NextResponse.json({ error: 'Item does not belong to this run' }, { status: 400 });
+      }
+      if (!item.xeroInvoiceId) {
+        return NextResponse.json({ error: 'This item has no Xero invoice to retry sending — it was never successfully created' }, { status: 400 });
+      }
+      if (item.status === 'sent') {
+        return NextResponse.json({ error: 'This item has already been sent' }, { status: 400 });
+      }
+
+      try {
+        await sendInvoice(item.xeroInvoiceId);
+        await itemRef.update({ status: 'sent', emailSentAt: FieldValue.serverTimestamp(), lastEmailError: null });
+        return NextResponse.json({ success: true, status: 'sent' });
+      } catch (err) {
+        await itemRef.update({
+          status: 'email_failed',
+          lastEmailError: err.message,
+          emailAttempts: (item.emailAttempts || 0) + 1,
+        });
+        return NextResponse.json({ error: err.message || 'Failed to send invoice' }, { status: 500 });
+      }
     }
 
     // Remove entire agency items from a draft run

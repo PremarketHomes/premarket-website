@@ -455,6 +455,102 @@ export function computeChargeAmounts(pricePerListing, gstRate) {
 }
 
 /**
+ * Read-only. Looks for this agent's own oldest prior charge (if any)
+ * that was itself resolved via companyName — never one that was
+ * brand- or override-based, since those stay live/dynamic and must
+ * keep tracking whatever the agent's current brand/override actually
+ * is, not freeze onto a stale snapshot. A plain equality `where` on
+ * agentUserId needs no composite index, so this never requires a
+ * separate Firestore index deploy.
+ *
+ * `limit(1)` with no `orderBy` is deliberate and safe here, not just
+ * convenient: billing has never been activated for any real agency
+ * yet (billingActivatedAt is still null as of this fix), so there is
+ * zero pre-existing charge history anywhere that this fix could ever
+ * see as "inconsistent" — from the very first real charge onward,
+ * every charge resolveAgencyIdentity pins will already agree with
+ * every other one for that agent, by construction.
+ */
+async function resolvePinnedCompanyNameEntity(agentUserId) {
+  // No .limit() here deliberately — not every Firestore query builder
+  // in this codebase's test fakes chains .limit() after .where() the
+  // same way, and a plain equality query over one agent's own (small)
+  // charge history costs nothing extra to read in full and pick the
+  // first doc from in JS instead.
+  const snap = await adminDb
+    .collection('propertyCharges')
+    .where('agentUserId', '==', agentUserId)
+    .get();
+
+  if (snap.empty || snap.docs.length === 0) return null;
+  const prior = snap.docs[0].data();
+  if (prior.agencyBrandId) return null; // was brand-based — not ours to pin
+  if (!prior.billingEntityKey) return null;
+
+  return {
+    billingEntityType: prior.billingEntityType,
+    billingEntityKey: prior.billingEntityKey,
+    billingEntityName: prior.billingEntityName,
+    agencyBrandId: null,
+  };
+}
+
+/**
+ * Decides which billing entity a NEW charge resolves to, when no
+ * admin override exists (resolveChargeForAgent checks that first).
+ * Three tiers, most to least authoritative:
+ *
+ *   1. A real agencyBrandId — always checked fresh, always wins when
+ *      present. Getting a brand is a deliberate, server-validated
+ *      action (see brandProfileService.js / /api/branding/confirm),
+ *      never something a plain profile edit can trigger, so it's
+ *      trusted completely, same as before this fix.
+ *
+ *   2. This agent's own PINNED prior billing entity, if they've ever
+ *      had a companyName-based charge before. This is the fix: once
+ *      an agent's first charge resolves to entity X via whatever
+ *      companyName they had at that moment, every later charge stays
+ *      pinned to X — even if they rename companyName afterwards,
+ *      even to a name that would otherwise resolve to some OTHER
+ *      agency's existing entity. A companyName edit can no longer
+ *      silently redirect an agent's charges onto a different agency's
+ *      invoice, which is exactly the risk this fix closes.
+ *
+ *   3. A fresh companyName resolution — only ever reached for an
+ *      agent's very first charge, when no brand and no prior history
+ *      exist yet. Identical to this codebase's original behaviour.
+ *
+ * Preserves agency branding and every existing agent-facing flow
+ * untouched: nothing about getting/having a brand, or about editing
+ * companyName in dashboard/settings, changes at all. This only
+ * changes which billing entity a later charge resolves to when that
+ * agent has no brand and has been charged before.
+ */
+async function resolveAgencyIdentity(agent, agentUserId) {
+  const matchedBrand = await resolveAgencyBrand(agent);
+  if (matchedBrand) {
+    return resolveBillingEntity({
+      agentUserId,
+      companyName: agent.companyName,
+      firstName: agent.firstName,
+      lastName: agent.lastName,
+      matchedBrand,
+    });
+  }
+
+  const pinned = await resolvePinnedCompanyNameEntity(agentUserId);
+  if (pinned) return pinned;
+
+  return resolveBillingEntity({
+    agentUserId,
+    companyName: agent.companyName,
+    firstName: agent.firstName,
+    lastName: agent.lastName,
+    matchedBrand: null,
+  });
+}
+
+/**
  * Looks up everything needed to build a charge for a given agent
  * (their user doc, current invoicing settings, and their resolved
  * billing entity/brand) and, unless they're on the exclusion list OR
@@ -491,20 +587,17 @@ async function resolveChargeForAgent({ propertyId, propertyAddress, agentUserId,
     return null;
   }
 
+  // Priority, most to least authoritative — see resolveAgencyIdentity's
+  // own comment for why pinned history sits between brand and a fresh
+  // companyName resolution, not above brand or below override.
   // An admin's explicit "these are the same agency" merge (see
-  // mergeIntoBillingEntity below) always wins over brand/companyName
-  // resolution — it exists specifically for the case neither of those
+  // mergeIntoBillingEntity below) always wins over everything else —
+  // it exists specifically for the case neither brand nor companyName
   // can bridge (two genuinely different-looking company names, neither
   // with a brand). Checked first so there's only ever one code path
   // that decides an agent's billing group.
   const override = await resolveBillingOverride(agentUserId);
-  const entity = override || resolveBillingEntity({
-    agentUserId,
-    companyName: agent.companyName,
-    firstName: agent.firstName,
-    lastName: agent.lastName,
-    matchedBrand: await resolveAgencyBrand(agent),
-  });
+  const entity = override || await resolveAgencyIdentity(agent, agentUserId);
   const amounts = computeChargeAmounts(settings.pricePerListing, settings.gstRate);
 
   return {
