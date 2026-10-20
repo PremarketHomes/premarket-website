@@ -5,15 +5,16 @@ import { createXeroTestInvoice } from '../../../../services/xeroTestInvoiceServi
 
 /**
  * POST /api/admin/invoicing/xero-test-invoice/create
- * Body: { email, confirm: true, force?: boolean }
+ * Body: { email, confirm: true }
  *
  * The ONE real write this feature makes: a single DRAFT Xero invoice
  * for the dedicated "PREMARKET INVOICE TEST — Harcourts Property Hub
  * — DO NOT PAY" contact, using the given account's real properties as
  * line items. superAdmin-only. `confirm: true` is required or this
- * refuses before calling Xero at all. Refuses if a matching test
- * invoice already exists unless `force: true` is explicitly passed —
- * call the preview route first to see that flag.
+ * refuses before calling Xero at all. Unconditionally refuses if a
+ * matching test invoice already exists — there is no override; the
+ * existing draft must be deleted in Xero first if a genuinely fresh
+ * one is ever needed.
  *
  * Never touches propertyCharges, invoiceRuns, invoiceRunItems, or
  * settings/invoicing.billingActivatedAt/cronEnabled — see
@@ -32,7 +33,7 @@ export async function POST(request) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
-    const { email, confirm, force } = await request.json().catch(() => ({}));
+    const { email, confirm } = await request.json().catch(() => ({}));
 
     if (!email) {
       return NextResponse.json({ error: 'email is required' }, { status: 400 });
@@ -47,7 +48,7 @@ export async function POST(request) {
     }
 
     const agentUserId = snap.docs[0].id;
-    const result = await createXeroTestInvoice({ agentUserId, confirm, force: force === true });
+    const result = await createXeroTestInvoice({ agentUserId, confirm });
 
     return NextResponse.json(result);
   } catch (err) {

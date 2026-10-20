@@ -111,7 +111,7 @@ export async function disconnectXero() {
 // XERO API: HTTP helper with auto-refresh
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function makeXeroRequest(method, path, body = null, retry = true) {
+export async function makeXeroRequest(method, path, body = null, retry = true, extraHeaders = {}) {
   let tokens = await getXeroTokens();
   if (!tokens?.access_token) throw new Error('Xero not connected');
 
@@ -126,6 +126,12 @@ export async function makeXeroRequest(method, path, body = null, retry = true) {
     Authorization: `Bearer ${tokens.access_token}`,
     'Content-Type': 'application/json',
     Accept: 'application/json',
+    // Empty for every existing caller — none pass a 5th argument.
+    // Lets a caller add e.g. an Idempotency-Key for an operation that
+    // must survive a retry/double-click without creating a duplicate
+    // (see xeroTestInvoiceService.js) without this function needing
+    // to know anything about why.
+    ...extraHeaders,
   };
   if (tokens.tenant_id) {
     headers['Xero-tenant-id'] = tokens.tenant_id;
@@ -137,10 +143,12 @@ export async function makeXeroRequest(method, path, body = null, retry = true) {
     body: body ? JSON.stringify(body) : null,
   });
 
-  // Retry once on 401
+  // Retry once on 401 — extraHeaders carried through, so a caller's
+  // idempotency key survives this retry too, rather than the retried
+  // request silently losing its dedup protection.
   if (res.status === 401 && retry) {
     await refreshXeroTokens();
-    return makeXeroRequest(method, path, body, false);
+    return makeXeroRequest(method, path, body, false, extraHeaders);
   }
 
   if (!res.ok) {

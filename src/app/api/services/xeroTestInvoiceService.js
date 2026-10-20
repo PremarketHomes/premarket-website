@@ -11,11 +11,16 @@
 // ensureChargesForProperties, reconcileMissingCharges,
 // createInvoiceRunFromPendingCharges, or sendInvoice. The only Xero
 // writes it can ever make are findOrCreateContact (idempotent — finds
-// before creating) and createInvoice with Status hardcoded to 'DRAFT',
-// never accepted as a caller-supplied value. Nothing here can ever
-// authorise, email, or make an invoice payable.
+// before creating) and one POST to /Invoices with Status hardcoded to
+// 'DRAFT', never accepted as a caller-supplied value. Nothing here
+// can ever authorise, email, or make an invoice payable.
+//
+// There is deliberately no way to force a second matching invoice —
+// a prior version had a `force` override; it's gone. If a genuinely
+// fresh test is ever needed, delete the existing draft in Xero first.
 
-import { findOrCreateContact, createInvoice, makeXeroRequest } from './xeroService';
+import { createHash } from 'crypto';
+import { findOrCreateContact, makeXeroRequest } from './xeroService';
 import { buildAgencyInvoicePreview } from './invoicePreviewService';
 
 export const TEST_CONTACT_NAME = 'PREMARKET INVOICE TEST — Harcourts Property Hub — DO NOT PAY';
@@ -34,6 +39,25 @@ function computeDueDateStr(paymentTermsDays) {
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + (paymentTermsDays || 14));
   return dueDate.toISOString().split('T')[0];
+}
+
+/**
+ * Deterministic, not random — the same agent always produces the
+ * same key. That's deliberate: Xero's Idempotency-Key header (POST
+ * /Invoices supports it) makes Xero itself treat any request carrying
+ * this exact key as a retry of the same logical operation, returning
+ * the invoice already created under it instead of creating a second
+ * one — even if two requests for this agent's test invoice land at
+ * Xero at the same moment, a race the earlier Reference-based
+ * check-then-create (findExistingXeroTestInvoice, still run first as
+ * a fast pre-check) can't fully close by itself. See
+ * createXeroTestInvoice's own comment for what this does and doesn't
+ * cover.
+ */
+function stableIdempotencyKey(agentUserId) {
+  return createHash('sha256')
+    .update(`xero-test-invoice:${agentUserId}:${TEST_REFERENCE}`)
+    .digest('hex');
 }
 
 /**
@@ -85,16 +109,47 @@ export async function previewXeroTestInvoice({ agentUserId }) {
  * The one real write this whole file makes. Requires confirm: true —
  * enforced here, server-side, not just as a UI dialog that could be
  * skipped by calling the API directly (same pattern the existing Xero
- * diagnostic's create route already uses). Refuses to create a
- * second test invoice if one already exists (by TEST_REFERENCE)
- * unless the caller explicitly passes force: true, having already
- * seen that flag via previewXeroTestInvoice first.
+ * diagnostic's create route already uses). Unconditionally refuses if
+ * a test invoice already exists (by TEST_REFERENCE) — there is no
+ * override; delete the existing draft in Xero first if a genuinely
+ * fresh one is ever needed.
+ *
+ * Two layers against a double-create, not one:
+ *   1. findExistingXeroTestInvoice() — a plain read-then-decide check,
+ *      same as before. Fast, but on its own has a race: two requests
+ *      arriving close together could both read "doesn't exist yet"
+ *      before either one's create lands.
+ *   2. An Idempotency-Key header (stableIdempotencyKey, deterministic
+ *      per agent) on the actual POST /Invoices call — Xero's own
+ *      documented support for this header means Xero itself
+ *      deduplicates two requests carrying the same key, closing
+ *      exactly the race (1) can't. This is the "safest practical
+ *      approach" available: the dedup decision happens inside Xero,
+ *      atomically, not in a second round-trip this code could still
+ *      lose a race on.
+ *
+ * Remaining limitation, stated plainly: Xero does not publish an
+ * unlimited retention window for a given Idempotency-Key — if it ever
+ * expires key reuse before this feature is deleted, two sufficiently
+ * far-apart calls could both pass Xero's dedup and create two drafts.
+ * The Reference-based check in step 1 is the backstop for that case,
+ * not a perfect one (same race as above, just now vanishingly
+ * unlikely rather than impossible) — acceptable for a rare,
+ * admin-triggered, DRAFT-only test action, not something this feature
+ * relies on alone.
  *
  * Status is always 'DRAFT' — never a parameter, never overridable —
  * and sendInvoice is never called anywhere in this file, so nothing
  * created here can become payable or be emailed by this code path.
+ * This function builds the Xero invoice body itself (Type, Contact,
+ * LineItems, Reference, DueDate, Status, LineAmountTypes) rather than
+ * calling xeroService.createInvoice, specifically so the Idempotency-
+ * Key header above can be attached to this one request — createInvoice
+ * has no parameter for a custom header, and this file intentionally
+ * leaves that shared, already-deployed function completely unchanged
+ * rather than widen its signature for one caller.
  */
-export async function createXeroTestInvoice({ agentUserId, confirm, force = false }) {
+export async function createXeroTestInvoice({ agentUserId, confirm }) {
   if (confirm !== true) {
     throw new Error('Refusing to create a Xero invoice without explicit confirm: true');
   }
@@ -105,7 +160,7 @@ export async function createXeroTestInvoice({ agentUserId, confirm, force = fals
   }
 
   const existing = await findExistingXeroTestInvoice();
-  if (existing && !force) {
+  if (existing) {
     return {
       created: false,
       reason: 'already-exists',
@@ -118,14 +173,30 @@ export async function createXeroTestInvoice({ agentUserId, confirm, force = fals
     throw new Error('Failed to find or create the dedicated test contact');
   }
 
-  const invoice = await createInvoice({
-    contactId: contact.ContactID,
-    lineItems: buildLineItems(preview),
-    reference: TEST_REFERENCE,
-    dueDate: computeDueDateStr(preview.paymentTermsDays),
-    accountCode: preview.xeroAccountCode,
-    status: 'DRAFT', // hardcoded — see module comment; never accepted from a caller
-  });
+  const invoiceBody = {
+    Type: 'ACCREC',
+    Contact: { ContactID: contact.ContactID },
+    LineItems: buildLineItems(preview).map((li) => ({
+      Description: li.description,
+      Quantity: li.quantity,
+      UnitAmount: li.unitAmount,
+      AccountCode: preview.xeroAccountCode,
+      TaxType: li.taxType,
+    })),
+    Reference: TEST_REFERENCE,
+    DueDate: computeDueDateStr(preview.paymentTermsDays),
+    Status: 'DRAFT', // hardcoded — see function comment; never accepted from a caller
+    LineAmountTypes: 'Exclusive',
+  };
+
+  const result = await makeXeroRequest(
+    'POST',
+    '/Invoices',
+    { Invoices: [invoiceBody] },
+    true,
+    { 'Idempotency-Key': stableIdempotencyKey(agentUserId) }
+  );
+  const invoice = result.Invoices?.[0];
 
   if (!invoice?.InvoiceID) {
     throw new Error('Xero did not return an invoice');

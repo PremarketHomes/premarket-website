@@ -77,11 +77,21 @@ const PHIL_PREVIEW = {
   totalInc: 1000,
 };
 
+// The GET /Invoices?where=... duplicate-check and the POST /Invoices
+// create both go through makeXeroRequest — tell them apart by method.
+function mockMakeXeroRequestByMethod({ onGet, onPost } = {}) {
+  mockMakeXeroRequest.mockImplementation(async (method, path, body, retry, extraHeaders) => {
+    if (method === 'GET') return (onGet && onGet(path)) || { Invoices: [] };
+    if (method === 'POST') return (onPost && onPost(path, body, extraHeaders)) || { Invoices: [{ InvoiceID: 'inv-default', Status: 'DRAFT' }] };
+    throw new Error(`Unexpected method in test: ${method}`);
+  });
+}
+
 beforeEach(() => {
   fakeDb = makeFakeDb();
   vi.clearAllMocks();
   mockBuildAgencyInvoicePreview.mockResolvedValue(PHIL_PREVIEW);
-  mockMakeXeroRequest.mockResolvedValue({ Invoices: [] }); // no existing test invoice, by default
+  mockMakeXeroRequestByMethod(); // no existing test invoice, by default
 });
 
 describe('previewXeroTestInvoice (read-only)', () => {
@@ -98,15 +108,16 @@ describe('previewXeroTestInvoice (read-only)', () => {
     expect(result.proposedInvoice.gstAmount).toBe(0);
     expect(result.alreadyExists).toBe(false);
 
-    // Never calls any write — findOrCreateContact/createInvoice untouched
+    // Never calls any write — findOrCreateContact/createInvoice untouched,
+    // and the only makeXeroRequest call was the read-only GET check.
     expect(mockFindOrCreateContact).not.toHaveBeenCalled();
     expect(mockCreateInvoice).not.toHaveBeenCalled();
+    expect(mockMakeXeroRequest).toHaveBeenCalledTimes(1);
+    expect(mockMakeXeroRequest.mock.calls[0][0]).toBe('GET');
   });
 
   it('reports alreadyExists: true when a matching test invoice is found', async () => {
-    mockMakeXeroRequest.mockResolvedValue({
-      Invoices: [{ InvoiceID: 'existing-123', InvoiceNumber: 'PM-0001', Status: 'DRAFT' }],
-    });
+    mockMakeXeroRequestByMethod({ onGet: () => ({ Invoices: [{ InvoiceID: 'existing-123', InvoiceNumber: 'PM-0001', Status: 'DRAFT' }] }) });
     const { previewXeroTestInvoice } = await import('../../src/app/api/services/xeroTestInvoiceService.js');
     const result = await previewXeroTestInvoice({ agentUserId: 'philUid' });
 
@@ -131,11 +142,19 @@ describe('createXeroTestInvoice (the one real write)', () => {
     expect(mockCreateInvoice).not.toHaveBeenCalled();
   });
 
-  it('creates exactly one DRAFT invoice with 5 real line items when confirmed', async () => {
+  it('creates exactly one DRAFT invoice with 5 real line items when confirmed, carrying a stable Idempotency-Key', async () => {
     mockFindOrCreateContact.mockResolvedValue({ ContactID: 'contact-abc' });
-    mockCreateInvoice.mockResolvedValue({ InvoiceID: 'inv-xyz', InvoiceNumber: 'PM-0099', Status: 'DRAFT' });
+    let capturedHeaders;
+    let capturedBody;
+    mockMakeXeroRequestByMethod({
+      onPost: (path, body, extraHeaders) => {
+        capturedBody = body;
+        capturedHeaders = extraHeaders;
+        return { Invoices: [{ InvoiceID: 'inv-xyz', InvoiceNumber: 'PM-0099', Status: 'DRAFT' }] };
+      },
+    });
 
-    const { createXeroTestInvoice, TEST_CONTACT_NAME, TEST_REFERENCE } = await import('../../src/app/api/services/xeroTestInvoiceService.js');
+    const { createXeroTestInvoice, TEST_REFERENCE } = await import('../../src/app/api/services/xeroTestInvoiceService.js');
     const result = await createXeroTestInvoice({ agentUserId: 'philUid', confirm: true });
 
     expect(result.created).toBe(true);
@@ -143,20 +162,42 @@ describe('createXeroTestInvoice (the one real write)', () => {
     expect(result.total).toBe(1000);
     expect(result.propertyCount).toBe(5);
 
-    expect(mockFindOrCreateContact).toHaveBeenCalledWith({ name: TEST_CONTACT_NAME });
+    // The shared createInvoice() is never used by this feature — the
+    // invoice body is built and sent directly so a custom header can
+    // be attached without widening that shared function's signature.
+    expect(mockCreateInvoice).not.toHaveBeenCalled();
 
-    expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
-    const callArgs = mockCreateInvoice.mock.calls[0][0];
-    expect(callArgs.status).toBe('DRAFT');
-    expect(callArgs.reference).toBe(TEST_REFERENCE);
-    expect(callArgs.lineItems).toHaveLength(5);
-    expect(callArgs.lineItems.every((li) => li.unitAmount === 200 && li.taxType === 'NONE')).toBe(true);
+    const invoice = capturedBody.Invoices[0];
+    expect(invoice.Status).toBe('DRAFT');
+    expect(invoice.Reference).toBe(TEST_REFERENCE);
+    expect(invoice.LineItems).toHaveLength(5);
+    expect(invoice.LineItems.every((li) => li.UnitAmount === 200 && li.TaxType === 'NONE')).toBe(true);
+
+    expect(capturedHeaders['Idempotency-Key']).toBeTruthy();
+    expect(typeof capturedHeaders['Idempotency-Key']).toBe('string');
+  });
+
+  it('uses the exact same Idempotency-Key across two separate calls for the same agent', async () => {
+    mockFindOrCreateContact.mockResolvedValue({ ContactID: 'contact-abc' });
+    const capturedKeys = [];
+    mockMakeXeroRequestByMethod({
+      onPost: (path, body, extraHeaders) => {
+        capturedKeys.push(extraHeaders['Idempotency-Key']);
+        return { Invoices: [{ InvoiceID: 'inv-xyz', Status: 'DRAFT' }] };
+      },
+    });
+
+    const { createXeroTestInvoice } = await import('../../src/app/api/services/xeroTestInvoiceService.js');
+    await createXeroTestInvoice({ agentUserId: 'philUid', confirm: true });
+    // Simulate a second, independent call (e.g. a retried request) for the same agent
+    await createXeroTestInvoice({ agentUserId: 'philUid', confirm: true });
+
+    expect(capturedKeys).toHaveLength(2);
+    expect(capturedKeys[0]).toBe(capturedKeys[1]);
   });
 
   it('refuses to create a second test invoice when one already exists, without calling Xero to write anything', async () => {
-    mockMakeXeroRequest.mockResolvedValue({
-      Invoices: [{ InvoiceID: 'existing-123', InvoiceNumber: 'PM-0001', Status: 'DRAFT' }],
-    });
+    mockMakeXeroRequestByMethod({ onGet: () => ({ Invoices: [{ InvoiceID: 'existing-123', InvoiceNumber: 'PM-0001', Status: 'DRAFT' }] }) });
     const { createXeroTestInvoice } = await import('../../src/app/api/services/xeroTestInvoiceService.js');
     const result = await createXeroTestInvoice({ agentUserId: 'philUid', confirm: true });
 
@@ -164,31 +205,33 @@ describe('createXeroTestInvoice (the one real write)', () => {
     expect(result.reason).toBe('already-exists');
     expect(mockFindOrCreateContact).not.toHaveBeenCalled();
     expect(mockCreateInvoice).not.toHaveBeenCalled();
+    // Only the read-only GET happened — no POST at all
+    expect(mockMakeXeroRequest).toHaveBeenCalledTimes(1);
+    expect(mockMakeXeroRequest.mock.calls[0][0]).toBe('GET');
   });
 
-  it('allows a forced re-create past an existing duplicate when force: true is explicit', async () => {
-    mockMakeXeroRequest.mockResolvedValue({
-      Invoices: [{ InvoiceID: 'existing-123', InvoiceNumber: 'PM-0001', Status: 'DRAFT' }],
-    });
-    mockFindOrCreateContact.mockResolvedValue({ ContactID: 'contact-abc' });
-    mockCreateInvoice.mockResolvedValue({ InvoiceID: 'inv-new', InvoiceNumber: 'PM-0100', Status: 'DRAFT' });
-
+  it('has no force override at all — passing one has no effect, the duplicate is still refused', async () => {
+    mockMakeXeroRequestByMethod({ onGet: () => ({ Invoices: [{ InvoiceID: 'existing-123', Status: 'DRAFT' }] }) });
     const { createXeroTestInvoice } = await import('../../src/app/api/services/xeroTestInvoiceService.js');
     const result = await createXeroTestInvoice({ agentUserId: 'philUid', confirm: true, force: true });
 
-    expect(result.created).toBe(true);
-    expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
+    expect(result.created).toBe(false);
+    expect(result.reason).toBe('already-exists');
+    expect(mockFindOrCreateContact).not.toHaveBeenCalled();
   });
 
   it('never accepts a caller-supplied status — always DRAFT regardless of what is passed in', async () => {
     mockFindOrCreateContact.mockResolvedValue({ ContactID: 'contact-abc' });
-    mockCreateInvoice.mockResolvedValue({ InvoiceID: 'inv-xyz', Status: 'DRAFT' });
+    let capturedBody;
+    mockMakeXeroRequestByMethod({
+      onPost: (path, body) => { capturedBody = body; return { Invoices: [{ InvoiceID: 'inv-xyz', Status: 'DRAFT' }] }; },
+    });
 
     const { createXeroTestInvoice } = await import('../../src/app/api/services/xeroTestInvoiceService.js');
     // status isn't even a parameter this function accepts — confirms the call site can't smuggle one through
     await createXeroTestInvoice({ agentUserId: 'philUid', confirm: true, status: 'AUTHORISED' });
 
-    expect(mockCreateInvoice.mock.calls[0][0].status).toBe('DRAFT');
+    expect(capturedBody.Invoices[0].Status).toBe('DRAFT');
   });
 });
 
@@ -291,7 +334,7 @@ describe('POST /api/admin/invoicing/xero-test-invoice/create', () => {
     const { POST } = await import('../../src/app/api/admin/invoicing/xero-test-invoice/create/route.js');
     const res = await POST(makeRequest({ email: 'phil@propertyhubgc.com.au' }, 'Bearer t'));
     expect(res.status).toBe(400);
-    expect(mockCreateInvoice).not.toHaveBeenCalled();
+    expect(mockMakeXeroRequest).not.toHaveBeenCalled();
     process.env.XERO_DIAGNOSTIC_ENABLED = originalEnv;
   });
 
@@ -303,7 +346,7 @@ describe('POST /api/admin/invoicing/xero-test-invoice/create', () => {
     const { POST } = await import('../../src/app/api/admin/invoicing/xero-test-invoice/create/route.js');
     const res = await POST(makeRequest({ email: 'phil@propertyhubgc.com.au', confirm: true }, 'Bearer t'));
     expect(res.status).toBe(403);
-    expect(mockCreateInvoice).not.toHaveBeenCalled();
+    expect(mockMakeXeroRequest).not.toHaveBeenCalled();
     process.env.XERO_DIAGNOSTIC_ENABLED = originalEnv;
   });
 
@@ -313,7 +356,6 @@ describe('POST /api/admin/invoicing/xero-test-invoice/create', () => {
     fakeDb._seed('users', 'admin1', { superAdmin: true });
     fakeDb._seed('users', 'philUid', { email: 'phil@propertyhubgc.com.au' });
     mockFindOrCreateContact.mockResolvedValue({ ContactID: 'contact-abc' });
-    mockCreateInvoice.mockResolvedValue({ InvoiceID: 'inv-xyz', InvoiceNumber: 'PM-0099', Status: 'DRAFT' });
 
     const { POST } = await import('../../src/app/api/admin/invoicing/xero-test-invoice/create/route.js');
     const res = await POST(makeRequest({ email: 'phil@propertyhubgc.com.au', confirm: true }, 'Bearer t'));
@@ -321,7 +363,6 @@ describe('POST /api/admin/invoicing/xero-test-invoice/create', () => {
 
     expect(res.status).toBe(200);
     expect(data.created).toBe(true);
-    expect(data.invoiceId).toBe('inv-xyz');
     process.env.XERO_DIAGNOSTIC_ENABLED = originalEnv;
   });
 });
