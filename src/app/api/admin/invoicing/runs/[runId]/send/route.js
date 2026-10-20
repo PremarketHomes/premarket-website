@@ -30,6 +30,34 @@ function stableInvoiceIdempotencyKey(itemId) {
 }
 
 /**
+ * The exact name used to find-or-create this item's Xero contact —
+ * deliberately NOT always item.agencyName. findOrCreateContact
+ * matches purely by name, so two DIFFERENT independent agents (no
+ * company, billingEntityType 'independent') who happen to share the
+ * same personal name would otherwise collide onto one Xero contact,
+ * even though Premarket's own billingEntityKey correctly keeps them
+ * separate — their invoices would then sit under one shared Xero
+ * record, mixing two unrelated people's history.
+ *
+ * Fixed by appending a short, stable suffix derived from the
+ * billingEntityKey itself (already unique by construction, e.g.
+ * agent:<uid>) ONLY for independent agents — the one case this
+ * collision is actually possible. Company-based (billingEntityType
+ * 'agency') contacts are untouched: two agents genuinely sharing a
+ * company name are SUPPOSED to consolidate under one contact, so a
+ * disambiguating suffix there would be wrong, not a fix.
+ *
+ * This only changes what the XERO contact is named — it never
+ * changes item.agencyName itself, so nothing in Premarket's own
+ * admin dashboard display changes.
+ */
+function buildXeroContactName(item) {
+  if (item.billingEntityType !== 'independent') return item.agencyName;
+  const suffix = String(item.billingEntityKey || '').replace(/^agent:/, '').slice(0, 8);
+  return suffix ? `${item.agencyName} (${suffix})` : item.agencyName;
+}
+
+/**
  * POST /api/admin/invoicing/runs/[runId]/send
  * Send all invoices in a run to Xero.
  *
@@ -122,7 +150,7 @@ export async function POST(request, { params }) {
         } else {
           const nameParts = item.agentName?.split(' ') || [];
           const contact = await findOrCreateContact({
-            name: item.agencyName,
+            name: buildXeroContactName(item),
             email: item.agentEmail,
             firstName: nameParts[0] || '',
             lastName: nameParts.slice(1).join(' ') || '',
@@ -155,7 +183,13 @@ export async function POST(request, { params }) {
 
           const periodStart = runData.periodStart?.toDate?.() || new Date(runData.periodStart);
           const periodStr = periodStart.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
-          const reference = `${invoicePrefix}${periodStr} - ${item.agencyName}`;
+          // Same disambiguated name as the Xero contact above — two
+          // different independent agents sharing a personal name
+          // would otherwise also produce an IDENTICAL reference
+          // string for the same period, which could make the
+          // pre-flight reconciliation check below match the wrong
+          // person's invoice, not just the wrong contact.
+          const reference = `${invoicePrefix}${periodStr} - ${buildXeroContactName(item)}`;
 
           // Pre-flight reconciliation — never assume a reference or an
           // idempotency key alone is enough. This specifically guards

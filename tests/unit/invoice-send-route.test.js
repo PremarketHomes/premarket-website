@@ -186,6 +186,54 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
   });
 });
 
+describe('POST .../send — Xero contact name-collision fix', () => {
+  it('two different independent agents who happen to share a personal name get two DIFFERENT, disambiguated Xero contact names', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('invoiceRunItems', 'itemA', {
+      runId: 'run1', agencyName: 'Jo Lee', agentName: 'Jo Lee', agentEmail: 'jo.a@example.com',
+      billingEntityType: 'independent', billingEntityKey: 'agent:uidAAAAAAAA',
+      properties: [{ propertyId: 'pA', address: '1 A St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    });
+    fakeDb._seed('invoiceRunItems', 'itemB', {
+      runId: 'run1', agencyName: 'Jo Lee', agentName: 'Jo Lee', agentEmail: 'jo.b@example.com',
+      billingEntityType: 'independent', billingEntityKey: 'agent:uidBBBBBBBB',
+      properties: [{ propertyId: 'pB', address: '2 B St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+
+    expect(mockFindOrCreateContact).toHaveBeenCalledTimes(2);
+    const name1 = mockFindOrCreateContact.mock.calls[0][0].name;
+    const name2 = mockFindOrCreateContact.mock.calls[1][0].name;
+    expect(name1).not.toBe(name2); // never collide, even with identical display names
+    expect(name1).toContain('Jo Lee');
+    expect(name2).toContain('Jo Lee');
+  });
+
+  it('two agents at the SAME real company still share one Xero contact name — consolidation is intentional, not a collision', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('invoiceRunItems', 'item1', {
+      runId: 'run1', agencyName: 'Harcourts Property Hub', agentName: 'Jo Lee', agentEmail: 'jo@example.com',
+      billingEntityType: 'agency', billingEntityKey: 'agency:harcourts property hub',
+      properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+
+    expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ name: 'Harcourts Property Hub' }));
+  });
+
+  it('an item with no billingEntityType at all (older data shape) still works unchanged, using the plain agency name', async () => {
+    seedSingleItemRun();
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+
+    expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ name: 'Acme Agency' }));
+  });
+});
+
 function seedSingleItemRun(overrides = {}) {
   fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
   fakeDb._seed('invoiceRunItems', 'item1', {
