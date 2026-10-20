@@ -49,24 +49,40 @@ describe('users collection', () => {
   });
 
   // --- update ---
-  it('allows update of own user doc', async () => {
+  // `firstName` (a real, legitimately self-editable field — see
+  // dashboard/settings/page.js) rather than the placeholder `name` used
+  // elsewhere in this file: the update rule is now an allowlist of real
+  // field names, not a denylist, so a made-up field would pass for the
+  // wrong reason (it's simply not one of the denied ones) rather than
+  // actually proving a real self-service field still works.
+  it('allows update of own user doc using a real self-editable field', async () => {
     const db = getAuthedDb('user1');
-    await setDoc(doc(db, 'users', 'user1'), { name: 'Alice' });
-    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { name: 'Bob' }));
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob' }));
+  });
+
+  it('allows every field dashboard/settings and dashboard pages actually write to a user\'s own doc', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), {
+      firstName: 'Alice', lastName: 'Lee', roles: ['agent'], avatar: 'https://example.com/a.png',
+      logoUrl: 'https://example.com/logo.png', companyName: 'Acme Realty',
+      phone: '+61400000000', mobileConfirmedAt: new Date(),
+    }));
   });
 
   it('denies update of another user doc', async () => {
     const ownerDb = getAuthedDb('user1');
-    await setDoc(doc(ownerDb, 'users', 'user1'), { name: 'Alice' });
+    await setDoc(doc(ownerDb, 'users', 'user1'), { firstName: 'Alice' });
     const db = getAuthedDb('user2');
-    await assertFails(updateDoc(doc(db, 'users', 'user1'), { name: 'Hacker' }));
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Hacker' }));
   });
 
   it('denies unauthenticated update', async () => {
     const ownerDb = getAuthedDb('user1');
-    await setDoc(doc(ownerDb, 'users', 'user1'), { name: 'Alice' });
+    await setDoc(doc(ownerDb, 'users', 'user1'), { firstName: 'Alice' });
     const db = getUnauthDb();
-    await assertFails(updateDoc(doc(db, 'users', 'user1'), { name: 'Hacker' }));
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Hacker' }));
   });
 
   // --- agencyBrandId (agency branding) ---
@@ -76,32 +92,90 @@ describe('users collection', () => {
   // public campaigns.
   it('denies the owner setting their own agencyBrandId directly', async () => {
     const db = getAuthedDb('user1');
-    await setDoc(doc(db, 'users', 'user1'), { name: 'Alice' });
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
     await assertFails(updateDoc(doc(db, 'users', 'user1'), { agencyBrandId: 'harcourts-property-hub' }));
   });
 
   it('denies changing agencyBrandId even alongside an otherwise-valid field', async () => {
     const db = getAuthedDb('user1');
-    await setDoc(doc(db, 'users', 'user1'), { name: 'Alice' });
-    await assertFails(updateDoc(doc(db, 'users', 'user1'), { name: 'Bob', agencyBrandId: 'someone-elses-brand' }));
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob', agencyBrandId: 'someone-elses-brand' }));
   });
 
   it('still allows updating unrelated fields when agencyBrandId is untouched', async () => {
     const db = getAuthedDb('user1');
-    await setDoc(doc(db, 'users', 'user1'), { name: 'Alice', agencyBrandId: 'existing-brand' });
-    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { name: 'Bob' }));
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice', agencyBrandId: 'existing-brand' });
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob' }));
+  });
+
+  // --- privilege escalation (P0 fix) ---
+  // The vulnerability: the update rule used to denylist only
+  // agencyBrandId, leaving every other field — including superAdmin —
+  // freely self-writable. These prove it's actually closed, not just
+  // that the comment changed.
+  it('SECURITY: denies a user granting themselves superAdmin via update', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { superAdmin: true }));
+  });
+
+  it('SECURITY: denies granting superAdmin even bundled with an otherwise-legitimate field — all or nothing', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob', superAdmin: true }));
+  });
+
+  it('SECURITY: denies a user granting themselves superAdmin at account creation', async () => {
+    const db = getAuthedDb('user1');
+    await assertFails(setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice', superAdmin: true }));
+  });
+
+  it('SECURITY: account creation without superAdmin still succeeds (the fix does not break signup)', async () => {
+    const db = getAuthedDb('user1');
+    await assertSucceeds(setDoc(doc(db, 'users', 'user1'), {
+      firstName: 'Alice', lastName: 'Lee', email: 'alice@example.com', agent: false,
+      pro: false, isBuyer: true, roles: ['buyer'], active: true,
+    }));
+  });
+
+  it('SECURITY: a legitimately pro:true agent signup still succeeds — pro is only blocked from later self-update, not from create', async () => {
+    const db = getAuthedDb('user1');
+    await assertSucceeds(setDoc(doc(db, 'users', 'user1'), {
+      firstName: 'Alice', pro: true, agent: true, roles: ['agent'],
+    }));
+  });
+
+  it('SECURITY: denies self-granting pro via update (no legitimate self-service flow ever does this)', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice', pro: false });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { pro: true }));
+  });
+
+  it('SECURITY: denies self-granting isAgent/isBuyer flags via update', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { isAgent: true }));
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { isBuyer: true }));
+  });
+
+  it('SECURITY: a non-admin genuinely cannot read/write anything gated by isSuperAdmin() after self-granting fails', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { superAdmin: true }));
+    // Confirms the escalation attempt left no trace: adminNotes (superAdmin-only) is still denied.
+    await assertFails(setDoc(doc(db, 'users', 'user1', 'adminNotes', 'note1'), { text: 'hacked' }));
   });
 
   // --- delete ---
   it('denies delete even for own user doc', async () => {
     const db = getAuthedDb('user1');
-    await setDoc(doc(db, 'users', 'user1'), { name: 'Alice' });
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
     await assertFails(deleteDoc(doc(db, 'users', 'user1')));
   });
 
   it('denies unauthenticated delete', async () => {
     const ownerDb = getAuthedDb('user1');
-    await setDoc(doc(ownerDb, 'users', 'user1'), { name: 'Alice' });
+    await setDoc(doc(ownerDb, 'users', 'user1'), { firstName: 'Alice' });
     const db = getUnauthDb();
     await assertFails(deleteDoc(doc(db, 'users', 'user1')));
   });

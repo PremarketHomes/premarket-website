@@ -46,6 +46,40 @@ describe.each([
   });
 });
 
+// settings/xeroTokens and settings/invoicing are denylisted out of the
+// otherwise-public settings collection above — they hold live Xero OAuth
+// tokens and internal billing config respectively, neither of which has
+// any legitimate client-read use. Every other settings doc (exercised
+// above as 'doc1') must keep working exactly as before.
+describe.each([
+  { name: 'xeroTokens', id: 'xeroTokens' },
+  { name: 'invoicing', id: 'invoicing' },
+])('settings/$name (denylisted — no public read, despite settings being public-read generally)', ({ id }) => {
+  it('denies unauthenticated read', async () => {
+    await seedDoc(`settings/${id}`, { secret: 'test' });
+    const db = getUnauthDb();
+    await assertFails(getDoc(doc(db, 'settings', id)));
+  });
+
+  it('denies authenticated read', async () => {
+    await seedDoc(`settings/${id}`, { secret: 'test' });
+    const db = getAuthedDb('user1');
+    await assertFails(getDoc(doc(db, 'settings', id)));
+  });
+
+  it('denies superAdmin read via the client SDK (server code uses the Admin SDK, which bypasses rules entirely)', async () => {
+    await seedDoc(`settings/${id}`, { secret: 'test' });
+    const db = await getSuperAdminDb();
+    await assertFails(getDoc(doc(db, 'settings', id)));
+  });
+
+  it('still denies write at every auth level, same as before', async () => {
+    await assertFails(setDoc(doc(getUnauthDb(), 'settings', id), { data: 'x' }));
+    await assertFails(setDoc(doc(getAuthedDb('user1'), 'settings', id), { data: 'x' }));
+    await assertFails(setDoc(doc(await getSuperAdminDb(), 'settings', id), { data: 'x' }));
+  });
+});
+
 // displays: public read, superAdmin write
 describe('displays (public read, superAdmin write)', () => {
   // --- read ---
