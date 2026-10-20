@@ -4,6 +4,7 @@ import { getCredentials, fetchListingById, mapRexListingToProperty } from '../..
 import { DEMO_LISTINGS } from '../../../../api/services/rexDemoData';
 import { adminDb } from '../../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
+import { createPropertyAndChargeAtomically } from '../../../../api/services/billingService';
 
 export async function POST(request) {
   try {
@@ -79,11 +80,14 @@ export async function POST(request) {
         // Map to Premarket property
         const propertyData = mapRexListingToProperty(listing, uid);
 
-        // Create the property document
-        const docRef = await adminDb.collection('properties').add(propertyData);
+        // Creates the property and its charge in one transaction — no
+        // gap where the property exists but never got charged. Demo-
+        // mode imports are sample data, not a real listing, so they
+        // skip the charge entirely (still created normally).
+        const { propertyId } = await createPropertyAndChargeAtomically(propertyData, { skipCharge: isDemo });
 
         // Create draft backup
-        await adminDb.collection('draftProperties').doc(docRef.id).set({
+        await adminDb.collection('draftProperties').doc(propertyId).set({
           ...propertyData,
           override: true,
           createdAt: FieldValue.serverTimestamp(),
@@ -92,7 +96,7 @@ export async function POST(request) {
         results.push({
           listingId,
           status: 'imported',
-          propertyId: docRef.id,
+          propertyId,
         });
       } catch (err) {
         console.error(`Error importing Rex listing ${listingId}:`, err);

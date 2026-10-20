@@ -2927,22 +2927,25 @@ XERO_REDIRECT_URI=https://premarket.homes/api/auth/xero/callback`}
           <section id="invoicing-automation" className="scroll-mt-20">
             <h2 className="text-2xl font-bold text-slate-900 mb-4">Automation</h2>
             <p className="text-slate-600 leading-relaxed mb-6">
-              The invoicing system includes a daily cron job that can automatically generate draft invoice runs on a configured day each month.
+              Each agency bills on its own rolling 30-day cycle, not a shared calendar day — a daily cron checks
+              every agency independently and creates a draft run only for the ones that are actually due.
             </p>
 
-            <h3 className="text-lg font-semibold text-slate-900 mb-3">Monthly cron job</h3>
+            <h3 className="text-lg font-semibold text-slate-900 mb-3">30-day cycle, per agency</h3>
             <p className="text-slate-600 leading-relaxed mb-4">
               The cron runs daily at 4am UTC via{' '}
-              <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-xs font-mono">/api/cron/invoice-dry-run</code>.
-              On the configured day of the month, it:
+              <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-xs font-mono">/api/cron/invoice-dry-run</code>. Each run:
             </p>
             <ol className="list-decimal list-inside text-slate-600 text-sm space-y-1 mb-6 ml-2">
               <li>Checks if <code className="bg-slate-100 text-slate-800 px-1 py-0.5 rounded text-xs font-mono">cronEnabled</code> is true in settings</li>
-              <li>Checks if today matches the configured <code className="bg-slate-100 text-slate-800 px-1 py-0.5 rounded text-xs font-mono">cronDay</code> (1–28)</li>
-              <li>Verifies no run already exists for the previous month</li>
-              <li>Creates a draft run for the previous calendar month</li>
+              <li>Finds every agency whose OLDEST still-uninvoiced charge has reached 30 days old (<code className="bg-slate-100 text-slate-800 px-1 py-0.5 rounded text-xs font-mono">billingService.getDueBillingEntityKeys</code>) — a different agency may become due on a different day, depending on when their own charges were first recorded</li>
+              <li>Creates ONE draft run containing only those due agencies — every other agency's charges stay untouched at <code className="bg-slate-100 text-slate-800 px-1 py-0.5 rounded text-xs font-mono">pending</code>, waiting for their own cycle to mature</li>
               <li>Sends a notification email to all superAdmin users with a summary and link to review</li>
             </ol>
+            <p className="text-slate-600 leading-relaxed mb-6">
+              A manual <strong>Create Run</strong> (Invoice Runs tab) bundles everything currently pending on demand,
+              ignoring the 30-day check entirely — this is deliberate, so testing never has to wait out a real cycle.
+            </p>
 
             <h3 className="text-lg font-semibold text-slate-900 mb-3">Configuration</h3>
             <p className="text-slate-600 leading-relaxed mb-4">
@@ -2951,8 +2954,8 @@ XERO_REDIRECT_URI=https://premarket.homes/api/auth/xero/callback`}
             <div className="rounded-lg border border-slate-200 overflow-hidden mb-6">
               <div className="divide-y divide-slate-200">
                 {[
-                  ['Auto-generate', 'Toggle on/off. When enabled, the cron creates a draft run automatically.'],
-                  ['Day of month', 'Which day (1–28) the cron should trigger. Default: 1st.'],
+                  ['Auto-generate', 'Toggle on/off. When enabled, the cron checks every agency\'s 30-day cycle daily and creates draft runs automatically for the ones that are due.'],
+                  ['Billing contact', 'Per-agency override of who the consolidated invoice is emailed to — set from an invoice run\'s detail view. Falls back to the agent who created the charge if never set.'],
                   ['Notification', 'SuperAdmins receive an email with property count, agency count, and total amount.'],
                 ].map(([label, desc], i) => (
                   <div key={i} className="flex items-start gap-4 px-4 py-3">
@@ -3054,14 +3057,14 @@ XERO_REDIRECT_URI=https://premarket.homes/api/auth/xero/callback`}
               </div>
               <pre className="px-4 py-4 text-sm font-mono text-slate-100 bg-slate-900 overflow-x-auto">
 {`{
-  "pricePerListing": 200,       // GST-inclusive price per listing
-  "gstRate": 0.10,              // GST rate (10%)
-  "paymentTermsDays": 14,       // invoice due date offset
-  "invoicePrefix": "PM-",       // prefix for Xero invoice references
-  "xeroAccountCode": "200",     // Xero revenue account code
-  "cronDay": 1,                 // day of month for auto dry run
-  "cronEnabled": false,          // enable/disable monthly automation
-  "excludeAgentIds": []          // agent user IDs to exclude from billing
+  "pricePerListing": 200,        // GST-inclusive price per listing
+  "gstRate": 0,                  // GST rate — 0 while not GST registered
+  "paymentTermsDays": 14,        // invoice due date offset
+  "invoicePrefix": "PM-",        // prefix for Xero invoice references
+  "xeroAccountCode": "200",      // Xero revenue account code
+  "cronEnabled": false,          // enable/disable the daily 30-day-cycle check
+  "excludeAgentIds": [],         // agent user IDs to exclude from billing
+  "billingActivatedAt": null     // set once via POST .../activate-billing; null = billing off
 }`}
               </pre>
             </div>

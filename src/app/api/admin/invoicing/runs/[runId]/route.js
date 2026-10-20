@@ -2,6 +2,15 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '../../../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { verifyAdmin } from '../../../../middleware/auth';
+import { releaseCharges } from '../../../../services/billingService';
+
+/** Every propertyId currently attached to a run, across all its items —
+ * used to release the right charges back to 'pending' whenever the run
+ * itself (not an individual item) is cancelled or deleted. */
+async function getAllPropertyIdsForRun(runId) {
+  const itemsSnap = await adminDb.collection('invoiceRunItems').where('runId', '==', runId).get();
+  return itemsSnap.docs.flatMap((d) => (d.data().properties || []).map((p) => p.propertyId)).filter(Boolean);
+}
 
 /**
  * GET /api/admin/invoicing/runs/[runId]
@@ -104,6 +113,11 @@ export async function PATCH(request, { params }) {
       if (!['draft', 'approved'].includes(currentStatus)) {
         return NextResponse.json({ error: 'Cannot cancel this run' }, { status: 400 });
       }
+      // Release every charge this run was holding back to 'pending' —
+      // a cancelled run must never permanently strand a charge; it
+      // just gets picked up by whichever run is created next.
+      const propertyIds = await getAllPropertyIdsForRun(runId);
+      await releaseCharges(propertyIds);
       await runRef.update({ status: 'cancelled', cancelledAt: FieldValue.serverTimestamp(), cancelledBy: auth.uid });
       return NextResponse.json({ success: true, status: 'cancelled' });
     }
@@ -117,6 +131,13 @@ export async function PATCH(request, { params }) {
       if (!itemIds?.length) {
         return NextResponse.json({ error: 'No itemIds provided' }, { status: 400 });
       }
+
+      // Release these items' charges before deleting the items
+      // themselves — otherwise their propertyIds would be gone from
+      // Firestore before we can look them up to release.
+      const itemDocs = await Promise.all(itemIds.map((id) => adminDb.collection('invoiceRunItems').doc(id).get()));
+      const propertyIdsToRelease = itemDocs.flatMap((d) => (d.exists ? (d.data().properties || []).map((p) => p.propertyId) : [])).filter(Boolean);
+      await releaseCharges(propertyIdsToRelease);
 
       const batch = adminDb.batch();
       for (const itemId of itemIds) {
@@ -147,17 +168,24 @@ export async function PATCH(request, { params }) {
       const item = itemDoc.data();
       const remaining = (item.properties || []).filter((p) => !propertyIds.includes(p.propertyId));
 
+      // Release exactly the properties actually being removed — not
+      // "remaining", the inverse — back to 'pending'.
+      await releaseCharges(propertyIds);
+
       if (remaining.length === 0) {
         // All properties removed — delete the entire item
         await itemRef.delete();
       } else {
-        // Recalculate item totals
-        const gstRate = runDoc.data().gstRate || 0.1;
-        const pricePerListing = item.pricePerListing || 200;
+        // Recalculate item totals by summing what's left — each
+        // property carries its own charge amounts (snapshotted at
+        // charge-creation time, see billingService.js), which may not
+        // all be the same price if settings/invoicing changed between
+        // when they were each recorded. Never re-derive from a single
+        // assumed run-wide price.
         const propertyCount = remaining.length;
-        const subtotalEx = (pricePerListing / (1 + gstRate)) * propertyCount;
-        const totalInc = pricePerListing * propertyCount;
-        const gstAmount = totalInc - subtotalEx;
+        const subtotalEx = remaining.reduce((sum, p) => sum + (p.subtotalEx || 0), 0);
+        const gstAmount = remaining.reduce((sum, p) => sum + (p.gstAmount || 0), 0);
+        const totalInc = remaining.reduce((sum, p) => sum + (p.totalInc || 0), 0);
 
         await itemRef.update({
           properties: remaining,
@@ -201,6 +229,11 @@ export async function DELETE(request, { params }) {
     if (runDoc.data().status !== 'draft') {
       return NextResponse.json({ error: 'Can only delete draft runs' }, { status: 400 });
     }
+
+    // Release this run's charges back to 'pending' before deleting it
+    // — a deleted draft must not strand them.
+    const propertyIds = await getAllPropertyIdsForRun(runId);
+    await releaseCharges(propertyIds);
 
     // Delete all items for this run
     const itemsSnap = await adminDb

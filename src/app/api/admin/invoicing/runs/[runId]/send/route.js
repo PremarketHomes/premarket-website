@@ -7,6 +7,7 @@ import {
   sendInvoice,
   isXeroConnected,
 } from '../../../../../services/xeroService';
+import { markChargesInvoiced, markChargesFailed } from '../../../../../services/billingService';
 import { verifyAdmin } from '../../../../../middleware/auth';
 
 /**
@@ -75,12 +76,21 @@ export async function POST(request, { params }) {
           throw new Error(`Failed to create Xero contact for ${item.agencyName}`);
         }
 
-        // Build line items - one per property, ex-GST unit amount
-        const unitAmountExGst = item.pricePerListing / (1 + (runData.gstRate || 0.1));
+        // Build line items — one per property, using THAT property's
+        // own already ex-GST subtotalEx and already-computed gstAmount
+        // (both snapshotted onto the charge at charge-creation time,
+        // see billingService.js). Deliberately never derives a single
+        // run-wide unit amount or tax rate from the item or the run —
+        // neither carries a pricePerListing/gstRate field at all
+        // (an item consolidates possibly-differently-priced charges),
+        // so each property's own numbers are the only source of truth,
+        // same principle runs/[runId]/route.js's removeProperties
+        // already follows when recalculating a run's totals.
         const lineItems = item.properties.map((prop) => ({
           description: `Premarket listing: ${prop.address}`,
           quantity: 1,
-          unitAmount: Math.round(unitAmountExGst * 100) / 100,
+          unitAmount: prop.subtotalEx,
+          taxType: prop.gstAmount > 0 ? 'OUTPUT' : 'NONE',
         }));
 
         // Due date
@@ -119,14 +129,10 @@ export async function POST(request, { params }) {
           lastSyncedAt: FieldValue.serverTimestamp(),
         });
 
-        // Mark properties as invoiced
-        for (const prop of item.properties) {
-          if (prop.propertyId) {
-            await adminDb.collection('properties').doc(prop.propertyId).update({
-              invoicedRunIds: FieldValue.arrayUnion(runId),
-            });
-          }
-        }
+        // Flip this item's charges from 'queued' to 'invoiced' — the
+        // thing that actually prevents these properties from ever
+        // being billed again, not a flag on the property itself.
+        await markChargesInvoiced(item.properties.map((p) => p.propertyId).filter(Boolean));
 
         results.push({
           agencyName: item.agencyName,
@@ -141,6 +147,11 @@ export async function POST(request, { params }) {
         });
 
         await itemRef.update({ status: 'error', lastError: err.message });
+
+        // Release this item's charges back to 'pending' — a failed
+        // send must not leave them permanently stuck 'queued' against
+        // an item that errored out; the next run will pick them up.
+        await markChargesFailed(item.properties.map((p) => p.propertyId).filter(Boolean));
       }
     }
 

@@ -3,15 +3,17 @@
 import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { BarChart3, FileText, Settings, Plug, ChevronRight } from 'lucide-react';
+import { BarChart3, FileText, Settings, Plug, ChevronRight, Receipt } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { authFetch } from '../../../utils/authFetch';
 import InvoicingOverview from './components/InvoicingOverview';
 import InvoiceRunsPanel from './components/InvoiceRunsPanel';
 import InvoicingSettings from './components/InvoicingSettings';
+import ChargesPanel from './components/ChargesPanel';
 
 const TABS = [
   { key: 'overview', label: 'Overview', icon: BarChart3 },
+  { key: 'charges', label: 'Charges', icon: Receipt },
   { key: 'runs', label: 'Invoice Runs', icon: FileText },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -23,8 +25,12 @@ function InvoicingPageContent() {
   const [activeTab, setActiveTab] = useState('overview');
   const [xeroConnected, setXeroConnected] = useState(false);
   const [xeroLoading, setXeroLoading] = useState(true);
+  const [pricePerListing, setPricePerListing] = useState(null);
+  const [xeroError, setXeroError] = useState(null);
 
-  // Check Xero connection status
+  // Check Xero connection status + current wholesale price — fetched
+  // once here rather than separately in InvoiceRunsPanel, since this
+  // is the one place that already loads invoicing settings on mount.
   useEffect(() => {
     async function checkXero() {
       if (!user) return;
@@ -32,6 +38,7 @@ function InvoicingPageContent() {
         const res = await authFetch(`/api/admin/invoicing/settings`);
         const data = await res.json();
         setXeroConnected(data.settings?.xeroConnected || false);
+        setPricePerListing(data.settings?.pricePerListing ?? null);
       } catch {
         // ignore
       } finally {
@@ -41,11 +48,18 @@ function InvoicingPageContent() {
     checkXero();
   }, [user]);
 
-  // Handle Xero OAuth callback params
+  // Handle Xero OAuth callback params — both outcomes, not just success,
+  // so a failed connection attempt is never silent (see
+  // XERO_ERROR_MESSAGES in InvoicingSettings.js for what each reason means).
   useEffect(() => {
     const xeroStatus = searchParams.get('xero');
     if (xeroStatus === 'connected') {
       setXeroConnected(true);
+      setActiveTab('settings');
+      router.replace('/dashboard/admin/invoicing', { scroll: false });
+    } else if (xeroStatus === 'error') {
+      setXeroError(searchParams.get('reason') || 'unknown');
+      setActiveTab('settings');
       router.replace('/dashboard/admin/invoicing', { scroll: false });
     }
   }, [searchParams, router]);
@@ -99,8 +113,16 @@ function InvoicingPageContent() {
 
       {/* Content */}
       {activeTab === 'overview' && <InvoicingOverview user={user} />}
-      {activeTab === 'runs' && <InvoiceRunsPanel user={user} />}
-      {activeTab === 'settings' && <InvoicingSettings user={user} xeroConnected={xeroConnected} />}
+      {activeTab === 'charges' && <ChargesPanel />}
+      {activeTab === 'runs' && <InvoiceRunsPanel user={user} pricePerListing={pricePerListing} />}
+      {activeTab === 'settings' && (
+        <InvoicingSettings
+          user={user}
+          xeroConnected={xeroConnected}
+          xeroError={xeroError}
+          onXeroDisconnected={() => setXeroConnected(false)}
+        />
+      )}
     </div>
   );
 }

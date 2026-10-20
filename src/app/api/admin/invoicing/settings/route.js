@@ -4,14 +4,25 @@ import { verifyAdmin } from '../../../middleware/auth';
 
 const DEFAULT_SETTINGS = {
   pricePerListing: 200,
-  gstRate: 0.1,
+  gstRate: 0, // Premarket Group Pty Ltd is not GST registered
   paymentTermsDays: 14,
   invoicePrefix: 'PM-',
   xeroAccountCode: '200',
-  cronDay: 1,
+  // Each agency bills on its own rolling 30-day cycle now (see
+  // billingService.getDueBillingEntityKeys) — there's no shared
+  // "day of the month" any more, so cronDay was removed. cronEnabled
+  // is still the on/off switch for whether the daily cron creates
+  // draft runs automatically at all.
   cronEnabled: false,
   excludeAgentIds: [],
   marketReportRecipients: [],
+  // null = billing has never been activated (the default — see
+  // billingService.js's isPropertyBillable). Deliberately NOT in PUT's
+  // allowedFields below — this can only be set by the dedicated
+  // POST /api/admin/invoicing/activate-billing action, never by
+  // editing it like any other setting, so it's never backdated or
+  // accidentally reset by a routine settings save.
+  billingActivatedAt: null,
 };
 
 export async function GET(request) {
@@ -48,7 +59,7 @@ export async function PUT(request) {
 
     const allowedFields = [
       'pricePerListing', 'gstRate', 'paymentTermsDays', 'invoicePrefix',
-      'xeroAccountCode', 'cronDay', 'cronEnabled', 'excludeAgentIds',
+      'xeroAccountCode', 'cronEnabled', 'excludeAgentIds',
       'marketReportRecipients',
     ];
 

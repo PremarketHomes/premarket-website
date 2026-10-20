@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+# Firestore emulator debug output
+firestore-debug.log

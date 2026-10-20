@@ -18,6 +18,10 @@ const STATUS_STYLES = {
   VOIDED: 'bg-slate-100 text-slate-400',
   OVERDUE: 'bg-red-100 text-red-700',
   pending: 'bg-slate-100 text-slate-500',
+  queued: 'bg-blue-100 text-blue-700',
+  invoiced: 'bg-emerald-100 text-emerald-700',
+  excluded: 'bg-slate-100 text-slate-400',
+  reversed: 'bg-red-100 text-red-700',
 };
 
 export default function InvoiceStatusBadge({ status }) {

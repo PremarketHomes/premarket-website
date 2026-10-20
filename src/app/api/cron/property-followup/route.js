@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
+import { verifyCron } from '../../middleware/auth';
 import { Timestamp } from 'firebase-admin/firestore';
 import { sendPropertyFollowUpEmail } from '../../services/resendService';
 
@@ -10,9 +11,9 @@ export const maxDuration = 300;
  * Asks agents if the property has been sold and links to the sold entry page.
  */
 export async function GET(request) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = verifyCron(request);
+  if (!auth.authenticated) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   try {

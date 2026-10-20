@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
+import { verifyCron } from '../../middleware/auth';
 import { Timestamp } from 'firebase-admin/firestore';
 import { computeAllPHI, computeConfidence, getWeights, segmentProperties } from '../../v1/phiScoring';
 import { sendEmail } from '../../services/resendService';
@@ -63,9 +64,9 @@ function buildScoreBar(label, score, hint) {
  * and sends it to configured recipients.
  */
 export async function GET(request) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = verifyCron(request);
+  if (!auth.authenticated) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   try {

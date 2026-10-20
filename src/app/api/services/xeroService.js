@@ -2,51 +2,6 @@ import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// EXISTING: User invoice sync (webhook-driven)
-// ═══════════════════════════════════════════════════════════════════════════
-
-export async function updateInvoiceInFirestore(invoiceData) {
-  const invoiceId = invoiceData.InvoiceID || invoiceData.invoiceId;
-  const newStatus = invoiceData.Status || invoiceData.status;
-  const updatedTotal = invoiceData.Total || invoiceData.total;
-
-  if (!invoiceId) throw new Error('Missing InvoiceID in payload');
-
-  const userSnap = await adminDb
-    .collection('users')
-    .where('invoiceIds', 'array-contains', invoiceId)
-    .get();
-
-  if (userSnap.empty) {
-    console.warn(`No user found for invoice ${invoiceId}`);
-    return null;
-  }
-
-  const userDoc = userSnap.docs[0];
-  const userRef = userDoc.ref;
-  const userData = userDoc.data();
-  const invoices = userData.invoices || [];
-
-  const updatedInvoices = invoices.map((inv) =>
-    inv.InvoiceID === invoiceId
-      ? {
-          ...inv,
-          Status: newStatus || inv.Status,
-          Total: updatedTotal || inv.Total,
-          UpdatedAt: new Date().toISOString(),
-        }
-      : inv
-  );
-
-  await userRef.update({
-    invoices: updatedInvoices,
-    lastInvoiceSync: FieldValue.serverTimestamp(),
-  });
-
-  return userRef.id;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // XERO API: Token management
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -100,6 +55,56 @@ export async function isXeroConnected() {
   if (!tokens.expires_at) return false;
   // Connected if we have tokens (even if expired, we can refresh)
   return !!tokens.refresh_token;
+}
+
+const XERO_CONNECTIONS_URL = 'https://api.xero.com/connections';
+
+/**
+ * The previous "Disconnect" button only rewrote an unrelated settings
+ * field and reloaded the page — it never actually touched
+ * settings/xeroTokens, so Xero stayed connected underneath regardless
+ * of what the UI showed. This is the real thing: best-effort revokes
+ * our app's authorisation at Xero's end (DELETE /connections/{id} —
+ * so "Premarket" also disappears from the org's own Connected Apps
+ * list, not just from our side), then ALWAYS deletes the local
+ * settings/xeroTokens doc regardless of whether the remote revoke
+ * succeeded — a network hiccup calling Xero must never leave this
+ * stuck "still connected" locally when the actual goal is "Premarket
+ * can no longer use this token." Touches nothing else: no
+ * propertyCharges, no invoiceRuns, no billing settings, and makes no
+ * call that could create or send an invoice.
+ */
+export async function disconnectXero() {
+  const tokens = await getXeroTokens();
+  if (!tokens?.access_token) {
+    return { wasConnected: false, revokedAtXero: false };
+  }
+
+  let revokedAtXero = false;
+  try {
+    const connRes = await fetch(XERO_CONNECTIONS_URL, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    if (connRes.ok) {
+      const connections = await connRes.json();
+      const connection = connections.find((c) => c.tenantId === tokens.tenant_id) || connections[0];
+      if (connection?.id) {
+        const delRes = await fetch(`${XERO_CONNECTIONS_URL}/${connection.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        });
+        revokedAtXero = delRes.ok;
+      }
+    }
+  } catch (err) {
+    // Best-effort — an expired token or network issue here must never
+    // block clearing our own local copy below.
+    console.error('Xero connection revocation failed (clearing local tokens regardless):', err);
+  }
+
+  await adminDb.collection('settings').doc('xeroTokens').delete();
+
+  return { wasConnected: true, revokedAtXero };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -171,11 +176,47 @@ export async function findOrCreateContact({ name, email, firstName, lastName }) 
   return result.Contacts?.[0] || null;
 }
 
+/** Read-only — never creates. Used by the Xero connection diagnostic
+ * to check whether its dedicated test contact already exists, without
+ * ever causing a side effect itself. */
+export async function searchContactByName(name) {
+  const searchName = name.replace(/"/g, '\\"');
+  const result = await makeXeroRequest('GET', `/Contacts?where=Name=="${searchName}"`);
+  return result.Contacts?.[0] || null;
+}
+
+/** Read-only. Confirms which Xero organisation the stored tokens are
+ * actually connected to — distinct from isXeroConnected (which only
+ * checks that SOME token is stored, not that it's valid or for the
+ * org you expect). */
+export async function getOrganisation() {
+  const result = await makeXeroRequest('GET', '/Organisation');
+  return result.Organisations?.[0] || null;
+}
+
+/** Read-only. Confirms a given account code actually exists in the
+ * connected org's chart of accounts before anything tries to invoice
+ * against it. */
+export async function getAccountByCode(code) {
+  const result = await makeXeroRequest('GET', `/Accounts?where=Code=="${code}"`);
+  return result.Accounts?.[0] || null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // XERO API: Invoices
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode }) {
+export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType, status }) {
+  // 'NONE' (not GST registered — Premarket's actual status) or
+  // 'OUTPUT' (GST on income, 10%, if that ever changes). Each line
+  // item normally carries its own taxType (send/route.js derives it
+  // per property, from that property's own snapshotted gstAmount —
+  // different properties in the same consolidated invoice could in
+  // principle have been charged under different settings if gstRate
+  // changed between them). `taxType` here is only a fallback default
+  // for a line item that doesn't specify its own — never a value this
+  // function invents or defaults to GST on its own.
+  const defaultTaxType = taxType || 'NONE';
   const invoice = {
     Type: 'ACCREC',
     Contact: { ContactID: contactId },
@@ -184,11 +225,15 @@ export async function createInvoice({ contactId, lineItems, reference, dueDate, 
       Quantity: li.quantity,
       UnitAmount: li.unitAmount, // ex-GST
       AccountCode: accountCode || '200',
-      TaxType: 'OUTPUT', // Xero auto-calculates 10% GST
+      TaxType: li.taxType || defaultTaxType,
     })),
     Reference: reference || '',
     DueDate: dueDate || '',
-    Status: 'AUTHORISED',
+    // Every real caller (send/route.js) relies on this defaulting to
+    // AUTHORISED — unchanged. Only the Xero connection diagnostic
+    // passes 'DRAFT' explicitly, specifically so it never becomes
+    // payable or reaches Xero's own invoice-reminder automation.
+    Status: status || 'AUTHORISED',
     LineAmountTypes: 'Exclusive',
   };
 
@@ -228,14 +273,20 @@ export async function updateInvoiceRunItem(xeroInvoiceId, statusData) {
   if (snap.empty) return null;
 
   const docRef = snap.docs[0].ref;
+  const status = statusData.Status || statusData.status;
   const updates = {
-    xeroStatus: statusData.Status || statusData.status,
+    xeroStatus: status,
     lastSyncedAt: FieldValue.serverTimestamp(),
   };
 
-  if (statusData.Status === 'PAID' || statusData.FullyPaidOnDate) {
+  // Mirrors the exact same status handling as the manual "Sync" action
+  // (runs/[runId]/sync/route.js) — the webhook and the manual sync must
+  // never disagree about what a given Xero status means locally.
+  if (status === 'PAID' || statusData.FullyPaidOnDate) {
     updates.paidAt = statusData.FullyPaidOnDate || new Date().toISOString();
     updates.status = 'paid';
+  } else if (status === 'VOIDED') {
+    updates.status = 'voided';
   }
 
   await docRef.update(updates);
