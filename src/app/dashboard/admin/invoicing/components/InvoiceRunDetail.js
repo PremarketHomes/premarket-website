@@ -325,6 +325,30 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
   );
 }
 
+// billingContactStatus is stamped onto the item at run-creation time
+// (invoiceRunService.js), purely for this display — it is NOT what
+// the send route trusts; that always re-resolves live. Older runs
+// created before this feature shipped have no such field at all, so
+// an unrecognised/missing status renders nothing rather than a
+// potentially-wrong badge.
+function BillingContactStatusBadge({ status }) {
+  if (status === 'pending') {
+    return (
+      <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5 rounded-full">
+        Pending confirmation
+      </span>
+    );
+  }
+  if (status === 'unset' || status === 'rejected') {
+    return (
+      <span className="inline-flex items-center gap-1 bg-red-50 text-red-700 text-[10px] font-semibold px-1.5 py-0.5 rounded-full">
+        Billing details required
+      </span>
+    );
+  }
+  return null;
+}
+
 function AgencyRow({
   item, isDraft, canEditBillingContact, editingContact, onEditBillingContact,
   expanded, onToggle, onRemoveAgency, onRemoveProperty, removingItem, removingProp,
@@ -332,7 +356,12 @@ function AgencyRow({
   return (
     <>
       <tr className="hover:bg-slate-50 cursor-pointer" onClick={onToggle}>
-        <td className="px-4 py-3 font-medium text-slate-900">{item.agencyName}</td>
+        <td className="px-4 py-3 font-medium text-slate-900">
+          <div className="flex items-center gap-2">
+            {item.agencyName}
+            <BillingContactStatusBadge status={item.billingContactStatus} />
+          </div>
+        </td>
         <td className="px-4 py-3 text-slate-600">
           <div className="flex items-center gap-1.5">
             <div>

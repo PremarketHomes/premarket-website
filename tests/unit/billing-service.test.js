@@ -994,8 +994,9 @@ describe('resolveBillingContact / setBillingContact', () => {
     const { setBillingContact, resolveBillingContact } = await import('../../src/app/api/services/billingService.js');
     await setBillingContact({ billingEntityKey: 'agency:a', name: 'Jo Lee', email: 'jo@example.com', adminUid: 'admin1' });
     const contact = await resolveBillingContact('agency:a');
-    expect(contact).toEqual({ name: 'Jo Lee', email: 'jo@example.com' });
+    expect(contact).toEqual({ name: 'Jo Lee', email: 'jo@example.com', billingName: '' });
     expect(fakeDb._store.billingContacts['agency:a'].setBy).toBe('admin1');
+    expect(fakeDb._store.billingContacts['agency:a'].status).toBe('confirmed');
   });
 
   it('updates any open (item-level pending) invoiceRunItems for this entity immediately', async () => {

@@ -77,7 +77,27 @@ function makeFakeDb() {
     };
   }
 
-  return { collection: col, batch, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
+  async function runTransaction(updateFn) {
+    const pendingWrites = [];
+    const tx = {
+      get: async (ref) => {
+        const data = store[ref._col]?.[ref.id];
+        return { exists: !!data, id: ref.id, data: () => data };
+      },
+      update: (ref, patch) => pendingWrites.push(() => {
+        store[ref._col][ref.id] = { ...(store[ref._col][ref.id] || {}), ...patch };
+      }),
+      set: (ref, data) => pendingWrites.push(() => {
+        store[ref._col] = store[ref._col] || {};
+        store[ref._col][ref.id] = { ...data };
+      }),
+    };
+    const result = await updateFn(tx);
+    pendingWrites.forEach((write) => write());
+    return result;
+  }
+
+  return { collection: col, batch, runTransaction, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
 }
 
 let fakeDb;

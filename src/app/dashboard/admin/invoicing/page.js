@@ -3,18 +3,20 @@
 import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { BarChart3, FileText, Settings, Plug, ChevronRight, Receipt } from 'lucide-react';
+import { BarChart3, FileText, Settings, Plug, ChevronRight, Receipt, Building2 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { authFetch } from '../../../utils/authFetch';
 import InvoicingOverview from './components/InvoicingOverview';
 import InvoiceRunsPanel from './components/InvoiceRunsPanel';
 import InvoicingSettings from './components/InvoicingSettings';
 import ChargesPanel from './components/ChargesPanel';
+import BillingContactsPanel from './components/BillingContactsPanel';
 
 const TABS = [
   { key: 'overview', label: 'Overview', icon: BarChart3 },
   { key: 'charges', label: 'Charges', icon: Receipt },
   { key: 'runs', label: 'Invoice Runs', icon: FileText },
+  { key: 'billing-contacts', label: 'Billing Contacts', icon: Building2 },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -27,6 +29,21 @@ function InvoicingPageContent() {
   const [xeroLoading, setXeroLoading] = useState(true);
   const [pricePerListing, setPricePerListing] = useState(null);
   const [xeroError, setXeroError] = useState(null);
+  const [pendingContactsCount, setPendingContactsCount] = useState(0);
+
+  useEffect(() => {
+    async function checkPendingContacts() {
+      if (!user) return;
+      try {
+        const res = await authFetch('/api/admin/invoicing/billing-contacts');
+        const data = await res.json();
+        setPendingContactsCount((data.pending || []).length);
+      } catch {
+        // ignore — the tab itself still loads and shows its own error state
+      }
+    }
+    checkPendingContacts();
+  }, [user, activeTab]);
 
   // Check Xero connection status + current wholesale price — fetched
   // once here rather than separately in InvoiceRunsPanel, since this
@@ -105,6 +122,11 @@ function InvoicingPageContent() {
               >
                 <Icon className="w-4 h-4" />
                 {tab.label}
+                {tab.key === 'billing-contacts' && pendingContactsCount > 0 && (
+                  <span className="bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5 rounded-full">
+                    {pendingContactsCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -115,6 +137,7 @@ function InvoicingPageContent() {
       {activeTab === 'overview' && <InvoicingOverview user={user} />}
       {activeTab === 'charges' && <ChargesPanel />}
       {activeTab === 'runs' && <InvoiceRunsPanel user={user} pricePerListing={pricePerListing} />}
+      {activeTab === 'billing-contacts' && <BillingContactsPanel />}
       {activeTab === 'settings' && (
         <InvoicingSettings
           user={user}

@@ -223,7 +223,7 @@ describe('createInvoiceRunFromPendingCharges', () => {
   describe('designated billing contact override', () => {
     it('uses the designated billing contact instead of the charge\'s own agent, when one has been set', async () => {
       await seedPendingCharge('propA', { billingEntityKey: 'agency:a', agentName: 'Jo (whoever created the first charge)', agentEmail: 'jo@example.com' });
-      fakeDb.collection('billingContacts').doc('agency:a').set({ billingEntityKey: 'agency:a', name: 'Accounts Payable', email: 'accounts@agency-a.example.com' });
+      fakeDb.collection('billingContacts').doc('agency:a').set({ billingEntityKey: 'agency:a', status: 'confirmed', name: 'Accounts Payable', email: 'accounts@agency-a.example.com' });
 
       const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
       await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });

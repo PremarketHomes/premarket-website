@@ -9,7 +9,7 @@ import {
   isXeroConnected,
   findInvoiceByReference,
 } from '../../../../../services/xeroService';
-import { markChargesInvoiced, markChargesFailed } from '../../../../../services/billingService';
+import { markChargesInvoiced, markChargesFailed, resolveBillingContact } from '../../../../../services/billingService';
 import { verifyAdmin } from '../../../../../middleware/auth';
 
 /**
@@ -148,10 +148,40 @@ export async function POST(request, { params }) {
           // failure) — reuse it, never call createInvoice again.
           invoice = { InvoiceID: item.xeroInvoiceId, InvoiceNumber: item.xeroInvoiceNumber, Status: item.xeroStatus };
         } else {
-          const nameParts = item.agentName?.split(' ') || [];
+          // Agency items must have a billing contact that is confirmed
+          // RIGHT NOW — re-resolved live, here, never trusted from
+          // item.agentName/agentEmail (stamped at run-creation time by
+          // invoiceRunService.js, purely for admin preview, and
+          // possibly stale by the time this run is actually sent — a
+          // contact could have been confirmed, or even changed, in the
+          // time between). Independent agents have no separate agency
+          // to confirm — their own identity correctly remains the
+          // contact, unchanged.
+          let contactName = item.agentName;
+          let contactEmail = item.agentEmail;
+          let xeroContactName = buildXeroContactName(item);
+
+          if (item.billingEntityType !== 'independent') {
+            const confirmed = await resolveBillingContact(item.billingEntityKey);
+            if (!confirmed) {
+              errors.push({
+                agencyName: item.agencyName,
+                error: 'Billing details required — no confirmed billing contact for this agency',
+                stage: 'contact',
+              });
+              await itemRef.update({ status: 'contact_required', lastError: 'Billing details required' });
+              await markChargesFailed(item.properties.map((p) => p.propertyId).filter(Boolean));
+              continue;
+            }
+            contactName = confirmed.name;
+            contactEmail = confirmed.email;
+            xeroContactName = confirmed.billingName || xeroContactName;
+          }
+
+          const nameParts = contactName?.split(' ') || [];
           const contact = await findOrCreateContact({
-            name: buildXeroContactName(item),
-            email: item.agentEmail,
+            name: xeroContactName,
+            email: contactEmail,
             firstName: nameParts[0] || '',
             lastName: nameParts.slice(1).join(' ') || '',
           });
@@ -189,7 +219,7 @@ export async function POST(request, { params }) {
           // string for the same period, which could make the
           // pre-flight reconciliation check below match the wrong
           // person's invoice, not just the wrong contact.
-          const reference = `${invoicePrefix}${periodStr} - ${buildXeroContactName(item)}`;
+          const reference = `${invoicePrefix}${periodStr} - ${xeroContactName}`;
 
           // Pre-flight reconciliation — never assume a reference or an
           // idempotency key alone is enough. This specifically guards

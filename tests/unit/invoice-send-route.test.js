@@ -60,6 +60,9 @@ function makeFakeDb() {
       update: (ref, patch) => pendingWrites.push(() => {
         store[ref._col][ref.id] = { ...(store[ref._col][ref.id] || {}), ...patch };
       }),
+      set: (ref, data) => pendingWrites.push(() => {
+        store[ref._col][ref.id] = { ...data };
+      }),
     };
     const result = await updateFn(tx);
     pendingWrites.forEach((write) => write());
@@ -89,9 +92,11 @@ vi.mock('../../src/app/api/services/xeroService', () => ({
 
 const mockMarkChargesInvoiced = vi.fn();
 const mockMarkChargesFailed = vi.fn();
+const mockResolveBillingContact = vi.fn();
 vi.mock('../../src/app/api/services/billingService', () => ({
   markChargesInvoiced: (...args) => mockMarkChargesInvoiced(...args),
   markChargesFailed: (...args) => mockMarkChargesFailed(...args),
+  resolveBillingContact: (...args) => mockResolveBillingContact(...args),
 }));
 
 function makeRequest() {
@@ -109,6 +114,17 @@ beforeEach(() => {
   mockCreateInvoice.mockResolvedValue({ InvoiceID: 'inv1', InvoiceNumber: 'PM-1', Status: 'AUTHORISED' });
   mockSendInvoice.mockResolvedValue({});
   mockFindInvoiceByReference.mockResolvedValue(null); // no pre-existing invoice found, by default
+  // Mirrors the real resolveBillingContact's contract against this
+  // file's fake Firestore store, so each test's own
+  // fakeDb._seed('billingContacts', key, {...}) is what actually
+  // decides whether an agency item is treated as confirmed — the real
+  // billingService.js implementation is never exercised here, since
+  // the whole module is mocked above.
+  mockResolveBillingContact.mockImplementation(async (billingEntityKey) => {
+    const data = fakeDb._store.billingContacts?.[billingEntityKey];
+    if (!data || data.status !== 'confirmed' || !data.email) return null;
+    return { name: data.name || '', email: data.email, billingName: data.billingName || '' };
+  });
 });
 
 describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
@@ -125,11 +141,14 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
 
   it('passes taxType NONE and each property\'s own ex-GST subtotal as the unit amount when not GST registered', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('billingContacts', 'agency:acme agency', { status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com' });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
       agencyName: 'Acme Agency',
       agentName: 'Jo Bloggs',
       agentEmail: 'jo@example.com',
+      billingEntityType: 'agency',
+      billingEntityKey: 'agency:acme agency',
       properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
     });
 
@@ -146,11 +165,14 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
 
   it('passes taxType OUTPUT and that property\'s own ex-GST amount when its charge was snapshotted with GST', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('billingContacts', 'agency:acme agency', { status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com' });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
       agencyName: 'Acme Agency',
       agentName: 'Jo Bloggs',
       agentEmail: 'jo@example.com',
+      billingEntityType: 'agency',
+      billingEntityKey: 'agency:acme agency',
       properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 181.82, gstAmount: 18.18, totalInc: 200 }],
     });
 
@@ -164,11 +186,14 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
 
   it('a consolidated invoice itemises every property with ITS OWN amount and tax status, never a single run-wide value', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('billingContacts', 'agency:acme agency', { status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com' });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
       agencyName: 'Acme Agency',
       agentName: 'Jo Bloggs',
       agentEmail: 'jo@example.com',
+      billingEntityType: 'agency',
+      billingEntityKey: 'agency:acme agency',
       properties: [
         { propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 },
         { propertyId: 'p2', address: '2 Test St', subtotalEx: 181.82, gstAmount: 18.18, totalInc: 200 },
@@ -213,6 +238,9 @@ describe('POST .../send — Xero contact name-collision fix', () => {
 
   it('two agents at the SAME real company still share one Xero contact name — consolidation is intentional, not a collision', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('billingContacts', 'agency:harcourts property hub', {
+      status: 'confirmed', billingName: 'Harcourts Property Hub', name: 'Jo Lee', email: 'jo@example.com',
+    });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1', agencyName: 'Harcourts Property Hub', agentName: 'Jo Lee', agentEmail: 'jo@example.com',
       billingEntityType: 'agency', billingEntityKey: 'agency:harcourts property hub',
@@ -225,22 +253,46 @@ describe('POST .../send — Xero contact name-collision fix', () => {
     expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ name: 'Harcourts Property Hub' }));
   });
 
-  it('an item with no billingEntityType at all (older data shape) still works unchanged, using the plain agency name', async () => {
-    seedSingleItemRun();
-    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
-    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+  it('an item with no billingEntityType/billingEntityKey at all (older data shape) is safely blocked, never silently invoiced to a fallback contact', async () => {
+    // Deliberately NOT using seedSingleItemRun() — that helper now
+    // seeds a confirmed contact by default; this test needs an item
+    // with genuinely nothing to resolve a contact from.
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('invoiceRunItems', 'item1', {
+      runId: 'run1',
+      agencyName: 'Acme Agency',
+      agentName: 'Jo Bloggs',
+      agentEmail: 'jo@example.com',
+      properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    });
 
-    expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ name: 'Acme Agency' }));
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    const body = await res.json();
+
+    expect(mockFindOrCreateContact).not.toHaveBeenCalled();
+    expect(body.errors[0].error).toMatch(/[Bb]illing details required/);
   });
 });
 
+// Every test using this helper is exercising something OTHER than the
+// agency billing-contact requirement itself (GST handling, duplicate
+// protection, idempotency, concurrency) — see
+// billing-contact-confirmation.test.js for that feature's own
+// dedicated tests — so a confirmed contact is seeded here by default,
+// at the exact billingEntityKey send/route.js now requires one for.
 function seedSingleItemRun(overrides = {}) {
   fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+  fakeDb._seed('billingContacts', 'agency:acme agency', {
+    status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com',
+  });
   fakeDb._seed('invoiceRunItems', 'item1', {
     runId: 'run1',
     agencyName: 'Acme Agency',
     agentName: 'Jo Bloggs',
     agentEmail: 'jo@example.com',
+    billingEntityType: 'agency',
+    billingEntityKey: 'agency:acme agency',
     properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
     ...overrides,
   });

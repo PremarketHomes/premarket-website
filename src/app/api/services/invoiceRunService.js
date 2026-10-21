@@ -18,7 +18,7 @@
 
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
-import { reconcileMissingCharges, resolveBillingContact } from './billingService';
+import { reconcileMissingCharges, resolveBillingContact, getBillingContactStatus } from './billingService';
 
 /**
  * Groups a list of { id, ...chargeData } charge docs by
@@ -116,12 +116,30 @@ export async function createInvoiceRunFromPendingCharges({ createdBy, onlyEntity
 
   // The agency's designated billing contact (if one has been set)
   // overrides whichever agent's charge happened to be grouped first —
-  // see billingService.setBillingContact.
+  // see billingService.setBillingContact. This stamp is informational
+  // only, for the admin's draft/approved-run preview — the actual send
+  // route never trusts it; it always re-resolves resolveBillingContact
+  // live, right before creating anything in Xero, so a contact
+  // confirmed (or changed) after this run was created still takes
+  // effect correctly at send time.
+  //
+  // billingContactStatus likewise is purely a display flag — it's what
+  // lets the admin UI show "Billing details required" / "Pending
+  // confirmation" next to an agency before the run is even approved,
+  // without the admin having to attempt a send first to find out.
   for (const item of items) {
+    if (item.billingEntityType === 'independent') {
+      item.billingContactStatus = 'not_applicable';
+      continue;
+    }
     const contact = await resolveBillingContact(item.billingEntityKey);
     if (contact) {
       item.agentName = contact.name;
       item.agentEmail = contact.email;
+      item.billingContactStatus = 'confirmed';
+    } else {
+      const statusInfo = await getBillingContactStatus(item.billingEntityKey);
+      item.billingContactStatus = statusInfo.status;
     }
   }
 
