@@ -98,7 +98,7 @@ export async function buildAgencyInvoicePreview({ agentUserId }) {
   const xeroAccountCode = rawSettings.xeroAccountCode || '200';
 
   const override = await resolveBillingOverride(agentUserId);
-  const matchedBrand = override ? null : await resolveAgencyBrand(agent);
+  const matchedBrand = override ? null : (await resolveAgencyBrand(agent, agentUserId)).verified;
   const entity = override || resolveBillingEntity({
     agentUserId,
     companyName: agent.companyName,

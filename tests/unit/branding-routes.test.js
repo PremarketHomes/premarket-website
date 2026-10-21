@@ -5,7 +5,7 @@ vi.mock('firebase-admin/auth', () => ({
   getAuth: () => ({ verifyIdToken: mockVerifyIdToken }),
 }));
 
-const state = { users: {}, agencyBrands: {} };
+const state = { users: {}, agencyBrands: {}, agencyMemberships: {} };
 
 vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: {
@@ -18,6 +18,14 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
             )),
             update: vi.fn().mockImplementation(async (patch) => {
               state.users[id] = { ...(state.users[id] || {}), ...patch };
+            }),
+          }),
+          where: (field, op, value) => ({
+            get: vi.fn().mockImplementation(async () => {
+              const docs = Object.entries(state.users)
+                .filter(([, data]) => (op === '!=' ? data[field] !== value && data[field] !== undefined : data[field] === value))
+                .map(([id, data]) => ({ id, data: () => data }));
+              return { docs };
             }),
           }),
         };
@@ -35,6 +43,30 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
               docs: Object.entries(state.agencyBrands).map(([id, data]) => ({ id, data: () => data })),
             })),
           }),
+          get: vi.fn().mockImplementation(async () => ({
+            docs: Object.entries(state.agencyBrands).map(([id, data]) => ({ id, data: () => data })),
+          })),
+        };
+      }
+      if (name === 'agencyMemberships') {
+        return {
+          doc: (id) => ({
+            get: vi.fn().mockImplementation(async () => (
+              state.agencyMemberships[id] ? { exists: true, data: () => state.agencyMemberships[id] } : { exists: false }
+            )),
+            set: vi.fn().mockImplementation(async (data) => { state.agencyMemberships[id] = data; }),
+          }),
+          where: (field, op, value) => ({
+            get: vi.fn().mockImplementation(async () => {
+              const docs = Object.entries(state.agencyMemberships)
+                .filter(([, data]) => data[field] === value)
+                .map(([id, data]) => ({ id, data: () => data }));
+              return { docs };
+            }),
+          }),
+          get: vi.fn().mockImplementation(async () => ({
+            docs: Object.entries(state.agencyMemberships).map(([id, data]) => ({ id, data: () => data })),
+          })),
         };
       }
       throw new Error(`Unexpected collection: ${name}`);
@@ -59,6 +91,7 @@ function setupValidAuth(uid = 'agent1') {
 function resetState() {
   state.users = {};
   state.agencyBrands = {};
+  state.agencyMemberships = {};
 }
 
 describe('POST /api/branding/extract-colors', () => {
@@ -130,7 +163,7 @@ describe('POST /api/branding/confirm', () => {
     expect(state.users.agent1).toBeUndefined();
   });
 
-  it('joining an existing brand only touches the joining agent\'s own account, when their companyName matches the brand', async () => {
+  it('requesting to join an existing brand applies branding immediately but leaves trust pending — never an instant grant', async () => {
     setupValidAuth('agent1');
     const { POST } = await import('../../src/app/api/branding/confirm/route');
     const createRes = await POST(makeRequest({ name: 'Harcourts Property Hub', primary: '#011d47' }, 'Bearer valid'));
@@ -139,9 +172,13 @@ describe('POST /api/branding/confirm', () => {
     state.users.agent2 = { companyName: 'Harcourts Property Hub' };
     setupValidAuth('agent2');
     const joinRes = await POST(makeRequest({ brandId }, 'Bearer valid'));
+    const joinBody = await joinRes.json();
+
     expect(joinRes.status).toBe(200);
-    expect(state.users.agent2.agencyBrandId).toBe(brandId);
-    expect(state.users.agent1.agencyBrandId).toBe(brandId); // unaffected by agent2 joining
+    expect(joinBody.membershipStatus).toBe('pending');
+    expect(state.users.agent2.agencyBrandId).toBe(brandId); // branding display preserved immediately
+    expect(state.agencyMemberships.agent2.status).toBe('pending'); // NOT verified — a superAdmin must still approve this
+    expect(state.users.agent1.agencyBrandId).toBe(brandId); // unaffected by agent2's request
   });
 
   it('rejects joining a brand whose name does not match the caller\'s own companyName (no self-assigning another agency\'s brand)', async () => {
@@ -180,9 +217,8 @@ describe('GET /api/branding/mine', () => {
     expect(body.suggestion).toBeNull();
   });
 
-  it('automatically joins an existing brand on an exact companyName match — no separate approval step required', async () => {
-    setupValidAuth('agent1');
-    state.agencyBrands['harcourts-property-hub'] = { name: 'Harcourts Property Hub', colors: { primary: '#011d47' } };
+  it('SECURITY: no longer auto-joins an existing brand on a companyName match — surfaces a suggestion instead, requiring an explicit agent action', async () => {
+    state.agencyBrands['harcourts-property-hub'] = { name: 'Harcourts Property Hub', colors: { primary: '#011d47' }, createdBy: 'agent1' };
     state.users.agent2 = { companyName: 'Harcourts Property Hub' };
 
     setupValidAuth('agent2');
@@ -190,11 +226,14 @@ describe('GET /api/branding/mine', () => {
     const res = await GET(makeRequest(undefined, 'Bearer valid', 'GET'));
     const body = await res.json();
 
-    // Simply loading /api/branding/mine (e.g. on dashboard mount) is now
-    // enough to establish branding — no "Apply Branding" click required.
-    expect(body.brand?.name).toBe('Harcourts Property Hub');
-    expect(body.suggestion).toBeNull();
-    expect(state.users.agent2.agencyBrandId).toBe('harcourts-property-hub');
+    // This used to auto-join (and auto-trust for billing) just by
+    // loading the dashboard — exactly the unverified escalation path
+    // that was fixed. Now it's only ever a suggestion the agent must
+    // explicitly act on (POST /api/branding/confirm with brandId).
+    expect(body.brand).toBeNull();
+    expect(body.suggestion?.name).toBe('Harcourts Property Hub');
+    expect(state.users.agent2.agencyBrandId).toBeUndefined();
+    expect(state.agencyMemberships.agent2).toBeUndefined();
   });
 
   it('automatically creates a brand from an agent\'s own logo when no existing brand matches their company', async () => {

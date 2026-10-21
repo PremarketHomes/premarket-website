@@ -76,7 +76,16 @@ function seedPhilLikeAccount() {
     firstName: 'Phil',
     lastName: 'Chillemi',
     companyName: 'Harcourts Property Hub',
+    agencyBrandId: 'harcourts-property-hub',
     superAdmin: true,
+  });
+  // Verified agency membership is now required for billing to resolve
+  // as 'agency' rather than independent (see billingService.js's
+  // resolveAgencyBrand) — Phil is the brand's own creator here, so no
+  // separate agencyMemberships record is needed.
+  fakeDb._seed('agencyBrands', 'harcourts-property-hub', {
+    name: 'Harcourts Property Hub',
+    createdBy: 'philUid',
   });
   fakeDb._seed('settings', 'invoicing', {
     pricePerListing: 200,

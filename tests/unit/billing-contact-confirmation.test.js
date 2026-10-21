@@ -139,12 +139,20 @@ beforeEach(() => {
 // ─── billingService-level: resolveBillingEntityForAgent ───
 
 describe('resolveBillingEntityForAgent', () => {
-  it('resolves an agency agent to an agency-type entity, keyed by normalised companyName', async () => {
-    fakeDb._seed('users', 'agent1', { companyName: 'Acme Realty', firstName: 'Jo', lastName: 'Bloggs' });
+  it('resolves a VERIFIED agency agent (brand creator) to an agency-type entity', async () => {
+    fakeDb._seed('users', 'agent1', { companyName: 'Acme Realty', firstName: 'Jo', lastName: 'Bloggs', agencyBrandId: 'brand-acme' });
+    fakeDb._seed('agencyBrands', 'brand-acme', { name: 'Acme Realty', createdBy: 'agent1' });
     const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
     const entity = await resolveBillingEntityForAgent('agent1');
     expect(entity.billingEntityType).toBe('agency');
-    expect(entity.billingEntityKey).toBe('agency:acme realty');
+    expect(entity.billingEntityKey).toBe('brand:brand-acme');
+  });
+
+  it('SECURITY: companyName alone, with no verified brand, resolves as independent — never agency', async () => {
+    fakeDb._seed('users', 'agent1', { companyName: 'Acme Realty', firstName: 'Jo', lastName: 'Bloggs' });
+    const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
+    const entity = await resolveBillingEntityForAgent('agent1');
+    expect(entity.billingEntityType).toBe('independent');
   });
 
   it('resolves an agent with no companyName to independent — no separate agency to confirm', async () => {
@@ -164,13 +172,24 @@ describe('resolveBillingEntityForAgent', () => {
     expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
   });
 
-  it('two agents at the same agency (same normalised companyName) resolve to the SAME key', async () => {
-    fakeDb._seed('users', 'agentA', { companyName: 'Harcourts Property Hub' });
-    fakeDb._seed('users', 'agentB', { companyName: '  harcourts property hub  ' }); // whitespace/case differences only
+  it('two VERIFIED members of the same agency resolve to the SAME key', async () => {
+    fakeDb._seed('agencyBrands', 'brand-hph', { name: 'Harcourts Property Hub', createdBy: 'agentA' });
+    fakeDb._seed('users', 'agentA', { companyName: 'Harcourts Property Hub', agencyBrandId: 'brand-hph' });
+    fakeDb._seed('users', 'agentB', { companyName: 'Harcourts Property Hub', agencyBrandId: 'brand-hph' });
+    fakeDb._seed('agencyMemberships', 'agentB', { uid: 'agentB', agencyBrandId: 'brand-hph', status: 'verified' });
     const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
     const a = await resolveBillingEntityForAgent('agentA');
     const b = await resolveBillingEntityForAgent('agentB');
     expect(a.billingEntityKey).toBe(b.billingEntityKey);
+  });
+
+  it('SECURITY: two agents merely sharing the same companyName (no verified brand) do NOT resolve to the same key', async () => {
+    fakeDb._seed('users', 'agentA', { companyName: 'Harcourts Property Hub' });
+    fakeDb._seed('users', 'agentB', { companyName: '  harcourts property hub  ' });
+    const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
+    const a = await resolveBillingEntityForAgent('agentA');
+    const b = await resolveBillingEntityForAgent('agentB');
+    expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
   });
 
   it('an admin override always wins, even over companyName', async () => {
@@ -285,14 +304,24 @@ describe('GET /api/agency/billing-contact-status', () => {
     expect(data.applicable).toBe(false);
   });
 
-  it('reflects the real, server-resolved status for an agency agent', async () => {
+  it('reflects the real, server-resolved status for a VERIFIED agency agent', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
-    fakeDb._seed('users', 'agent1', { companyName: 'Agency A' });
+    fakeDb._seed('agencyBrands', 'brand-a', { name: 'Agency A', createdBy: 'agent1' });
+    fakeDb._seed('users', 'agent1', { companyName: 'Agency A', agencyBrandId: 'brand-a' });
     const { GET } = await import('../../src/app/api/agency/billing-contact-status/route.js');
     const res = await GET(makeGetRequest('Bearer t'));
     const data = await res.json();
     expect(data.applicable).toBe(true);
     expect(data.status).toBe('unset');
+  });
+
+  it('is NOT applicable for an agent with only a companyName and no verified brand', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
+    fakeDb._seed('users', 'agent1', { companyName: 'Agency A' });
+    const { GET } = await import('../../src/app/api/agency/billing-contact-status/route.js');
+    const res = await GET(makeGetRequest('Bearer t'));
+    const data = await res.json();
+    expect(data.applicable).toBe(false);
   });
 });
 
@@ -313,7 +342,8 @@ describe('POST /api/agency/propose-billing-contact', () => {
 
   it('ALWAYS writes under the server-resolved key, ignoring any billingEntityKey the client tries to supply', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
-    fakeDb._seed('users', 'agent1', { companyName: 'Real Agency' });
+    fakeDb._seed('agencyBrands', 'brand-real', { name: 'Real Agency', createdBy: 'agent1' });
+    fakeDb._seed('users', 'agent1', { companyName: 'Real Agency', agencyBrandId: 'brand-real' });
     const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
     const res = await POST(makeRequest({
       billingEntityKey: 'agency:someone-elses-agency', // attempted injection — must be ignored entirely
@@ -322,17 +352,28 @@ describe('POST /api/agency/propose-billing-contact', () => {
     const data = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.billingEntityKey).toBe('agency:real agency'); // the agent's OWN real key, never the injected one
+    expect(data.billingEntityKey).toBe('brand:brand-real'); // the agent's OWN real key, never the injected one
     expect(fakeDb._store.billingContacts['agency:someone-elses-agency']).toBeUndefined();
   });
 
-  it('two agents proposing for the same real agency both land under the one shared key', async () => {
+  it('two VERIFIED agents proposing for the same real agency both land under the one shared key', async () => {
+    fakeDb._seed('agencyBrands', 'brand-shared', { name: 'Shared Agency', createdBy: 'agentA' });
+    fakeDb._seed('users', 'agentA', { companyName: 'Shared Agency', agencyBrandId: 'brand-shared' });
     mockVerifyIdToken.mockResolvedValue({ uid: 'agentA' });
-    fakeDb._seed('users', 'agentA', { companyName: 'Shared Agency' });
     const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
     await POST(makeRequest({ contactEmail: 'first@shared.example.com' }, 'Bearer t'));
 
-    expect(Object.keys(fakeDb._store.billingContacts)).toEqual(['agency:shared agency']);
+    expect(Object.keys(fakeDb._store.billingContacts)).toEqual(['brand:brand-shared']);
+  });
+
+  it('SECURITY: an agent with only a companyName (no verified brand) cannot propose at all — 400, nothing written', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agentX' });
+    fakeDb._seed('users', 'agentX', { companyName: 'Harcourts Property Hub' }); // unverified — the exact scenario from the Phil incident
+    const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
+    const res = await POST(makeRequest({ contactEmail: 'attempt@example.com' }, 'Bearer t'));
+
+    expect(res.status).toBe(400);
+    expect(fakeDb._store.billingContacts || {}).toEqual({});
   });
 });
 
