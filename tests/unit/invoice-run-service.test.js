@@ -95,6 +95,49 @@ describe('createInvoiceRunFromPendingCharges', () => {
     expect(result).toBeNull();
   });
 
+  it('holds back a charge flagged pendingAgencyName (unresolved agency membership) — never bundled, never billed independently', async () => {
+    await seedPendingCharge('propHeld', {
+      billingEntityType: 'independent', billingEntityKey: 'agent:agentUnverified',
+      agentUserId: 'agentUnverified', pendingAgencyName: 'Harcourts Property Hub',
+    });
+    const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+
+    const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
+
+    expect(result).toBeNull(); // the only pending charge was held — nothing runnable
+    const charge = await fakeDb.collection('propertyCharges').doc('propHeld').get();
+    expect(charge.data().status).toBe('pending'); // untouched — still awaiting admin resolution, not lost
+  });
+
+  it('holds back an unresolved-membership charge while still bundling OTHER genuinely independent/agency charges normally', async () => {
+    await seedPendingCharge('propA'); // normal agency charge
+    await seedPendingCharge('propHeld', {
+      billingEntityType: 'independent', billingEntityKey: 'agent:agentUnverified',
+      agentUserId: 'agentUnverified', pendingAgencyName: 'Some Agency',
+    });
+    const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+
+    const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
+
+    expect(result.totalProperties).toBe(1); // only propA
+    const heldCharge = await fakeDb.collection('propertyCharges').doc('propHeld').get();
+    expect(heldCharge.data().status).toBe('pending');
+    expect(heldCharge.data().runId).toBeUndefined();
+  });
+
+  it('a genuine independent agent (no pendingAgencyName at all) is billed normally — unaffected by the membership-hold logic', async () => {
+    await seedPendingCharge('propSolo', {
+      billingEntityType: 'independent', billingEntityKey: 'agent:soloAgent', agentUserId: 'soloAgent',
+    });
+    const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+
+    const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
+
+    expect(result.totalProperties).toBe(1);
+    const charge = await fakeDb.collection('propertyCharges').doc('propSolo').get();
+    expect(charge.data().status).toBe('queued'); // bundled and billed, exactly like today
+  });
+
   it('bundles every pending charge into one draft run, grouped by billing entity', async () => {
     await seedPendingCharge('propA');
     await seedPendingCharge('propB');

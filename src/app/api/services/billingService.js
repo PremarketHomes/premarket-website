@@ -1077,6 +1077,25 @@ export async function releaseCharges(propertyIds) {
 }
 
 /** Flips queued charges to invoiced once their Xero invoice send succeeds. */
+/**
+ * How many of an agent's charges are currently held back from every
+ * invoice run (see invoiceRunService.createInvoiceRunFromPendingCharges's
+ * pendingAgencyName filter) because their agency membership is
+ * unresolved. Read-only — purely for admin visibility (surfaced next
+ * to each pending membership in the admin UI), never affects which
+ * charges actually get held; that's decided solely by the
+ * pendingAgencyName flag already stamped on each charge.
+ */
+export async function countHeldChargesForAgent(agentUserId) {
+  if (!agentUserId) return 0;
+  const snap = await adminDb
+    .collection('propertyCharges')
+    .where('agentUserId', '==', agentUserId)
+    .where('status', '==', 'pending')
+    .get();
+  return snap.docs.filter((d) => !!d.data().pendingAgencyName).length;
+}
+
 export async function markChargesInvoiced(propertyIds) {
   if (!propertyIds?.length) return;
   const batch = adminDb.batch();

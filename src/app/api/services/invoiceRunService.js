@@ -106,6 +106,24 @@ export async function createInvoiceRunFromPendingCharges({ createdBy, onlyEntity
   if (pendingSnap.empty) return null;
 
   let charges = pendingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  // Charges flagged pendingAgencyName (the agent has claimed, but is
+  // not yet VERIFIED for, an agency's billing identity — see
+  // billingService.js's resolveBillingEntity) are held back from every
+  // invoice run entirely, manual or cron-created. Billing them as the
+  // agent's own independent charge would be wrong (they believe — and
+  // may genuinely be — part of an agency that should be billed
+  // instead), and bundling them into the agency's run would be exactly
+  // the unverified-trust gap this whole system exists to close. They
+  // stay 'pending' at the charge level — visible to an admin in the
+  // Charges panel and counted by countHeldChargesForMembership below —
+  // until the membership is resolved one way or the other, never
+  // silently dropped or auto-billed. The return contract here is
+  // deliberately unchanged (null when nothing is runnable) so neither
+  // existing caller (the manual admin action, the daily cron) needs to
+  // handle a new shape.
+  charges = charges.filter((c) => !c.pendingAgencyName);
+
   if (onlyEntityKeys) {
     const allowed = new Set(onlyEntityKeys);
     charges = charges.filter((c) => allowed.has(c.billingEntityKey));
