@@ -186,7 +186,12 @@ describe('createInvoiceRunFromPendingCharges', () => {
   });
 
   it('sweeps for a property with no charge yet and records one before aggregating (the safety net)', async () => {
-    fakeDb.collection('users').doc('agent1').set({ companyName: 'Harcourts', firstName: 'Jo', lastName: 'Lee' });
+    // No companyName here deliberately — this test is purely about the
+    // sweep mechanism itself, not agency resolution; a companyName
+    // with no confirmed/verified entity would now correctly hold the
+    // charge back from the run (see the pendingAgencyName tests above),
+    // which would defeat what THIS test is checking.
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee' });
     fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: new Date('2020-01-01') });
     fakeDb.collection('properties').doc('propC').set({ userId: 'agent1', address: '3 C St', createdAt: new Date() });
 

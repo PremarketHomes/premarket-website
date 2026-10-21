@@ -315,9 +315,20 @@ describe('GET /api/agency/billing-contact-status', () => {
     expect(data.status).toBe('unset');
   });
 
-  it('is NOT applicable for an agent with only a companyName and no verified brand', async () => {
+  it('IS applicable (pending) for an agent with only a companyName and no verified brand — the simplified, low-friction signup path', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
     fakeDb._seed('users', 'agent1', { companyName: 'Agency A' });
+    const { GET } = await import('../../src/app/api/agency/billing-contact-status/route.js');
+    const res = await GET(makeGetRequest('Bearer t'));
+    const data = await res.json();
+    expect(data.applicable).toBe(true);
+    expect(data.status).toBe('unset');
+    expect(data.billingEntityName).toBe('Agency A');
+  });
+
+  it('is NOT applicable for a genuinely independent agent — no companyName at all', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'solo1' });
+    fakeDb._seed('users', 'solo1', {});
     const { GET } = await import('../../src/app/api/agency/billing-contact-status/route.js');
     const res = await GET(makeGetRequest('Bearer t'));
     const data = await res.json();
@@ -332,12 +343,16 @@ describe('POST /api/agency/propose-billing-contact', () => {
     expect(res.status).toBe(401);
   });
 
-  it('400s for an independent agent — nothing to propose', async () => {
+  it('a genuinely independent agent (no companyName) confirms their own billing email immediately — no admin review', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'solo1' });
     fakeDb._seed('users', 'solo1', {});
     const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
-    const res = await POST(makeRequest({ contactEmail: 'a@example.com' }, 'Bearer t'));
-    expect(res.status).toBe(400);
+    const res = await POST(makeRequest({ contactEmail: 'solo@example.com' }, 'Bearer t'));
+    const data = await res.json();
+    expect(res.status).toBe(200);
+    expect(data.status).toBe('confirmed');
+    expect(fakeDb._store.billingContacts['agent:solo1'].status).toBe('confirmed');
+    expect(fakeDb._store.billingContacts['agent:solo1'].email).toBe('solo@example.com');
   });
 
   it('ALWAYS writes under the server-resolved key, ignoring any billingEntityKey the client tries to supply', async () => {
@@ -366,14 +381,82 @@ describe('POST /api/agency/propose-billing-contact', () => {
     expect(Object.keys(fakeDb._store.billingContacts)).toEqual(['brand:brand-shared']);
   });
 
-  it('SECURITY: an agent with only a companyName (no verified brand) cannot propose at all — 400, nothing written', async () => {
+  it('SECURITY: an agent with only a companyName (no verified brand) files a PENDING proposal — never instantly confirmed, isolated under its own agency key', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'agentX' });
     fakeDb._seed('users', 'agentX', { companyName: 'Harcourts Property Hub' }); // unverified — the exact scenario from the Phil incident
     const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
     const res = await POST(makeRequest({ contactEmail: 'attempt@example.com' }, 'Bearer t'));
+    const data = await res.json();
 
-    expect(res.status).toBe(400);
-    expect(fakeDb._store.billingContacts || {}).toEqual({});
+    expect(res.status).toBe(200);
+    expect(data.status).toBe('pending'); // filed for review, never auto-confirmed off the name match
+    const doc = fakeDb._store.billingContacts['agency:harcourts property hub'];
+    expect(doc.status).toBe('pending');
+    expect(doc.proposedBy).toBe('agentX');
+  });
+
+  it('SECURITY: two different agents with the same unresolved company name both land as claimants on the ONE pending entry, never two separate confirmed entities', async () => {
+    fakeDb._seed('users', 'agentA', { companyName: 'New Agency' });
+    fakeDb._seed('users', 'agentB', { companyName: 'New Agency' });
+    const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
+
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agentA' });
+    await POST(makeRequest({ contactEmail: 'a@example.com' }, 'Bearer t'));
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agentB' });
+    const res = await POST(makeRequest({ contactEmail: 'b@example.com' }, 'Bearer t'));
+
+    expect(res.status).toBe(200); // never rejected/409 — this is the exact lean-onboarding fix
+    const doc = fakeDb._store.billingContacts['agency:new agency'];
+    expect(doc.status).toBe('pending');
+    expect(doc.proposedByUids).toEqual(['agentA', 'agentB']);
+    expect(Object.keys(fakeDb._store.billingContacts)).toHaveLength(1); // one entity, not two
+  });
+
+  it('a new agent entering an ALREADY-CONFIRMED agency\'s exact name is low-friction folded in for billing (the explicit, approved trade-off) but CANNOT overwrite the confirmed contact', async () => {
+    fakeDb._seed('billingContacts', 'agency:established agency', {
+      billingEntityKey: 'agency:established agency', billingEntityType: 'agency', billingEntityName: 'Established Agency',
+      status: 'confirmed', billingName: 'Established Agency Pty Ltd', name: 'Real Accounts', email: 'real-accounts@established.example.com',
+    });
+    fakeDb._seed('users', 'newAgent', { companyName: 'Established Agency' });
+    mockVerifyIdToken.mockResolvedValue({ uid: 'newAgent' });
+
+    // Their own charge/entity resolution already folds them in —
+    // confirmed via the status route.
+    const { GET } = await import('../../src/app/api/agency/billing-contact-status/route.js');
+    const statusRes = await GET(makeGetRequest('Bearer t'));
+    const statusData = await statusRes.json();
+    expect(statusData.applicable).toBe(true);
+    expect(statusData.status).toBe('confirmed');
+
+    // But attempting to propose/change the contact is rejected — the
+    // confirmed record is admin-only to change, regardless of who
+    // tries, satisfying "never overwrite an existing agency's
+    // confirmed billing contact with information entered by a newly
+    // registered agent."
+    const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
+    const res = await POST(makeRequest({ contactEmail: 'attacker-chosen@example.com' }, 'Bearer t'));
+    expect(res.status).toBe(409);
+    expect(fakeDb._store.billingContacts['agency:established agency'].email).toBe('real-accounts@established.example.com'); // untouched
+  });
+
+  it('two unrelated agencies that happen to share a name resolve to the SAME key by construction but each independently requires its own superAdmin confirmation — never merged by the name alone', async () => {
+    fakeDb._seed('users', 'agentFromAgencyOne', { companyName: 'Prestige Realty' });
+    fakeDb._seed('users', 'agentFromUnrelatedAgencyTwo', { companyName: 'Prestige Realty' }); // coincidentally identical name, genuinely unrelated business
+    const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
+
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agentFromAgencyOne' });
+    await POST(makeRequest({ contactEmail: 'one@example.com' }, 'Bearer t'));
+
+    // Nothing is confirmed yet — a superAdmin must explicitly review,
+    // and would see BOTH claimants on the one entry rather than either
+    // being silently trusted. This is the documented, intentional
+    // limitation: an exact name collision between genuinely unrelated
+    // businesses relies on the superAdmin noticing during review, not
+    // on automatic detection — the system never auto-merges or
+    // auto-confirms either one.
+    const doc = fakeDb._store.billingContacts['agency:prestige realty'];
+    expect(doc.status).toBe('pending');
+    expect(doc.email).toBeUndefined(); // never auto-confirmed/usable for a real invoice
   });
 });
 

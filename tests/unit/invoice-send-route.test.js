@@ -253,6 +253,43 @@ describe('POST .../send — Xero contact name-collision fix', () => {
     expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ name: 'Harcourts Property Hub' }));
   });
 
+  it('an independent agent with a CONFIRMED billing-email override (e.g. set at signup, different from their login email) gets invoiced to that override, not their login email', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('billingContacts', 'agent:uidSolo', {
+      status: 'confirmed', billingName: 'Jo Lee', name: 'Jo\'s Bookkeeper', email: 'bookkeeper@different-domain.example.com',
+    });
+    fakeDb._seed('invoiceRunItems', 'item1', {
+      runId: 'run1', agencyName: 'Jo Lee', agentName: 'Jo Lee', agentEmail: 'jo.lee@login-email.example.com',
+      billingEntityType: 'independent', billingEntityKey: 'agent:uidSolo',
+      properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    const body = await res.json();
+
+    expect(body.status).toBe('sent'); // never blocked — independent agents always have a safe fallback
+    expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ email: 'bookkeeper@different-domain.example.com' }));
+    expect(mockFindOrCreateContact).not.toHaveBeenCalledWith(expect.objectContaining({ email: 'jo.lee@login-email.example.com' }));
+  });
+
+  it('an independent agent with NO confirmed billing-contact override still sends normally, using their own login email as the safe fallback', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    // Deliberately no billingContacts doc at all for this key.
+    fakeDb._seed('invoiceRunItems', 'item1', {
+      runId: 'run1', agencyName: 'Max Tan', agentName: 'Max Tan', agentEmail: 'max@login-email.example.com',
+      billingEntityType: 'independent', billingEntityKey: 'agent:uidMax',
+      properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    });
+
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    const body = await res.json();
+
+    expect(body.status).toBe('sent');
+    expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ email: 'max@login-email.example.com' }));
+  });
+
   it('an item with no billingEntityType/billingEntityKey at all (older data shape) is safely blocked, never silently invoiced to a fallback contact', async () => {
     // Deliberately NOT using seedSingleItemRun() — that helper now
     // seeds a confirmed contact by default; this test needs an item

@@ -154,9 +154,7 @@ export async function POST(request, { params }) {
           // invoiceRunService.js, purely for admin preview, and
           // possibly stale by the time this run is actually sent — a
           // contact could have been confirmed, or even changed, in the
-          // time between). Independent agents have no separate agency
-          // to confirm — their own identity correctly remains the
-          // contact, unchanged.
+          // time between).
           let contactName = item.agentName;
           let contactEmail = item.agentEmail;
           let xeroContactName = buildXeroContactName(item);
@@ -176,6 +174,21 @@ export async function POST(request, { params }) {
             contactName = confirmed.name;
             contactEmail = confirmed.email;
             xeroContactName = confirmed.billingName || xeroContactName;
+          } else {
+            // Independent agents have no separate agency to confirm —
+            // their own profile email/name is always a safe, correct
+            // fallback, so this never blocks sending. But they may
+            // have confirmed a DIFFERENT billing email directly (e.g.
+            // an accounts/bookkeeper address given at signup — see
+            // confirmIndependentBillingContact) — prefer that live,
+            // confirmed value when one exists, instead of silently
+            // always using their login email.
+            const confirmedOwn = await resolveBillingContact(item.billingEntityKey);
+            if (confirmedOwn) {
+              contactName = confirmedOwn.name || contactName;
+              contactEmail = confirmedOwn.email || contactEmail;
+              xeroContactName = confirmedOwn.billingName || xeroContactName;
+            }
           }
 
           const nameParts = contactName?.split(' ') || [];

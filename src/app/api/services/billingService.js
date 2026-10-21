@@ -194,7 +194,7 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
   if (!email || !EMAIL_RE.test(email)) throw new Error('A valid email is required');
 
   const ref = adminDb.collection('billingContacts').doc(billingEntityKey);
-  await adminDb.runTransaction(async (tx) => {
+  const resolvedBillingEntityName = await adminDb.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const prior = snap.exists ? snap.data() : {};
     tx.set(ref, {
@@ -210,6 +210,7 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
       proposedBy: prior.proposedBy ?? null,
       proposedAt: prior.proposedAt ?? null,
     });
+    return prior.billingEntityName || null;
   });
 
   const pendingItemsSnap = await adminDb
@@ -222,7 +223,145 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
     await itemDoc.ref.update({ agentName: name || '', agentEmail: email });
   }
 
-  return { billingEntityKey, email, updatedOpenItems: pendingItemsSnap.size };
+  // Confirming a company-name-based entity (never a formal brand,
+  // which has its own separate reconciliation via
+  // approveAgencyMembership) also completes the hold on every
+  // still-pending charge that was waiting on exactly this decision —
+  // see reconcileHeldChargesForConfirmedEntity's own comment for why
+  // this is the one-time, explicit completion of a hold, not a
+  // background migration.
+  let reconciledCharges = 0;
+  if (billingEntityKey.startsWith('agency:')) {
+    reconciledCharges = await reconcileHeldChargesForConfirmedEntity(billingEntityKey, resolvedBillingEntityName);
+  }
+
+  return { billingEntityKey, email, updatedOpenItems: pendingItemsSnap.size, reconciledCharges };
+}
+
+/**
+ * The one-time, explicit completion of a hold — every propertyCharge
+ * still at status 'pending' whose pendingAgencyName normalises to the
+ * SAME company name this billingEntityKey was just confirmed for gets
+ * re-keyed to the now-confirmed entity, and the flag is cleared.
+ * Deliberately NOT a background job: it only ever runs synchronously
+ * inside the one admin action (setBillingContact) that confirms this
+ * exact name, so it is always an explicit, reviewable consequence of
+ * that one decision — never a silent, separate migration. Charges
+ * already invoiced/queued are untouched (they're financial history,
+ * and the 'pending' filter already excludes them).
+ */
+async function reconcileHeldChargesForConfirmedEntity(billingEntityKey, billingEntityName) {
+  const targetNormalized = billingEntityKey.replace(/^agency:/, '');
+  const snap = await adminDb.collection('propertyCharges').where('status', '==', 'pending').get();
+
+  const batch = adminDb.batch();
+  let count = 0;
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    if (!data.pendingAgencyName) continue;
+    if (normalizeCompanyName(data.pendingAgencyName) !== targetNormalized) continue;
+    batch.update(doc.ref, {
+      billingEntityType: 'agency',
+      billingEntityKey,
+      billingEntityName: billingEntityName || data.billingEntityName,
+      pendingAgencyName: FieldValue.delete(),
+    });
+    count++;
+  }
+  if (count > 0) await batch.commit();
+  return count;
+}
+
+/**
+ * Agent action — proposes agency billing details when MULTIPLE
+ * agents may legitimately share the same not-yet-confirmed company
+ * name (the signup and dashboard-banner flows both use this, not the
+ * single-claimant proposeBillingContact below, for exactly this
+ * entity type). Unlike proposeBillingContact, a second agent
+ * proposing for the SAME still-pending name is never rejected with
+ * 409 — it's recorded as another claimant on the one shared pending
+ * entry (proposedByUids), so a superAdmin reviewing it can see every
+ * agent who has claimed this name and resolve them all with the one
+ * setBillingContact approval that follows. Still rejected if the
+ * entity is already confirmed — changes past that point are
+ * admin-only, exactly like proposeBillingContact.
+ */
+export async function proposeCompanyNameBillingContact({
+  companyName,
+  proposedBillingName,
+  proposedName,
+  proposedEmail,
+  agentUserId,
+}) {
+  const normalized = normalizeCompanyName(companyName);
+  if (!normalized) throw new Error('companyName is required');
+  if (!proposedEmail || !EMAIL_RE.test(proposedEmail)) throw new Error('A valid email is required');
+
+  const billingEntityKey = `agency:${normalized}`;
+  const ref = adminDb.collection('billingContacts').doc(billingEntityKey);
+
+  return adminDb.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.exists ? snap.data() : null;
+
+    if (data?.status === 'confirmed') {
+      const err = new Error("This agency's billing contact is already confirmed — changes require a Premarket admin.");
+      err.status = 409;
+      throw err;
+    }
+
+    const existingUids = data?.proposedByUids || (data?.proposedBy ? [data.proposedBy] : []);
+    const proposedByUids = existingUids.includes(agentUserId) ? existingUids : [...existingUids, agentUserId];
+
+    tx.set(ref, {
+      billingEntityKey,
+      billingEntityType: 'agency',
+      billingEntityName: data?.billingEntityName || String(companyName).trim(),
+      status: 'pending',
+      // The first proposer's details stay primary for display; later
+      // claimants are tracked in proposedByUids without overwriting
+      // them — the admin reviews one set of proposed details, not a
+      // shifting target, while still seeing every claimant.
+      proposedBillingName: data?.proposedBillingName || proposedBillingName || '',
+      proposedName: data?.proposedName || proposedName || '',
+      proposedEmail: data?.proposedEmail || proposedEmail,
+      proposedBy: data?.proposedBy || agentUserId,
+      proposedAt: data?.proposedAt || FieldValue.serverTimestamp(),
+      proposedByUids,
+      lastProposedBy: agentUserId,
+      lastProposedAt: FieldValue.serverTimestamp(),
+    });
+
+    return { billingEntityKey, status: 'pending', claimantCount: proposedByUids.length };
+  });
+}
+
+/**
+ * Agent action — confirms a GENUINELY independent agent's own billing
+ * email directly, no admin review. Safe only because the key is
+ * exclusively theirs (agent:{uid}) — there is no one else to collide
+ * with, unlike every agency-keyed path above. Never called for an
+ * agent with a companyName that hasn't resolved to a confirmed
+ * agency entity (see the propose-billing-contact route, which routes
+ * those to proposeCompanyNameBillingContact instead).
+ */
+export async function confirmIndependentBillingContact({ uid, billingName, contactName, contactEmail }) {
+  if (!uid) throw new Error('uid is required');
+  if (!contactEmail || !EMAIL_RE.test(contactEmail)) throw new Error('A valid email is required');
+
+  const billingEntityKey = `agent:${uid}`;
+  await adminDb.collection('billingContacts').doc(billingEntityKey).set({
+    billingEntityKey,
+    billingEntityType: 'independent',
+    status: 'confirmed',
+    billingName: billingName || '',
+    name: contactName || '',
+    email: contactEmail,
+    setBy: `self:${uid}`,
+    setAt: FieldValue.serverTimestamp(),
+  });
+
+  return { billingEntityKey, status: 'confirmed' };
 }
 
 /**
@@ -320,6 +459,7 @@ export async function rejectBillingContact({ billingEntityKey, reason, adminUid 
         proposedEmail: data.proposedEmail || '',
         proposedBy: data.proposedBy || null,
         proposedAt: data.proposedAt || null,
+        proposedByUids: data.proposedByUids || [],
       },
     });
     return { billingEntityKey, status: 'rejected' };
@@ -428,23 +568,57 @@ export async function resolveAgencyBrand(agent, agentUserId) {
   return verified ? { verified: brand, pending: null } : { verified: null, pending: brand };
 }
 
+/** Pure — the normalisation used consistently for every company-name
+ * based billing-contact key in this file (`agency:{normalized}`). */
+function normalizeCompanyName(name) {
+  return String(name || '').trim().toLowerCase();
+}
+
+/**
+ * The low-friction, no-formal-brand path: has a superAdmin already
+ * confirmed a billing contact for this exact company name? If so,
+ * EVERY agent whose companyName normalises to the same string is
+ * trusted for billing automatically from this point on — this is the
+ * intentional trade-off requested: nothing is ever trusted off a
+ * name match alone, only off one explicit superAdmin confirmation of
+ * that exact name (see proposeCompanyNameBillingContact/
+ * setBillingContact's reconciliation) — after which matching it is
+ * deliberately low-friction, by design, not a gap.
+ *
+ * Read-only. Returns null for anything short of status === 'confirmed'
+ * — unset, pending, or rejected are all "not yet", same as the
+ * verified-brand path.
+ */
+export async function resolveConfirmedCompanyNameEntity(companyName) {
+  const normalized = normalizeCompanyName(companyName);
+  if (!normalized) return null;
+  const key = `agency:${normalized}`;
+  const doc = await adminDb.collection('billingContacts').doc(key).get();
+  if (!doc.exists) return null;
+  const data = doc.data();
+  if (data.status !== 'confirmed') return null;
+  return { key, name: data.billingName || String(companyName).trim() };
+}
+
 /**
  * Pure (no Firestore) — resolves which billing entity a property's
- * charge belongs to. `matchedBrand` (the `verified` brand from
- * resolveAgencyBrand above) is the only way to get billingEntityType
- * 'agency' — consolidation under one Xero contact now REQUIRES a
- * verified membership, never a companyName string match alone.
+ * charge belongs to. Two independent ways to reach billingEntityType
+ * 'agency': a verified formal brand (matchedBrand, from
+ * resolveAgencyBrand), or a confirmed company-name entity
+ * (confirmedEntity, from resolveConfirmedCompanyNameEntity above) —
+ * either one requires an explicit, one-time superAdmin confirmation
+ * before it ever applies; a companyName string by itself never does.
  *
- * An agent with no verified brand is always billed as `independent` —
- * under their own name, their own charges, never silently grouped with
- * anyone else — even if their companyName happens to match an existing
- * agency's name exactly. `pendingAgencyName` is purely an informational
- * flag (set only when agencyBrandId is set but unverified — i.e. they
- * actually requested/were linked to something, not just a coincidental
- * name match) so admins can find and resolve it; it never affects
- * billingEntityKey/Type itself.
+ * An agent with neither is always billed as `independent` — under
+ * their own name, their own charges, never silently grouped with
+ * anyone else. pendingAgencyName is now set whenever they have a
+ * companyName that hasn't resolved to either confirmed path yet —
+ * not just when agencyBrandId happens to be set — so every
+ * company-name claim is visible to an admin and every matching
+ * charge is held from invoicing (see invoiceRunService.js) until it
+ * is explicitly confirmed one way or the other.
  */
-export function resolveBillingEntity({ agentUserId, companyName, firstName, lastName, matchedBrand, pendingAgencyName }) {
+export function resolveBillingEntity({ agentUserId, companyName, firstName, lastName, matchedBrand, confirmedEntity, pendingAgencyName }) {
   const trimmedCompany = String(companyName || '').trim();
   const agentName = `${firstName || ''} ${lastName || ''}`.trim() || 'Unknown agent';
 
@@ -457,6 +631,15 @@ export function resolveBillingEntity({ agentUserId, companyName, firstName, last
     };
   }
 
+  if (confirmedEntity?.key) {
+    return {
+      billingEntityType: 'agency',
+      billingEntityKey: confirmedEntity.key,
+      billingEntityName: confirmedEntity.name || trimmedCompany || 'Unknown agency',
+      agencyBrandId: null,
+    };
+  }
+
   if (!trimmedCompany) {
     return {
       billingEntityType: 'independent',
@@ -466,25 +649,16 @@ export function resolveBillingEntity({ agentUserId, companyName, firstName, last
     };
   }
 
-  if (pendingAgencyName) {
-    return {
-      billingEntityType: 'independent',
-      billingEntityKey: `agent:${agentUserId}`,
-      billingEntityName: agentName,
-      agencyBrandId: null,
-      pendingAgencyName,
-    };
-  }
-
-  // A companyName with no matching verified (or even pending) brand at
-  // all — never grouped with anyone, by design (see this function's
-  // own comment). trimmedCompany is kept only as part of their display
-  // name, exactly like an independent agent with no company at all.
+  // A companyName exists but hasn't resolved to either confirmed path
+  // above — always held, always flagged, no exceptions (not even "no
+  // formal brand has ever existed for this name" — that was the
+  // previous, narrower behaviour; see this function's own comment).
   return {
     billingEntityType: 'independent',
     billingEntityKey: `agent:${agentUserId}`,
     billingEntityName: agentName,
     agencyBrandId: null,
+    pendingAgencyName: pendingAgencyName || trimmedCompany,
   };
 }
 
@@ -739,6 +913,22 @@ async function resolveAgencyIdentity(agent, agentUserId) {
       firstName: agent.firstName,
       lastName: agent.lastName,
       matchedBrand,
+    });
+  }
+
+  // The low-friction path — checked before pinned history, same
+  // priority reasoning as a verified brand: a superAdmin has already
+  // confirmed this exact company name once, so it's trusted the same
+  // way going forward, including for an agent whose own history was
+  // pinned to something older/unconfirmed.
+  const confirmedEntity = agent.companyName ? await resolveConfirmedCompanyNameEntity(agent.companyName) : null;
+  if (confirmedEntity) {
+    return resolveBillingEntity({
+      agentUserId,
+      companyName: agent.companyName,
+      firstName: agent.firstName,
+      lastName: agent.lastName,
+      confirmedEntity,
     });
   }
 

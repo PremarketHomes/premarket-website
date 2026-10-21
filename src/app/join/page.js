@@ -8,6 +8,7 @@ import { auth, db } from '../firebase/clientApp';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AuthShell from '../components/public-site/AuthShell';
+import { authFetch } from '../utils/authFetch';
 import {
   AUTH_LABEL_CLASS,
   AUTH_INPUT_CLASS,
@@ -15,6 +16,8 @@ import {
   AUTH_ERROR_CLASS,
   AUTH_LINK_CLASS,
 } from '../components/public-site/authFieldStyles';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function AgentSignup() {
   const router = useRouter();
@@ -26,6 +29,9 @@ export default function AgentSignup() {
     confirmPassword: '',
     phone: '',
     countryCode: '+61',
+    agencyName: '',
+    billingContactName: '',
+    billingEmail: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -73,6 +79,11 @@ export default function AgentSignup() {
       return;
     }
 
+    if (!formData.billingEmail.trim() || !EMAIL_RE.test(formData.billingEmail.trim())) {
+      setError('Please enter a valid billing email address');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -101,6 +112,7 @@ export default function AgentSignup() {
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
         phone: fullPhone,
+        companyName: formData.agencyName.trim(),
         // Onboarding just captured and validated this number, so there's
         // nothing to re-confirm later — prevents the dashboard's mobile
         // confirmation prompt from firing for brand-new agents.
@@ -116,6 +128,29 @@ export default function AgentSignup() {
 
       // Store uid in session storage for later
       sessionStorage.setItem('agentSignupUid', user.uid);
+
+      // Submit billing details now that companyName is written and
+      // the account has a valid session — resolves server-side to
+      // either an immediate self-confirmation (no agency given) or a
+      // pending proposal (agency name given, awaiting one superAdmin
+      // review — see /api/agency/propose-billing-contact). Never
+      // blocks account usability: a failure here is logged but the
+      // agent still reaches their dashboard immediately, exactly like
+      // requirement #2 — this can also be completed later from the
+      // dashboard banner if it fails here.
+      try {
+        await authFetch('/api/agency/propose-billing-contact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            billingName: formData.agencyName.trim() || undefined,
+            contactName: formData.billingContactName.trim(),
+            contactEmail: formData.billingEmail.trim(),
+          }),
+        });
+      } catch (billingErr) {
+        console.error('Signup billing-details submission failed (non-blocking):', billingErr);
+      }
 
       // Redirect to dashboard
       router.push('/dashboard');
@@ -207,6 +242,48 @@ export default function AgentSignup() {
               placeholder="412 345 678"
               maxLength={11}
             />
+          </div>
+        </div>
+
+        <div className="pt-2 border-t border-slate-100">
+          <h3 className="text-base font-semibold text-slate-900 mt-4 mb-1">Agency Billing Details</h3>
+          <p className="text-sm text-slate-500 mb-4">
+            Premarket invoices are issued to your agency. Please provide the email address of the person or accounts department responsible for payment.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className={AUTH_LABEL_CLASS}>Agency Name</label>
+              <input
+                type="text"
+                value={formData.agencyName}
+                onChange={(e) => setFormData({ ...formData, agencyName: e.target.value })}
+                className={AUTH_INPUT_CLASS}
+                placeholder="e.g. Ray White, LJ Hooker (leave blank if you're independent)"
+              />
+            </div>
+            <div>
+              <label className={AUTH_LABEL_CLASS}>Accounts Contact Name</label>
+              <input
+                type="text"
+                value={formData.billingContactName}
+                onChange={(e) => setFormData({ ...formData, billingContactName: e.target.value })}
+                className={AUTH_INPUT_CLASS}
+                placeholder="Jane Smith"
+              />
+            </div>
+            <div>
+              <label className={AUTH_LABEL_CLASS}>Billing Email Address</label>
+              <input
+                type="email"
+                required
+                value={formData.billingEmail}
+                onChange={(e) => setFormData({ ...formData, billingEmail: e.target.value })}
+                className={AUTH_INPUT_CLASS}
+                placeholder="accounts@agency.com.au"
+              />
+              <p className="text-xs text-slate-400 mt-1.5">This can be different from your login email.</p>
+            </div>
           </div>
         </div>
 

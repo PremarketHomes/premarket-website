@@ -118,7 +118,14 @@ export default function BillingContactsPanel() {
                 <Clock className="w-4.5 h-4.5 text-amber-600" />
               </div>
               <div>
-                <p className="font-medium text-slate-900 text-sm">{item.billingEntityName}</p>
+                <p className="font-medium text-slate-900 text-sm flex items-center gap-2">
+                  {item.billingEntityName}
+                  {item.proposedByUids?.length > 1 && (
+                    <span className="bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5 rounded-full">
+                      {item.proposedByUids.length} agents claimed this
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs text-slate-500">
                   Proposed: {item.proposedBillingName || '—'} · {item.proposedName || '—'} · {item.proposedEmail}
                 </p>
