@@ -1,17 +1,18 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
+import { CheckCircle, XCircle, Clock } from 'lucide-react';
 import { authFetch } from '../../../../utils/authFetch';
 
 /**
  * Admin review queue for agency membership — both explicit requests
  * (an agent clicked "Apply Branding" on an existing agency) and
  * "legacy" accounts (agencyBrandId set before this verification
- * system existed, never reviewed). Nothing here is auto-trusted:
- * approving is the only way an account's charges/billing-contact
- * proposals ever consolidate with the agency's — see
- * billingService.js's resolveAgencyBrand.
+ * system existed, never reviewed). Branding only: approving or
+ * rejecting here only affects agencyBrandId (visual branding/logo
+ * display). It has no effect on billing, charges, or invoicing — every
+ * agent bills independently under their own Firebase UID regardless
+ * of agency membership (see billingService.js).
  */
 export default function AgencyMembershipsPanel() {
   const [pending, setPending] = useState([]);
@@ -108,12 +109,6 @@ export default function AgencyMembershipsPanel() {
                 <p className="text-xs text-slate-500">
                   Wants to join: <span className="font-medium text-slate-700">{item.agencyBrandName}</span>
                 </p>
-                {item.heldChargeCount > 0 && (
-                  <p className="text-xs text-amber-700 flex items-center gap-1 mt-1">
-                    <AlertTriangle className="w-3 h-3" />
-                    {item.heldChargeCount} charge{item.heldChargeCount === 1 ? '' : 's'} held, excluded from invoicing until resolved
-                  </p>
-                )}
               </div>
             </div>
             <div className="flex items-center gap-2">

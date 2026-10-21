@@ -30,31 +30,28 @@ function stableInvoiceIdempotencyKey(itemId) {
 }
 
 /**
- * The exact name used to find-or-create this item's Xero contact —
- * deliberately NOT always item.agencyName. findOrCreateContact
- * matches purely by name, so two DIFFERENT independent agents (no
- * company, billingEntityType 'independent') who happen to share the
- * same personal name would otherwise collide onto one Xero contact,
- * even though Premarket's own billingEntityKey correctly keeps them
- * separate — their invoices would then sit under one shared Xero
- * record, mixing two unrelated people's history.
+ * The exact name used to find-or-create this item's Xero contact.
+ * findOrCreateContact matches purely by name, so two DIFFERENT agents
+ * who happen to share a personal name, or who both typed (and had
+ * confirmed) the exact same agency name as their own billingName,
+ * would otherwise collide onto one shared Xero contact — even though
+ * Premarket's own billingEntityKey (always agent:{uid}) correctly
+ * keeps them completely separate. Their invoices would then sit under
+ * one shared Xero record, mixing two unrelated agents' history —
+ * exactly what "never merge separate agent invoices" forbids.
  *
- * Fixed by appending a short, stable suffix derived from the
- * billingEntityKey itself (already unique by construction, e.g.
- * agent:<uid>) ONLY for independent agents — the one case this
- * collision is actually possible. Company-based (billingEntityType
- * 'agency') contacts are untouched: two agents genuinely sharing a
- * company name are SUPPOSED to consolidate under one contact, so a
- * disambiguating suffix there would be wrong, not a fix.
- *
- * This only changes what the XERO contact is named — it never
- * changes item.agencyName itself, so nothing in Premarket's own
- * admin dashboard display changes.
+ * Fixed by ALWAYS appending a short, stable suffix derived from the
+ * billingEntityKey itself (unique by construction), on top of
+ * whichever display name applies — the admin-confirmed billingName
+ * when one was set, otherwise the agent's own name. This only changes
+ * what the XERO contact is named — it never changes item.agencyName
+ * itself, so nothing in Premarket's own admin dashboard display
+ * changes.
  */
-function buildXeroContactName(item) {
-  if (item.billingEntityType !== 'independent') return item.agencyName;
+function buildXeroContactName(item, confirmedBillingName) {
+  const base = confirmedBillingName || item.agencyName;
   const suffix = String(item.billingEntityKey || '').replace(/^agent:/, '').slice(0, 8);
-  return suffix ? `${item.agencyName} (${suffix})` : item.agencyName;
+  return suffix ? `${base} (${suffix})` : base;
 }
 
 /**
@@ -148,35 +145,32 @@ export async function POST(request, { params }) {
           // failure) — reuse it, never call createInvoice again.
           invoice = { InvoiceID: item.xeroInvoiceId, InvoiceNumber: item.xeroInvoiceNumber, Status: item.xeroStatus };
         } else {
-          // Agency items must have a billing contact that is confirmed
-          // RIGHT NOW — re-resolved live, here, never trusted from
+          // Every item requires THIS agent's own confirmed billing
+          // contact, re-resolved live, right now — never trusted from
           // item.agentName/agentEmail (stamped at run-creation time by
           // invoiceRunService.js, purely for admin preview, and
-          // possibly stale by the time this run is actually sent — a
-          // contact could have been confirmed, or even changed, in the
-          // time between). Independent agents have no separate agency
-          // to confirm — their own identity correctly remains the
-          // contact, unchanged.
-          let contactName = item.agentName;
-          let contactEmail = item.agentEmail;
-          let xeroContactName = buildXeroContactName(item);
-
-          if (item.billingEntityType !== 'independent') {
-            const confirmed = await resolveBillingContact(item.billingEntityKey);
-            if (!confirmed) {
-              errors.push({
-                agencyName: item.agencyName,
-                error: 'Billing details required — no confirmed billing contact for this agency',
-                stage: 'contact',
-              });
-              await itemRef.update({ status: 'contact_required', lastError: 'Billing details required' });
-              await markChargesFailed(item.properties.map((p) => p.propertyId).filter(Boolean));
-              continue;
-            }
-            contactName = confirmed.name;
-            contactEmail = confirmed.email;
-            xeroContactName = confirmed.billingName || xeroContactName;
+          // possibly stale by the time this run is actually sent), and
+          // NEVER a fallback to the agent's own login email/name. Two
+          // agents can share an agency name, branding, or even the
+          // exact same billing email address without ever being
+          // confused here — each is only ever resolved by their own
+          // billingEntityKey (agent:{uid}), and an agent whose contact
+          // isn't confirmed yet is blocked from sending entirely rather
+          // than silently billed under any other identity.
+          const confirmed = await resolveBillingContact(item.billingEntityKey);
+          if (!confirmed) {
+            errors.push({
+              agencyName: item.agencyName,
+              error: 'Billing details required — no confirmed billing contact for this agent',
+              stage: 'contact',
+            });
+            await itemRef.update({ status: 'contact_required', lastError: 'Billing details required' });
+            await markChargesFailed(item.properties.map((p) => p.propertyId).filter(Boolean));
+            continue;
           }
+          const contactName = confirmed.name;
+          const contactEmail = confirmed.email;
+          const xeroContactName = buildXeroContactName(item, confirmed.billingName);
 
           const nameParts = contactName?.split(' ') || [];
           const contact = await findOrCreateContact({

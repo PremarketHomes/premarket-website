@@ -84,14 +84,13 @@ describe('GET /api/admin/agency-memberships', () => {
     expect((await GET(makeGetRequest('Bearer t'))).status).toBe(403);
   });
 
-  it('lists a pending request AND a legacy link, each with a heldChargeCount', async () => {
+  it('lists a pending request AND a legacy link — branding only, no billing/charge data attached', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
     fakeDb._seed('users', 'admin1', { superAdmin: true });
     fakeDb._seed('agencyBrands', 'brand-x', { name: 'Agency X', createdBy: 'creatorUid' });
     fakeDb._seed('agencyMemberships', 'requester1', { uid: 'requester1', agencyBrandId: 'brand-x', status: 'pending', requestedCompanyName: 'Agency X' });
     fakeDb._seed('users', 'requester1', { companyName: 'Agency X', agencyBrandId: 'brand-x' });
     fakeDb._seed('users', 'legacyAgent', { companyName: 'Agency X', agencyBrandId: 'brand-x' }); // no membership record at all
-    fakeDb._seed('propertyCharges', 'propHeld', { agentUserId: 'requester1', status: 'pending', pendingAgencyName: 'Agency X' });
 
     const { GET } = await import('../../src/app/api/admin/agency-memberships/route.js');
     const res = await GET(makeGetRequest('Bearer t'));
@@ -101,7 +100,7 @@ describe('GET /api/admin/agency-memberships', () => {
     const uids = data.pending.map((p) => p.uid);
     expect(uids).toContain('requester1');
     expect(uids).toContain('legacyAgent');
-    expect(data.pending.find((p) => p.uid === 'requester1').heldChargeCount).toBe(1);
+    expect(data.pending.find((p) => p.uid === 'requester1').heldChargeCount).toBeUndefined();
     expect(data.pending.find((p) => p.uid === 'legacyAgent').source).toBe('legacy');
   });
 });

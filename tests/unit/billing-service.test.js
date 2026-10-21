@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('firebase-admin/firestore', () => ({
-  FieldValue: { serverTimestamp: () => 'TIMESTAMP' },
+  FieldValue: { serverTimestamp: () => 'TIMESTAMP', delete: () => 'DELETE_SENTINEL' },
 }));
 
 // A small in-memory Firestore fake, scoped per test file — real enough
@@ -57,7 +57,11 @@ function makeFakeDb() {
           id,
           data: () => data,
           _raw: data,
-          ref: { update: async (patch) => { store[name][id] = { ...(store[name][id] || {}), ...patch }; } },
+          ref: {
+            _col: name,
+            id,
+            update: async (patch) => { store[name][id] = { ...(store[name][id] || {}), ...patch }; },
+          },
         }));
         return makeQuery(all.filter((d) => matches(d._raw, field, op, value)));
       },
@@ -75,7 +79,13 @@ function makeFakeDb() {
     const ops = [];
     return {
       set: (ref, data) => ops.push(() => { store[ref._col][ref.id] = { ...data }; }),
-      update: (ref, patch) => ops.push(() => { store[ref._col][ref.id] = { ...(store[ref._col][ref.id] || {}), ...patch }; }),
+      update: (ref, patch) => ops.push(() => {
+        const merged = { ...(store[ref._col][ref.id] || {}), ...patch };
+        for (const [k, v] of Object.entries(patch)) {
+          if (v === 'DELETE_SENTINEL') delete merged[k];
+        }
+        store[ref._col][ref.id] = merged;
+      }),
       delete: (ref) => ops.push(() => { delete store[ref._col][ref.id]; }),
       commit: async () => { ops.forEach((op) => op()); },
     };
@@ -134,129 +144,62 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('resolveBillingEntity (pure)', () => {
-  it('SECURITY: companyName alone, with no verified brand, is billed as independent — never silently grouped by name text', async () => {
+describe('resolveBillingEntity (pure) — ONE AGENT = ONE BILLING ACCOUNT', () => {
+  it('always resolves to the agent\'s own UID, regardless of companyName/agencyName', async () => {
     const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
-    const a = resolveBillingEntity({ agentUserId: 'u1', companyName: 'Harcourts Property Hub ' });
-    const b = resolveBillingEntity({ agentUserId: 'u2', companyName: ' harcourts property hub' });
-    expect(a.billingEntityType).toBe('independent');
-    expect(b.billingEntityType).toBe('independent');
-    // Different agents, different keys — this is the exact fix: two
-    // unrelated accounts sharing a company name string must never be
-    // folded into one billing identity.
-    expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
-  });
-
-  it('treats an agent with no companyName as independent, keyed by their own uid', async () => {
-    const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
-    const result = resolveBillingEntity({ agentUserId: 'u3', companyName: '', firstName: 'Jo', lastName: 'Lee' });
+    const result = resolveBillingEntity({ agentUserId: 'u1', firstName: 'Jo', lastName: 'Lee' });
     expect(result.billingEntityType).toBe('independent');
-    expect(result.billingEntityKey).toBe('agent:u3');
+    expect(result.billingEntityKey).toBe('agent:u1');
     expect(result.billingEntityName).toBe('Jo Lee');
   });
 
-  it('two independent agents never share a billing entity key, even with the same name', async () => {
+  it('two agents from the SAME named agency never share a billing entity key', async () => {
+    const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
+    const a = resolveBillingEntity({ agentUserId: 'agentA', firstName: 'Jo', lastName: 'Lee' });
+    const b = resolveBillingEntity({ agentUserId: 'agentB', firstName: 'Max', lastName: 'Tan' });
+    expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
+    expect(a.billingEntityKey).toBe('agent:agentA');
+    expect(b.billingEntityKey).toBe('agent:agentB');
+  });
+
+  it('two agents with identical names still never share a billing entity key', async () => {
     const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
     const a = resolveBillingEntity({ agentUserId: 'u1', firstName: 'Sam', lastName: 'Lee' });
     const b = resolveBillingEntity({ agentUserId: 'u2', firstName: 'Sam', lastName: 'Lee' });
     expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
   });
 
-  it('a matched brand takes priority over companyName, keying by the stable brand id', async () => {
+  it('falls back to "Unknown agent" when no name is available, but still keys independently', async () => {
     const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
-    const result = resolveBillingEntity({
-      agentUserId: 'u1',
-      companyName: 'Harcourts Prop Hub', // deliberately NOT the same string as the brand name
-      matchedBrand: { id: 'brand-123', name: 'Harcourts Property Hub' },
-    });
-    expect(result.billingEntityType).toBe('agency');
-    expect(result.billingEntityKey).toBe('brand:brand-123');
-    expect(result.billingEntityName).toBe('Harcourts Property Hub');
-    expect(result.agencyBrandId).toBe('brand-123');
-  });
-
-  it('two agents with a matched brand consolidate even though their companyName strings genuinely differ', async () => {
-    const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
-    const a = resolveBillingEntity({ agentUserId: 'u1', companyName: 'HPH', matchedBrand: { id: 'brand-123', name: 'Harcourts Property Hub' } });
-    const b = resolveBillingEntity({ agentUserId: 'u2', companyName: 'Harcourts Property Hub Pty Ltd', matchedBrand: { id: 'brand-123', name: 'Harcourts Property Hub' } });
-    expect(a.billingEntityKey).toBe(b.billingEntityKey);
-  });
-
-  it('no brand at all (not even pending) never creates a shared agency key from companyName', async () => {
-    const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
-    const a = resolveBillingEntity({ agentUserId: 'u1', companyName: 'Acme' });
-    const b = resolveBillingEntity({ agentUserId: 'u2', companyName: 'Acme' });
-    expect(a.billingEntityType).toBe('independent');
-    expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
-    expect(a.agencyBrandId).toBeNull();
-    expect(a.pendingAgencyName).toBeUndefined(); // no claimed brand relationship to flag at all
-  });
-
-  it('flags a claimed-but-unverified agency membership for admin visibility, without affecting the billing key or type', async () => {
-    const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
-    const result = resolveBillingEntity({ agentUserId: 'u1', companyName: 'Harcourts Property Hub', matchedBrand: null, pendingAgencyName: 'Harcourts Property Hub' });
-    expect(result.billingEntityType).toBe('independent');
+    const result = resolveBillingEntity({ agentUserId: 'u1' });
+    expect(result.billingEntityName).toBe('Unknown agent');
     expect(result.billingEntityKey).toBe('agent:u1');
-    expect(result.pendingAgencyName).toBe('Harcourts Property Hub');
   });
 });
 
-describe('resolveAgencyBrand', () => {
-  it('returns verified when the agent is the brand\'s own creator — no separate membership record needed', async () => {
-    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
-    const result = await resolveAgencyBrand({ agencyBrandId: 'brand-123' }, 'agent1');
-    expect(result.verified).toEqual({ id: 'brand-123', name: 'Harcourts Property Hub' });
-    expect(result.pending).toBeNull();
+describe('resolveBillingEntityForAgent — reads only the agent\'s own name, ignores agencyBrandId/companyName entirely', () => {
+  it('resolves the agent\'s own agent:{uid} key even when agencyBrandId is set', async () => {
+    const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('users').doc('agent1').set({
+      firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', agencyBrandId: 'brand-hph',
+    });
+    const entity = await resolveBillingEntityForAgent('agent1');
+    expect(entity.billingEntityKey).toBe('agent:agent1');
+    expect(entity.billingEntityType).toBe('independent');
   });
 
-  it('returns verified for a non-creator with an explicit verified agencyMemberships record for that exact brand', async () => {
-    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
-    fakeDb.collection('agencyMemberships').doc('agent2').set({ uid: 'agent2', agencyBrandId: 'brand-123', status: 'verified' });
-    const result = await resolveAgencyBrand({ agencyBrandId: 'brand-123' }, 'agent2');
-    expect(result.verified).toEqual({ id: 'brand-123', name: 'Harcourts Property Hub' });
-  });
+  it('two agents at the same branded agency each resolve to their own independent key', async () => {
+    const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('agencyBrands').doc('brand-hph').set({ name: 'Harcourts Property Hub', createdBy: 'agentA' });
+    fakeDb.collection('agencyMemberships').doc('agentB').set({ uid: 'agentB', agencyBrandId: 'brand-hph', status: 'verified' });
+    fakeDb.collection('users').doc('agentA').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', agencyBrandId: 'brand-hph' });
+    fakeDb.collection('users').doc('agentB').set({ firstName: 'Max', lastName: 'Tan', companyName: 'Harcourts Property Hub', agencyBrandId: 'brand-hph' });
 
-  it('SECURITY: agencyBrandId set with NO membership record at all is NOT verified — returned as pending, never usable for billing', async () => {
-    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
-    const result = await resolveAgencyBrand({ agencyBrandId: 'brand-123' }, 'agent2');
-    expect(result.verified).toBeNull();
-    expect(result.pending).toEqual({ id: 'brand-123', name: 'Harcourts Property Hub' });
-  });
-
-  it('SECURITY: a rejected membership is not verified either', async () => {
-    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
-    fakeDb.collection('agencyMemberships').doc('agent2').set({ uid: 'agent2', agencyBrandId: 'brand-123', status: 'rejected' });
-    const result = await resolveAgencyBrand({ agencyBrandId: 'brand-123' }, 'agent2');
-    expect(result.verified).toBeNull();
-  });
-
-  it('SECURITY: companyName matching an existing brand\'s name, with no agencyBrandId at all, is never trusted — this was the exact self-escalation path that got fixed', async () => {
-    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
-    const result = await resolveAgencyBrand({ companyName: 'Harcourts Property Hub' }, 'agent2'); // no agencyBrandId
-    expect(result.verified).toBeNull();
-    expect(result.pending).toBeNull(); // not even flagged as pending — they never claimed anything
-  });
-
-  it('returns nothing for a dangling agencyBrandId pointing at a deleted brand', async () => {
-    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    const result = await resolveAgencyBrand({ agencyBrandId: 'deleted-brand', companyName: 'Ray White' }, 'agent2');
-    expect(result.verified).toBeNull();
-    expect(result.pending).toBeNull();
-  });
-
-  it('never writes to agencyBrandId, the brand, or any membership record — purely read-only', async () => {
-    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
-    const beforeBrands = JSON.stringify(fakeDb._store.agencyBrands);
-    await resolveAgencyBrand({ agencyBrandId: 'brand-123' }, 'agent2');
-    expect(JSON.stringify(fakeDb._store.agencyBrands)).toBe(beforeBrands);
-    expect(fakeDb._store.agencyMemberships || {}).toEqual({});
-    expect(fakeDb._store.users || {}).toEqual({});
+    const entityA = await resolveBillingEntityForAgent('agentA');
+    const entityB = await resolveBillingEntityForAgent('agentB');
+    expect(entityA.billingEntityKey).toBe('agent:agentA');
+    expect(entityB.billingEntityKey).toBe('agent:agentB');
+    expect(entityA.billingEntityKey).not.toBe(entityB.billingEntityKey);
   });
 });
 
@@ -267,15 +210,12 @@ describe('computeChargeAmounts (pure)', () => {
     expect(result.totalInc).toBe(200);
     expect(result.subtotalEx).toBeCloseTo(181.82, 2);
     expect(result.gstAmount).toBeCloseTo(18.18, 2);
-    expect(result.subtotalEx + result.gstAmount).toBeCloseTo(result.totalInc, 5);
   });
 
-  it('charges $0 GST at gstRate 0 (Premarket is not GST registered)', async () => {
+  it('with 0% GST, subtotal equals the total and GST is zero', async () => {
     const { computeChargeAmounts } = await import('../../src/app/api/services/billingService.js');
     const result = computeChargeAmounts(200, 0);
-    expect(result.totalInc).toBe(200);
-    expect(result.subtotalEx).toBe(200);
-    expect(result.gstAmount).toBe(0);
+    expect(result).toEqual({ totalInc: 200, subtotalEx: 200, gstAmount: 0 });
   });
 });
 
@@ -307,7 +247,7 @@ describe('recordPropertyCharge', () => {
     return svc;
   }
 
-  it('creates exactly one charge for a new property — billed independently, since agent1 has a companyName but no verified brand', async () => {
+  it('creates exactly one charge for a new property, keyed by the agent\'s own UID', async () => {
     const { recordPropertyCharge } = await setup();
     const result = await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() });
     expect(result.created).toBe(true);
@@ -315,6 +255,7 @@ describe('recordPropertyCharge', () => {
     expect(doc.exists).toBe(true);
     expect(doc.data().status).toBe('pending');
     expect(doc.data().billingEntityType).toBe('independent');
+    expect(doc.data().billingEntityKey).toBe('agent:agent1');
     expect(doc.data().billingEntityName).toBe('Jo Lee');
     expect(doc.data().totalInc).toBe(200);
   });
@@ -372,20 +313,21 @@ describe('recordPropertyCharge', () => {
     expect(result.reason).toBe('no-agent');
   });
 
-  it('SECURITY: two agents merely sharing a companyName (no verified brand) are billed SEPARATELY — never grouped by name text alone', async () => {
+  it('SECURITY: two agents at the SAME named agency are billed SEPARATELY, under their own independent cycles', async () => {
     const { recordPropertyCharge } = await setup();
-    fakeDb.collection('users').doc('agent2').set({ firstName: 'Max', lastName: 'Tan', companyName: 'harcourts property hub', email: 'max@example.com' });
+    fakeDb.collection('users').doc('agent2').set({ firstName: 'Max', lastName: 'Tan', companyName: 'Harcourts Property Hub', email: 'max@example.com' });
 
     await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
     await recordPropertyCharge({ id: 'propB', userId: 'agent2', address: '2 B St', createdAt: new Date() });
 
     const docA = await fakeDb.collection('propertyCharges').doc('propA').get();
     const docB = await fakeDb.collection('propertyCharges').doc('propB').get();
+    expect(docA.data().billingEntityKey).toBe('agent:agent1');
+    expect(docB.data().billingEntityKey).toBe('agent:agent2');
     expect(docA.data().billingEntityKey).not.toBe(docB.data().billingEntityKey);
-    expect(docB.data().billingEntityType).toBe('independent');
   });
 
-  it('two VERIFIED members of the same real brand correctly group under one billing entity', async () => {
+  it('SECURITY: two agents with the SAME verified agencyBrandId still bill independently — branding never influences billing identity', async () => {
     const { recordPropertyCharge } = await setup();
     fakeDb.collection('agencyBrands').doc('brand-hph').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
     fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brand-hph' });
@@ -397,121 +339,29 @@ describe('recordPropertyCharge', () => {
 
     const docA = await fakeDb.collection('propertyCharges').doc('propA').get();
     const docB = await fakeDb.collection('propertyCharges').doc('propB').get();
-    expect(docA.data().billingEntityKey).toBe('brand:brand-hph');
-    expect(docB.data().billingEntityKey).toBe('brand:brand-hph');
+    expect(docA.data().billingEntityKey).toBe('agent:agent1');
+    expect(docB.data().billingEntityKey).toBe('agent:agent2');
   });
 
-  it('an agent whose agencyBrandId is set but NOT yet verified is billed independently, flagged for admin review — never merged with the agency', async () => {
+  it('a brand-new agent with no prior charges resolves fresh as independent, billed under their own name', async () => {
     const { recordPropertyCharge } = await setup();
-    fakeDb.collection('agencyBrands').doc('brand-hph').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
-    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brand-hph' });
-    // agent2 has the agencyBrandId set (e.g. requested to join) but no verified membership record yet.
-    fakeDb.collection('users').doc('agent2').set({ firstName: 'Max', lastName: 'Tan', companyName: 'Harcourts Property Hub', email: 'max@example.com', agencyBrandId: 'brand-hph' });
+    fakeDb.collection('users').doc('agent2').set({ firstName: 'New', lastName: 'Agent', companyName: 'Never Charged Before Realty', email: 'new@example.com' });
+    await recordPropertyCharge({ id: 'propZ', userId: 'agent2', address: '1 Z St', createdAt: new Date() });
+    const doc = await fakeDb.collection('propertyCharges').doc('propZ').get();
+    expect(doc.data().billingEntityType).toBe('independent');
+    expect(doc.data().billingEntityKey).toBe('agent:agent2');
+    expect(doc.data().billingEntityName).toBe('New Agent');
+  });
 
+  it('an agent\'s charge history never changes a LATER charge\'s billing entity — always derived fresh from their own UID', async () => {
+    const { recordPropertyCharge } = await setup();
     await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
-    await recordPropertyCharge({ id: 'propB', userId: 'agent2', address: '2 B St', createdAt: new Date() });
+    await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
 
     const docA = await fakeDb.collection('propertyCharges').doc('propA').get();
     const docB = await fakeDb.collection('propertyCharges').doc('propB').get();
-    expect(docA.data().billingEntityKey).toBe('brand:brand-hph');
-    expect(docB.data().billingEntityKey).not.toBe('brand:brand-hph');
-    expect(docB.data().billingEntityType).toBe('independent');
-    expect(docB.data().pendingAgencyName).toBe('Harcourts Property Hub'); // flagged for admin resolution
-  });
-
-  describe('agency billing identity stays pinned to legacy history, never freshly re-derived from companyName (Priority 2 fix, updated for verified membership)', () => {
-    it('a pre-existing legacy agency-keyed charge (predating verified membership) continues to pin an agent\'s future charges', async () => {
-      const { recordPropertyCharge } = await setup();
-      // Simulates a charge recorded under the OLD companyName-fallback
-      // system, before verified membership existed — never
-      // retroactively touched by this fix (see requirement to never
-      // auto-migrate existing charges/entities).
-      fakeDb.collection('propertyCharges').doc('legacyProp').set({
-        agentUserId: 'agent1', propertyId: 'legacyProp',
-        billingEntityType: 'agency', billingEntityKey: 'agency:harcourts property hub',
-        billingEntityName: 'Harcourts Property Hub', agencyBrandId: null,
-      });
-
-      await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
-      const doc = await fakeDb.collection('propertyCharges').doc('propB').get();
-
-      expect(doc.data().billingEntityKey).toBe('agency:harcourts property hub');
-      expect(doc.data().billingEntityType).toBe('agency');
-    });
-
-    it('a real, verified brand still takes priority over pinned legacy history — an agent can still legitimately upgrade — and the historical charge is never rewritten', async () => {
-      const { recordPropertyCharge } = await setup();
-      fakeDb.collection('propertyCharges').doc('legacyProp').set({
-        agentUserId: 'agent1', propertyId: 'legacyProp',
-        billingEntityType: 'agency', billingEntityKey: 'agency:harcourts property hub',
-        billingEntityName: 'Harcourts Property Hub', agencyBrandId: null,
-      });
-
-      fakeDb.collection('agencyBrands').doc('brand1').set({ name: 'Harcourts Property Hub (Verified)', createdBy: 'agent1' });
-      fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brand1' });
-
-      await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
-      const doc = await fakeDb.collection('propertyCharges').doc('propB').get();
-      expect(doc.data().billingEntityKey).toBe('brand:brand1');
-      expect(doc.data().agencyBrandId).toBe('brand1');
-
-      // The historical (legacy) charge must never be retroactively
-      // rewritten onto the new brand-based entity.
-      const historicalAfter = await fakeDb.collection('propertyCharges').doc('legacyProp').get();
-      expect(historicalAfter.data().billingEntityKey).toBe('agency:harcourts property hub');
-      expect(historicalAfter.data().billingEntityKey).not.toBe('brand:brand1');
-    });
-
-    it('switching from one VERIFIED brand to another VERIFIED brand (a genuine agency transfer) only redirects FUTURE charges — history for both stays correct', async () => {
-      const { recordPropertyCharge } = await setup();
-      fakeDb.collection('agencyBrands').doc('brandOld').set({ name: 'Harcourts Property Hub', createdBy: 'agent1' });
-      fakeDb.collection('agencyBrands').doc('brandNew').set({ name: 'Ray White Coastal', createdBy: 'agent9' });
-      fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brandOld' });
-
-      await recordPropertyCharge({ id: 'propOld', userId: 'agent1', address: '1 Old St', createdAt: new Date() });
-      const oldChargeKeyBefore = (await fakeDb.collection('propertyCharges').doc('propOld').get()).data().billingEntityKey;
-      expect(oldChargeKeyBefore).toBe('brand:brandOld');
-
-      // Agent genuinely transfers — the NEW brand must ALSO verify them
-      // (a bare agencyBrandId switch is not enough on its own, exactly
-      // the point of this fix: a superAdmin confirms the transfer).
-      fakeDb.collection('agencyMemberships').doc('agent1').set({ uid: 'agent1', agencyBrandId: 'brandNew', status: 'verified', verifiedBy: 'admin1' });
-      fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Ray White Coastal', email: 'jo@example.com', agencyBrandId: 'brandNew' });
-      await recordPropertyCharge({ id: 'propNew', userId: 'agent1', address: '2 New St', createdAt: new Date() });
-
-      const oldChargeAfter = await fakeDb.collection('propertyCharges').doc('propOld').get();
-      const newCharge = await fakeDb.collection('propertyCharges').doc('propNew').get();
-
-      // Old charge still correctly billed to the OLD agency — untouched.
-      expect(oldChargeAfter.data().billingEntityKey).toBe('brand:brandOld');
-      expect(newCharge.data().billingEntityKey).toBe('brand:brandNew');
-    });
-
-    it('an admin override still takes priority over pinned history', async () => {
-      const { recordPropertyCharge, mergeIntoBillingEntity } = await setup();
-      await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
-
-      await mergeIntoBillingEntity({
-        agentUserIds: ['agent1'],
-        targetBillingEntityKey: 'agency:some-other-entity',
-        targetBillingEntityName: 'Some Other Entity',
-        adminUid: 'admin1',
-        reason: 'admin-confirmed duplicate',
-      });
-
-      await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
-      const doc = await fakeDb.collection('propertyCharges').doc('propB').get();
-      expect(doc.data().billingEntityKey).toBe('agency:some-other-entity');
-    });
-
-    it('a brand-new agent with no prior charges and no verified brand resolves fresh as independent, billed under their own name', async () => {
-      const { recordPropertyCharge } = await setup();
-      fakeDb.collection('users').doc('agent2').set({ firstName: 'New', lastName: 'Agent', companyName: 'Never Charged Before Realty', email: 'new@example.com' });
-      await recordPropertyCharge({ id: 'propZ', userId: 'agent2', address: '1 Z St', createdAt: new Date() });
-      const doc = await fakeDb.collection('propertyCharges').doc('propZ').get();
-      expect(doc.data().billingEntityType).toBe('independent');
-      expect(doc.data().billingEntityName).toBe('New Agent');
-    });
+    expect(docA.data().billingEntityKey).toBe('agent:agent1');
+    expect(docB.data().billingEntityKey).toBe('agent:agent1');
   });
 });
 
@@ -662,152 +512,6 @@ describe('createPropertyAndChargeAtomically', () => {
     expect(a.propertyId).not.toBe(b.propertyId);
     const all = await fakeDb.collection('propertyCharges').get();
     expect(all.docs.length).toBe(2);
-  });
-});
-
-describe('namesLikelySameAgency (pure)', () => {
-  it('flags one name as a likely duplicate when it is wholly contained in the other', async () => {
-    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
-    expect(namesLikelySameAgency('Harcourts', 'Harcourts Property Hub')).toBe(true);
-    expect(namesLikelySameAgency('Harcourts Property Hub', 'harcourts')).toBe(true); // case-insensitive
-  });
-
-  it('flags two names sharing a distinctive first word', async () => {
-    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
-    expect(namesLikelySameAgency('Harcourts Prop Hub', 'Harcourts Pty Ltd')).toBe(true);
-  });
-
-  it('does not flag two genuinely unrelated names', async () => {
-    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
-    expect(namesLikelySameAgency('Ray White', 'LJ Hooker')).toBe(false);
-  });
-
-  it('does not flag two already-identical (normalised) names — that is not this function\'s job', async () => {
-    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
-    expect(namesLikelySameAgency('Harcourts Property Hub', 'harcourts property hub ')).toBe(false);
-  });
-
-  it('known limitation: an abbreviation with no shared prefix or substring is not caught', async () => {
-    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
-    expect(namesLikelySameAgency('HPH', 'Harcourts Property Hub')).toBe(false);
-  });
-
-  it('is false for empty/missing names rather than throwing', async () => {
-    const { namesLikelySameAgency } = await import('../../src/app/api/services/billingService.js');
-    expect(namesLikelySameAgency('', 'Harcourts')).toBe(false);
-    expect(namesLikelySameAgency(null, undefined)).toBe(false);
-  });
-});
-
-describe('resolveBillingOverride / mergeIntoBillingEntity', () => {
-  it('returns null when no override exists', async () => {
-    const { resolveBillingOverride } = await import('../../src/app/api/services/billingService.js');
-    expect(await resolveBillingOverride('agent1')).toBeNull();
-  });
-
-  it('mergeIntoBillingEntity writes an override for every given agent, with a required reason and admin recorded', async () => {
-    const { mergeIntoBillingEntity, resolveBillingOverride } = await import('../../src/app/api/services/billingService.js');
-    const result = await mergeIntoBillingEntity({
-      agentUserIds: ['agent1', 'agent2'],
-      targetBillingEntityKey: 'agency:harcourts property hub',
-      targetBillingEntityName: 'Harcourts Property Hub',
-      adminUid: 'admin1',
-      reason: 'Same agency, different spelling',
-    });
-    expect(result.merged).toBe(2);
-
-    const override1 = await resolveBillingOverride('agent1');
-    expect(override1.billingEntityKey).toBe('agency:harcourts property hub');
-    expect(override1.billingEntityName).toBe('Harcourts Property Hub');
-
-    expect(fakeDb._store.billingAgencyOverrides.agent1.setBy).toBe('admin1');
-    expect(fakeDb._store.billingAgencyOverrides.agent1.reason).toBe('Same agency, different spelling');
-  });
-
-  it('rejects a merge with no agentUserIds or no target entity', async () => {
-    const { mergeIntoBillingEntity } = await import('../../src/app/api/services/billingService.js');
-    await expect(mergeIntoBillingEntity({ agentUserIds: [], targetBillingEntityKey: 'x', targetBillingEntityName: 'X', adminUid: 'a', reason: 'r' })).rejects.toThrow();
-    await expect(mergeIntoBillingEntity({ agentUserIds: ['agent1'], targetBillingEntityKey: '', targetBillingEntityName: '', adminUid: 'a', reason: 'r' })).rejects.toThrow();
-  });
-
-  it('an override takes priority over brand/companyName resolution in an actual charge', async () => {
-    const { recordPropertyCharge, mergeIntoBillingEntity } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'HPH', email: 'jo@example.com' });
-    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: BILLING_ACTIVATED });
-
-    await mergeIntoBillingEntity({
-      agentUserIds: ['agent1'],
-      targetBillingEntityKey: 'agency:harcourts property hub',
-      targetBillingEntityName: 'Harcourts Property Hub',
-      adminUid: 'admin1',
-      reason: 'Confirmed same agency',
-    });
-
-    await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() });
-    const charge = await fakeDb.collection('propertyCharges').doc('prop1').get();
-    expect(charge.data().billingEntityKey).toBe('agency:harcourts property hub');
-    expect(charge.data().billingEntityName).toBe('Harcourts Property Hub');
-  });
-});
-
-describe('findPossibleDuplicateAgencies', () => {
-  it('flags two agency groups with similar names as a possible duplicate pair', async () => {
-    const { findPossibleDuplicateAgencies } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('users').doc('agent1').set({ roles: ['agent'], companyName: 'Harcourts', firstName: 'Jo', lastName: 'Lee' });
-    fakeDb.collection('users').doc('agent2').set({ roles: ['agent'], companyName: 'Harcourts Property Hub', firstName: 'Max', lastName: 'Tan' });
-
-    const pairs = await findPossibleDuplicateAgencies();
-    expect(pairs.length).toBe(1);
-    const names = [pairs[0].groupA.billingEntityName, pairs[0].groupB.billingEntityName];
-    expect(names).toContain('Harcourts');
-    expect(names).toContain('Harcourts Property Hub');
-  });
-
-  it('does not flag agents who already consolidate via an exact companyName match', async () => {
-    const { findPossibleDuplicateAgencies } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('users').doc('agent1').set({ roles: ['agent'], companyName: 'Ray White', firstName: 'Jo', lastName: 'Lee' });
-    fakeDb.collection('users').doc('agent2').set({ roles: ['agent'], companyName: 'ray white', firstName: 'Max', lastName: 'Tan' });
-
-    const pairs = await findPossibleDuplicateAgencies();
-    expect(pairs.length).toBe(0);
-  });
-
-  it('does not flag two genuinely unrelated agencies', async () => {
-    const { findPossibleDuplicateAgencies } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('users').doc('agent1').set({ roles: ['agent'], companyName: 'Ray White', firstName: 'Jo', lastName: 'Lee' });
-    fakeDb.collection('users').doc('agent2').set({ roles: ['agent'], companyName: 'LJ Hooker', firstName: 'Max', lastName: 'Tan' });
-
-    const pairs = await findPossibleDuplicateAgencies();
-    expect(pairs.length).toBe(0);
-  });
-
-  it('ignores independent agents (no companyName) entirely', async () => {
-    const { findPossibleDuplicateAgencies } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('users').doc('agent1').set({ roles: ['agent'], firstName: 'Jo', lastName: 'Lee' });
-    fakeDb.collection('users').doc('agent2').set({ roles: ['agent'], firstName: 'Max', lastName: 'Tan' });
-
-    const pairs = await findPossibleDuplicateAgencies();
-    expect(pairs.length).toBe(0);
-  });
-
-  it('a pair already merged via an admin override no longer appears as a duplicate', async () => {
-    const { findPossibleDuplicateAgencies, mergeIntoBillingEntity } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('users').doc('agent1').set({ roles: ['agent'], companyName: 'Harcourts', firstName: 'Jo', lastName: 'Lee' });
-    fakeDb.collection('users').doc('agent2').set({ roles: ['agent'], companyName: 'Harcourts Property Hub', firstName: 'Max', lastName: 'Tan' });
-
-    const before = await findPossibleDuplicateAgencies();
-    expect(before.length).toBe(1);
-
-    await mergeIntoBillingEntity({
-      agentUserIds: ['agent1'],
-      targetBillingEntityKey: 'agency:harcourts property hub',
-      targetBillingEntityName: 'Harcourts Property Hub',
-      adminUid: 'admin1',
-      reason: 'Confirmed duplicate',
-    });
-
-    const after = await findPossibleDuplicateAgencies();
-    expect(after.length).toBe(0);
   });
 });
 
@@ -972,45 +676,45 @@ describe('billing go-live cutoff — every charge-creation pathway respects it',
   });
 });
 
-describe('getDueBillingEntityKeys (pure) — each agency on its own 30-day cycle', () => {
-  it('is due once the OLDEST pending charge for that entity reaches 30 days old', async () => {
+describe('getDueBillingEntityKeys (pure) — each AGENT on their own 30-day cycle', () => {
+  it('is due once the OLDEST pending charge for that agent reaches 30 days old', async () => {
     const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
     const now = new Date('2026-07-01');
     const charges = [
-      { billingEntityKey: 'agency:a', createdAt: new Date('2026-06-01') }, // exactly 30 days
-      { billingEntityKey: 'agency:b', createdAt: new Date('2026-06-15') }, // 16 days — not due
+      { billingEntityKey: 'agent:a', createdAt: new Date('2026-06-01') }, // exactly 30 days
+      { billingEntityKey: 'agent:b', createdAt: new Date('2026-06-15') }, // 16 days — not due
     ];
-    expect(getDueBillingEntityKeys(charges, now)).toEqual(['agency:a']);
+    expect(getDueBillingEntityKeys(charges, now)).toEqual(['agent:a']);
   });
 
-  it('an entity with multiple charges is due based on its OLDEST one, not its newest', async () => {
+  it('an agent with multiple charges is due based on their OLDEST one, not their newest', async () => {
     const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
     const now = new Date('2026-07-01');
     const charges = [
-      { billingEntityKey: 'agency:a', createdAt: new Date('2026-06-01') }, // 30 days — due
-      { billingEntityKey: 'agency:a', createdAt: new Date('2026-06-28') }, // 3 days — but same entity
+      { billingEntityKey: 'agent:a', createdAt: new Date('2026-06-01') }, // 30 days — due
+      { billingEntityKey: 'agent:a', createdAt: new Date('2026-06-28') }, // 3 days — but same agent
     ];
-    expect(getDueBillingEntityKeys(charges, now)).toEqual(['agency:a']);
+    expect(getDueBillingEntityKeys(charges, now)).toEqual(['agent:a']);
   });
 
-  it('two different agencies become due independently, on their own cadence', async () => {
+  it('two different agents become due independently, on their own cadence — even at the same agency', async () => {
     const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
     const now = new Date('2026-07-01');
     const charges = [
-      { billingEntityKey: 'agency:a', createdAt: new Date('2026-06-01') }, // 30 days — due
-      { billingEntityKey: 'agency:b', createdAt: new Date('2026-05-01') }, // 61 days — also due
-      { billingEntityKey: 'agency:c', createdAt: new Date('2026-06-20') }, // 11 days — not due
+      { billingEntityKey: 'agent:a', createdAt: new Date('2026-06-01') }, // 30 days — due
+      { billingEntityKey: 'agent:b', createdAt: new Date('2026-05-01') }, // 61 days — also due
+      { billingEntityKey: 'agent:c', createdAt: new Date('2026-06-20') }, // 11 days — not due
     ];
     const due = getDueBillingEntityKeys(charges, now);
-    expect(due.sort()).toEqual(['agency:a', 'agency:b']);
+    expect(due.sort()).toEqual(['agent:a', 'agent:b']);
   });
 
   it('respects a custom cycle length', async () => {
     const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
     const now = new Date('2026-07-01');
-    const charges = [{ billingEntityKey: 'agency:a', createdAt: new Date('2026-06-25') }]; // 6 days
+    const charges = [{ billingEntityKey: 'agent:a', createdAt: new Date('2026-06-25') }]; // 6 days
     expect(getDueBillingEntityKeys(charges, now, 30)).toEqual([]);
-    expect(getDueBillingEntityKeys(charges, now, 5)).toEqual(['agency:a']);
+    expect(getDueBillingEntityKeys(charges, now, 5)).toEqual(['agent:a']);
   });
 
   it('is empty when nothing is pending', async () => {
@@ -1020,7 +724,7 @@ describe('getDueBillingEntityKeys (pure) — each agency on its own 30-day cycle
 
   it('ignores a charge with no usable createdAt rather than throwing', async () => {
     const { getDueBillingEntityKeys } = await import('../../src/app/api/services/billingService.js');
-    const charges = [{ billingEntityKey: 'agency:a', createdAt: null }];
+    const charges = [{ billingEntityKey: 'agent:a', createdAt: null }];
     expect(getDueBillingEntityKeys(charges, new Date())).toEqual([]);
   });
 });
@@ -1028,13 +732,13 @@ describe('getDueBillingEntityKeys (pure) — each agency on its own 30-day cycle
 describe('resolveBillingContact / setBillingContact', () => {
   it('returns null when no contact has ever been designated', async () => {
     const { resolveBillingContact } = await import('../../src/app/api/services/billingService.js');
-    expect(await resolveBillingContact('agency:harcourts')).toBeNull();
+    expect(await resolveBillingContact('agent:agentA')).toBeNull();
   });
 
   it('setBillingContact requires a valid email', async () => {
     const { setBillingContact } = await import('../../src/app/api/services/billingService.js');
-    await expect(setBillingContact({ billingEntityKey: 'agency:a', name: 'Jo', email: '', adminUid: 'admin1' })).rejects.toThrow(/email/i);
-    await expect(setBillingContact({ billingEntityKey: 'agency:a', name: 'Jo', email: 'not-an-email', adminUid: 'admin1' })).rejects.toThrow(/email/i);
+    await expect(setBillingContact({ billingEntityKey: 'agent:a', name: 'Jo', email: '', adminUid: 'admin1' })).rejects.toThrow(/email/i);
+    await expect(setBillingContact({ billingEntityKey: 'agent:a', name: 'Jo', email: 'not-an-email', adminUid: 'admin1' })).rejects.toThrow(/email/i);
   });
 
   it('setBillingContact requires a billingEntityKey', async () => {
@@ -1044,27 +748,136 @@ describe('resolveBillingContact / setBillingContact', () => {
 
   it('designates a contact, then resolveBillingContact returns it', async () => {
     const { setBillingContact, resolveBillingContact } = await import('../../src/app/api/services/billingService.js');
-    await setBillingContact({ billingEntityKey: 'agency:a', name: 'Jo Lee', email: 'jo@example.com', adminUid: 'admin1' });
-    const contact = await resolveBillingContact('agency:a');
+    await setBillingContact({ billingEntityKey: 'agent:agentA', name: 'Jo Lee', email: 'jo@example.com', adminUid: 'admin1' });
+    const contact = await resolveBillingContact('agent:agentA');
     expect(contact).toEqual({ name: 'Jo Lee', email: 'jo@example.com', billingName: '' });
-    expect(fakeDb._store.billingContacts['agency:a'].setBy).toBe('admin1');
-    expect(fakeDb._store.billingContacts['agency:a'].status).toBe('confirmed');
+    expect(fakeDb._store.billingContacts['agent:agentA'].setBy).toBe('admin1');
+    expect(fakeDb._store.billingContacts['agent:agentA'].status).toBe('confirmed');
+  });
+
+  it('confirming one agent\'s contact never confirms or affects another agent\'s, even with an identical billing email', async () => {
+    const { setBillingContact, resolveBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await setBillingContact({ billingEntityKey: 'agent:agentA', name: 'Jo Lee', email: 'shared@example.com', adminUid: 'admin1' });
+    const contactB = await resolveBillingContact('agent:agentB');
+    expect(contactB).toBeNull();
   });
 
   it('updates any open (item-level pending) invoiceRunItems for this entity immediately', async () => {
     const { setBillingContact } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('invoiceRunItems').doc('item1').set({ billingEntityKey: 'agency:a', status: 'pending', agentName: 'Old Name', agentEmail: 'old@example.com' });
-    fakeDb.collection('invoiceRunItems').doc('item2').set({ billingEntityKey: 'agency:a', status: 'sent', agentName: 'Old Name', agentEmail: 'old@example.com' });
-    fakeDb.collection('invoiceRunItems').doc('item3').set({ billingEntityKey: 'agency:b', status: 'pending', agentName: 'Unrelated', agentEmail: 'unrelated@example.com' });
+    fakeDb.collection('invoiceRunItems').doc('item1').set({ billingEntityKey: 'agent:a', status: 'pending', agentName: 'Old Name', agentEmail: 'old@example.com' });
+    fakeDb.collection('invoiceRunItems').doc('item2').set({ billingEntityKey: 'agent:a', status: 'sent', agentName: 'Old Name', agentEmail: 'old@example.com' });
+    fakeDb.collection('invoiceRunItems').doc('item3').set({ billingEntityKey: 'agent:b', status: 'pending', agentName: 'Unrelated', agentEmail: 'unrelated@example.com' });
 
-    const result = await setBillingContact({ billingEntityKey: 'agency:a', name: 'New Contact', email: 'new@example.com', adminUid: 'admin1' });
+    const result = await setBillingContact({ billingEntityKey: 'agent:a', name: 'New Contact', email: 'new@example.com', adminUid: 'admin1' });
 
     expect(result.updatedOpenItems).toBe(1);
     expect(fakeDb._store.invoiceRunItems.item1.agentEmail).toBe('new@example.com');
     expect(fakeDb._store.invoiceRunItems.item1.agentName).toBe('New Contact');
     // Already-sent item is financial history — untouched.
     expect(fakeDb._store.invoiceRunItems.item2.agentEmail).toBe('old@example.com');
-    // A different agency's item is untouched.
+    // A different agent's item is untouched.
     expect(fakeDb._store.invoiceRunItems.item3.agentEmail).toBe('unrelated@example.com');
+  });
+});
+
+describe('proposeBillingContact — the one unified per-agent proposal path', () => {
+  it('files a pending proposal keyed by the agent\'s own UID', async () => {
+    const { proposeBillingContact } = await import('../../src/app/api/services/billingService.js');
+    const result = await proposeBillingContact({
+      billingEntityKey: 'agent:agentA',
+      billingEntityType: 'independent',
+      billingEntityName: 'Jo Lee',
+      proposedBillingName: 'Harcourts Property Hub',
+      proposedName: 'Jane Accounts',
+      proposedEmail: 'jane@example.com',
+      agentUserId: 'agentA',
+    });
+    expect(result.status).toBe('pending');
+    expect(result.billingEntityKey).toBe('agent:agentA');
+    expect(fakeDb._store.billingContacts['agent:agentA'].status).toBe('pending');
+  });
+
+  it('two agents proposing the SAME agency name and the SAME billing email each file their own independent, unrelated proposal', async () => {
+    const { proposeBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await proposeBillingContact({
+      billingEntityKey: 'agent:agentA', billingEntityType: 'independent', billingEntityName: 'Jo Lee',
+      proposedBillingName: 'Harcourts Property Hub', proposedName: 'Shared Accounts', proposedEmail: 'shared@example.com', agentUserId: 'agentA',
+    });
+    await proposeBillingContact({
+      billingEntityKey: 'agent:agentB', billingEntityType: 'independent', billingEntityName: 'Max Tan',
+      proposedBillingName: 'Harcourts Property Hub', proposedName: 'Shared Accounts', proposedEmail: 'shared@example.com', agentUserId: 'agentB',
+    });
+
+    expect(Object.keys(fakeDb._store.billingContacts).sort()).toEqual(['agent:agentA', 'agent:agentB']);
+    expect(fakeDb._store.billingContacts['agent:agentA'].status).toBe('pending');
+    expect(fakeDb._store.billingContacts['agent:agentB'].status).toBe('pending');
+  });
+
+  it('the same agent resubmitting while still pending simply updates their own proposal — no 409, since no one else could ever collide on this key', async () => {
+    const { proposeBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await proposeBillingContact({
+      billingEntityKey: 'agent:agentA', billingEntityType: 'independent', billingEntityName: 'Jo Lee',
+      proposedEmail: 'typo@example.con', agentUserId: 'agentA',
+    });
+    await expect(proposeBillingContact({
+      billingEntityKey: 'agent:agentA', billingEntityType: 'independent', billingEntityName: 'Jo Lee',
+      proposedEmail: 'fixed@example.com', agentUserId: 'agentA',
+    })).resolves.toEqual({ billingEntityKey: 'agent:agentA', status: 'pending' });
+    expect(fakeDb._store.billingContacts['agent:agentA'].proposedEmail).toBe('fixed@example.com');
+  });
+
+  it('rejects once the agent\'s own contact is already confirmed — admin-only from that point', async () => {
+    fakeDb.collection('billingContacts').doc('agent:agentA').set({ status: 'confirmed', email: 'real@example.com' });
+    const { proposeBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await expect(proposeBillingContact({
+      billingEntityKey: 'agent:agentA', billingEntityType: 'independent', billingEntityName: 'Jo Lee',
+      proposedEmail: 'attacker@example.com', agentUserId: 'agentA',
+    })).rejects.toThrow(/confirmed/i);
+    expect(fakeDb._store.billingContacts['agent:agentA'].email).toBe('real@example.com'); // untouched
+  });
+
+  it('rejects an invalid or missing email', async () => {
+    const { proposeBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await expect(proposeBillingContact({ billingEntityKey: 'agent:a', billingEntityType: 'independent', billingEntityName: 'A', proposedEmail: 'bad', agentUserId: 'a' })).rejects.toThrow(/email/i);
+    await expect(proposeBillingContact({ billingEntityKey: 'agent:a', billingEntityType: 'independent', billingEntityName: 'A', proposedEmail: '', agentUserId: 'a' })).rejects.toThrow(/email/i);
+  });
+
+  it('rejects a missing billingEntityKey', async () => {
+    const { proposeBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await expect(proposeBillingContact({ billingEntityKey: '', billingEntityType: 'independent', billingEntityName: 'A', proposedEmail: 'a@example.com', agentUserId: 'a' })).rejects.toThrow(/billingEntityKey/i);
+  });
+});
+
+describe('rejectBillingContact / getBillingContactStatus / listPendingBillingContacts', () => {
+  it('rejects a pending proposal, recording the reason, and clears it from the pending list', async () => {
+    const { proposeBillingContact, rejectBillingContact, listPendingBillingContacts } = await import('../../src/app/api/services/billingService.js');
+    await proposeBillingContact({ billingEntityKey: 'agent:a', billingEntityType: 'independent', billingEntityName: 'A', proposedEmail: 'a@example.com', agentUserId: 'a' });
+    const result = await rejectBillingContact({ billingEntityKey: 'agent:a', reason: 'Email bounced', adminUid: 'admin1' });
+    expect(result.status).toBe('rejected');
+    expect(fakeDb._store.billingContacts['agent:a'].rejectionReason).toBe('Email bounced');
+    expect(await listPendingBillingContacts()).toEqual([]);
+  });
+
+  it('rejecting with nothing pending 409s', async () => {
+    const { rejectBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await expect(rejectBillingContact({ billingEntityKey: 'agent:ghost', reason: 'x', adminUid: 'admin1' })).rejects.toThrow(/pending/i);
+  });
+
+  it('getBillingContactStatus never leaks a still-pending proposal\'s confirmed-only fields', async () => {
+    const { proposeBillingContact, getBillingContactStatus } = await import('../../src/app/api/services/billingService.js');
+    await proposeBillingContact({ billingEntityKey: 'agent:a', billingEntityType: 'independent', billingEntityName: 'A', proposedEmail: 'a@example.com', agentUserId: 'a' });
+    const status = await getBillingContactStatus('agent:a');
+    expect(status.status).toBe('pending');
+    expect(status.email).toBeNull();
+  });
+
+  it('listPendingBillingContacts returns one entry per agent, never grouped', async () => {
+    const { proposeBillingContact, listPendingBillingContacts } = await import('../../src/app/api/services/billingService.js');
+    await proposeBillingContact({ billingEntityKey: 'agent:a', billingEntityType: 'independent', billingEntityName: 'Jo Lee', proposedBillingName: 'Harcourts Property Hub', proposedEmail: 'a@example.com', agentUserId: 'a' });
+    await proposeBillingContact({ billingEntityKey: 'agent:b', billingEntityType: 'independent', billingEntityName: 'Max Tan', proposedBillingName: 'Harcourts Property Hub', proposedEmail: 'b@example.com', agentUserId: 'b' });
+    const pending = await listPendingBillingContacts();
+    expect(pending.length).toBe(2);
+    const keys = pending.map((p) => p.billingEntityKey).sort();
+    expect(keys).toEqual(['agent:a', 'agent:b']);
   });
 });

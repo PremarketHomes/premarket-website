@@ -79,10 +79,9 @@ function seedPhilLikeAccount() {
     agencyBrandId: 'harcourts-property-hub',
     superAdmin: true,
   });
-  // Verified agency membership is now required for billing to resolve
-  // as 'agency' rather than independent (see billingService.js's
-  // resolveAgencyBrand) — Phil is the brand's own creator here, so no
-  // separate agencyMemberships record is needed.
+  // agencyBrands/agencyBrandId are branding-only under the UID-only
+  // billing model — kept here purely to confirm the preview ignores
+  // them for billing identity, never to make this entity-type 'agency'.
   fakeDb._seed('agencyBrands', 'harcourts-property-hub', {
     name: 'Harcourts Property Hub',
     createdBy: 'philUid',
@@ -125,7 +124,9 @@ describe('buildAgencyInvoicePreview (pure/read-only)', () => {
     expect(preview.subtotalEx).toBe(1000);
     expect(preview.gstAmount).toBe(0);
     expect(preview.totalInc).toBe(1000);
-    expect(preview.agencyName).toBe('Harcourts Property Hub');
+    // Under the UID-only billing model, the preview's displayed name is
+    // always the agent's own name — never a company/agency grouping.
+    expect(preview.agencyName).toBe('Phil Chillemi');
     // Regression: getInvoicingSettings() (billingService.js) never
     // returns these three fields — buildAgencyInvoicePreview must
     // read them itself rather than silently passing through undefined.

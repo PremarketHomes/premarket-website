@@ -29,7 +29,6 @@
 
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
-import { isVerifiedAgencyMember } from './brandProfileService';
 
 // $200 (or whatever settings/invoicing.pricePerListing is set to) is the
 // GST-INCLUSIVE total an agency is charged per property — confirmed
@@ -166,19 +165,23 @@ export async function resolveBillingContact(billingEntityKey) {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Admin action — designates who an agency's invoices get emailed to,
- * going forward, and the org name its Xero contact is created under
- * (billingName). Works whether or not an agent ever proposed
- * anything first — an admin can always set this directly (e.g. a
- * brand-new agency with no proposal yet) and always wins over
- * whatever an agent proposed, which is why this is the one and only
- * function that ever writes status: 'confirmed'. Wrapped in a
- * transaction purely so the read-then-write (checking for a prior
- * proposal to carry its audit fields forward) is atomic against a
- * concurrent reject/approve of the same key, not because an
- * unconditional admin overwrite needs protecting from itself.
+ * Admin action — designates who THIS INDIVIDUAL AGENT's invoices get
+ * emailed to, going forward, and the org name their Xero contact is
+ * created under (billingName). Works whether or not the agent ever
+ * proposed anything first — an admin can always set this directly —
+ * and always wins over whatever was proposed, which is why this is
+ * the one and only function that ever writes status: 'confirmed'.
+ * Wrapped in a transaction purely so the read-then-write (checking
+ * for a prior proposal to carry its audit fields forward) is atomic
+ * against a concurrent reject/approve of the same key, not because
+ * an unconditional admin overwrite needs protecting from itself.
  *
- * Also immediately updates any invoiceRunItems for this entity still
+ * billingEntityKey is always exclusively this one agent's own
+ * `agent:{uid}` — confirming it can never affect, merge with, or
+ * borrow from any other agent's charges, invoices, or billing cycle,
+ * even one sharing the same agency name, branding, or billing email.
+ *
+ * Also immediately updates any invoiceRunItems for this agent still
  * sitting at item-level status 'pending' (i.e. in a
  * draft/approved-but-not-yet-sent run) so a correction made before
  * sending takes effect on what's about to be sent, not just future
@@ -199,7 +202,7 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
     const prior = snap.exists ? snap.data() : {};
     tx.set(ref, {
       billingEntityKey,
-      billingEntityType: prior.billingEntityType || 'agency',
+      billingEntityType: prior.billingEntityType || 'independent',
       billingEntityName: prior.billingEntityName || null,
       status: 'confirmed',
       billingName: billingName || prior.proposedBillingName || prior.billingName || '',
@@ -226,21 +229,21 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
 }
 
 /**
- * Agent action — proposes their agency's billing details for review.
+ * Agent action — proposes their OWN billing details for review.
  * Never trusts a client-supplied billingEntityKey/Type/Name: every
  * caller of this (see /api/agency/propose-billing-contact) resolves
  * those server-side from the authenticated agent via
  * resolveBillingEntityForAgent below, exactly the same resolution a
- * real charge would use, before this function ever sees them.
+ * real charge would use, before this function ever sees them — so
+ * billingEntityKey is always this agent's own exclusive `agent:{uid}`.
  *
- * Rejected with 409 if a proposal is already pending (so one agent
- * can't silently overwrite another's still-unreviewed submission —
- * the first one in holds the slot until an admin acts on it) or if
- * the contact is already confirmed (changes past that point are
- * admin-only, via setBillingContact/rejectBillingContact, never
- * through this path again). Wrapped in a transaction so two agents
- * submitting at nearly the same moment can't both "win" and silently
- * clobber each other.
+ * There is no one else who could ever collide on this key (unlike the
+ * old agency-grouping model this replaces), so a second submission
+ * from the same agent while still pending simply updates it — no 409,
+ * no "first one in holds the slot" semantics needed. Rejected with
+ * 409 only once the contact is already confirmed — changes past that
+ * point are admin-only, via setBillingContact/rejectBillingContact,
+ * never through this path again.
  */
 export async function proposeBillingContact({
   billingEntityKey,
@@ -252,9 +255,6 @@ export async function proposeBillingContact({
   agentUserId,
 }) {
   if (!billingEntityKey) throw new Error('billingEntityKey is required');
-  if (billingEntityType === 'independent') {
-    throw new Error('Independent agents have no separate agency billing contact to propose');
-  }
   if (!proposedEmail || !EMAIL_RE.test(proposedEmail)) throw new Error('A valid email is required');
 
   const ref = adminDb.collection('billingContacts').doc(billingEntityKey);
@@ -263,12 +263,7 @@ export async function proposeBillingContact({
     const snap = await tx.get(ref);
     const data = snap.exists ? snap.data() : null;
     if (data?.status === 'confirmed') {
-      const err = new Error("This agency's billing contact is already confirmed — changes require a Premarket admin.");
-      err.status = 409;
-      throw err;
-    }
-    if (data?.status === 'pending') {
-      const err = new Error('A billing-contact proposal is already pending review for this agency.');
+      const err = new Error('Your billing contact is already confirmed — changes require a Premarket admin.');
       err.status = 409;
       throw err;
     }
@@ -320,6 +315,7 @@ export async function rejectBillingContact({ billingEntityKey, reason, adminUid 
         proposedEmail: data.proposedEmail || '',
         proposedBy: data.proposedBy || null,
         proposedAt: data.proposedAt || null,
+        proposedByUids: data.proposedByUids || [],
       },
     });
     return { billingEntityKey, status: 'rejected' };
@@ -369,277 +365,48 @@ export async function listPendingBillingContacts() {
 
 /**
  * Resolves the billing entity an AUTHENTICATED agent's own charges
- * currently resolve to — the exact same override > brand > pinned >
- * companyName chain resolveChargeForAgent uses for a real charge, so
- * this is provably the right billingEntityKey for them, never a
- * client-supplied one. Read-only: creates nothing, pins nothing.
- * Used by the agency billing-contact endpoints so an agent can only
- * ever act on their own, server-resolved agency.
+ * currently resolve to. Read-only: creates nothing. Used by the
+ * agency billing-contact endpoints so an agent can only ever act on
+ * their own, server-resolved identity.
+ *
+ * Under the UID-only billing model this is deliberately trivial —
+ * every agent is their own independent billing account, keyed
+ * exclusively by their Firebase UID (`agent:{uid}`), regardless of
+ * agencyName, agencyBrandId, or billing email. There is no agency
+ * grouping, brand matching, or company-name resolution left in this
+ * path at all — see resolveBillingEntity's own comment for why.
  */
 export async function resolveBillingEntityForAgent(agentUserId) {
   const agentDoc = await adminDb.collection('users').doc(agentUserId).get();
   const agent = agentDoc.exists ? agentDoc.data() : {};
-  const override = await resolveBillingOverride(agentUserId);
-  return override || resolveAgencyIdentity(agent, agentUserId);
-}
-
-/**
- * Finds the agencyBrands entity (if any) that an agent's billing should
- * key off, read-only — never creates, links, or modifies a brand or an
- * agent's agencyBrandId. Two cases, in priority order:
- *
- *   1. The agent has agencyBrandId set AND a VERIFIED agencyMemberships
- *      record for that exact brand (or they are the brand's own
- *      createdBy — the originator needs no separate record). This is
- *      the strongest possible signal: two agents who are both verified
- *      members of the same brand are provably the same real agency,
- *      regardless of what either currently types as companyName.
- *
- * Security history: this function used to ALSO trust a second,
- * weaker signal — any agent whose self-reported companyName exactly
- * matched an existing brand's name was silently treated as that
- * brand's billing entity, with no verification at all. That let any
- * agent type an existing agency's name and be automatically folded
- * into its billing identity — able to see and submit billing-contact
- * proposals for an agency they may have no real connection to. That
- * fallback is removed entirely. agencyBrandId being SET (e.g. from
- * requestAgencyMembership below) still drives branding DISPLAY
- * immediately — that's cosmetic and stays unchanged — but it is no
- * longer enough on its own to affect billing, charges, or who may
- * propose a billing contact. See isVerifiedAgencyMember.
- *
- * Returns { verified, pending }: `verified` is the brand object when
- * membership is confirmed (usable for billing); `pending` is the same
- * brand object when agencyBrandId is set but not yet verified — never
- * usable for billing, but returned so callers can flag it for admin
- * visibility rather than silently dropping the signal.
- */
-export async function resolveAgencyBrand(agent, agentUserId) {
-  if (!agent.agencyBrandId) return { verified: null, pending: null };
-
-  const brandDoc = await adminDb.collection('agencyBrands').doc(agent.agencyBrandId).get();
-  if (!brandDoc.exists) {
-    // Dangling reference — don't trust it for anything.
-    return { verified: null, pending: null };
-  }
-
-  const brand = { id: brandDoc.id, name: brandDoc.data().name };
-  const verified = await isVerifiedAgencyMember(agentUserId, agent.agencyBrandId, brandDoc.data());
-  return verified ? { verified: brand, pending: null } : { verified: null, pending: brand };
+  return resolveBillingEntity({
+    agentUserId,
+    firstName: agent.firstName,
+    lastName: agent.lastName,
+  });
 }
 
 /**
  * Pure (no Firestore) — resolves which billing entity a property's
- * charge belongs to. `matchedBrand` (the `verified` brand from
- * resolveAgencyBrand above) is the only way to get billingEntityType
- * 'agency' — consolidation under one Xero contact now REQUIRES a
- * verified membership, never a companyName string match alone.
+ * charge belongs to. Always, unconditionally, `agent:{uid}` — ONE
+ * AGENT = ONE BILLING ACCOUNT, by construction, with no exceptions.
  *
- * An agent with no verified brand is always billed as `independent` —
- * under their own name, their own charges, never silently grouped with
- * anyone else — even if their companyName happens to match an existing
- * agency's name exactly. `pendingAgencyName` is purely an informational
- * flag (set only when agencyBrandId is set but unverified — i.e. they
- * actually requested/were linked to something, not just a coincidental
- * name match) so admins can find and resolve it; it never affects
- * billingEntityKey/Type itself.
+ * This deliberately ignores agencyName/companyName and agencyBrandId
+ * entirely for billing purposes: two agents may share an agency name,
+ * branding, or even the exact same billing email address without
+ * their charges, invoices, or 30-day billing cycles ever being linked
+ * — agency branding (agencyBrands/agencyMemberships) is a completely
+ * separate, cosmetic-only system (see brandProfileService.js) that
+ * this function never reads. This replaces the earlier agency/brand/
+ * company-name grouping model entirely.
  */
-export function resolveBillingEntity({ agentUserId, companyName, firstName, lastName, matchedBrand, pendingAgencyName }) {
-  const trimmedCompany = String(companyName || '').trim();
+export function resolveBillingEntity({ agentUserId, firstName, lastName }) {
   const agentName = `${firstName || ''} ${lastName || ''}`.trim() || 'Unknown agent';
-
-  if (matchedBrand?.id) {
-    return {
-      billingEntityType: 'agency',
-      billingEntityKey: `brand:${matchedBrand.id}`,
-      billingEntityName: matchedBrand.name || trimmedCompany || 'Unknown agency',
-      agencyBrandId: matchedBrand.id,
-    };
-  }
-
-  if (!trimmedCompany) {
-    return {
-      billingEntityType: 'independent',
-      billingEntityKey: `agent:${agentUserId}`,
-      billingEntityName: agentName,
-      agencyBrandId: null,
-    };
-  }
-
-  if (pendingAgencyName) {
-    return {
-      billingEntityType: 'independent',
-      billingEntityKey: `agent:${agentUserId}`,
-      billingEntityName: agentName,
-      agencyBrandId: null,
-      pendingAgencyName,
-    };
-  }
-
-  // A companyName with no matching verified (or even pending) brand at
-  // all — never grouped with anyone, by design (see this function's
-  // own comment). trimmedCompany is kept only as part of their display
-  // name, exactly like an independent agent with no company at all.
   return {
     billingEntityType: 'independent',
     billingEntityKey: `agent:${agentUserId}`,
     billingEntityName: agentName,
-    agencyBrandId: null,
   };
-}
-
-/**
- * Admin override — an admin's explicit decision that a specific agent
- * bills under a different entity than brand/companyName resolution
- * would otherwise give them (see mergeIntoBillingEntity below, and the
- * "Possible Duplicate Agencies" admin UI that calls it). Read-only
- * here; never written except through that one function. Checked first
- * by resolveChargeForAgent, ahead of agencyBrandId and companyName.
- */
-export async function resolveBillingOverride(agentUserId) {
-  const doc = await adminDb.collection('billingAgencyOverrides').doc(agentUserId).get();
-  if (!doc.exists) return null;
-  const data = doc.data();
-  return {
-    billingEntityType: 'agency',
-    billingEntityKey: data.billingEntityKey,
-    billingEntityName: data.billingEntityName,
-    agencyBrandId: data.agencyBrandId || null,
-  };
-}
-
-/**
- * Admin action — "these agents are actually the same agency," without
- * touching branding or companyName at all. Writes a
- * billingAgencyOverrides/{agentUserId} doc for each agent in
- * `agentUserIds`, pointing their FUTURE charges at
- * `targetBillingEntityKey`/`targetBillingEntityName` (normally one of
- * the two entities a duplicate-detection pair already resolved to —
- * see findPossibleDuplicateAgencies). Deliberately does not touch any
- * already-recorded charge (those keep the billing entity they were
- * actually recorded under — financial history is never silently
- * rewritten) or any agencyBrands/agencyBrandId data (branding
- * assignments are a completely separate concern, per the "without
- * changing their branding" requirement this exists to satisfy).
- */
-export async function mergeIntoBillingEntity({ agentUserIds, targetBillingEntityKey, targetBillingEntityName, adminUid, reason }) {
-  if (!agentUserIds?.length) throw new Error('At least one agentUserId is required');
-  if (!targetBillingEntityKey || !targetBillingEntityName) throw new Error('A target billing entity is required');
-
-  const batch = adminDb.batch();
-  for (const agentUserId of agentUserIds) {
-    batch.set(adminDb.collection('billingAgencyOverrides').doc(agentUserId), {
-      agentUserId,
-      billingEntityKey: targetBillingEntityKey,
-      billingEntityName: targetBillingEntityName,
-      setBy: adminUid,
-      setAt: FieldValue.serverTimestamp(),
-      reason: reason || null,
-    });
-  }
-  await batch.commit();
-
-  return { merged: agentUserIds.length, billingEntityKey: targetBillingEntityKey };
-}
-
-/** Pure (no Firestore) — normalises a company/agency name the same way
- * findBrandByExactName compares names (trim, lower-case), plus
- * stripping punctuation so "Harcourts Pty. Ltd." and "Harcourts Pty
- * Ltd" compare the same. Used only for the admin-facing "possible
- * duplicate agencies" suggestion below — never to automatically group
- * billing, which no longer happens from companyName text alone at
- * all (see resolveBillingEntity). */
-function normalizeAgencyName(name) {
-  return String(name || '')
-    .toLowerCase()
-    .replace(/[.,()]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
- * Pure (no Firestore) — a deliberately simple, explainable heuristic
- * for "might this be the same real agency, spelled differently,"
- * never a fuzzy-matching library. Two names are flagged as possibly
- * the same agency when, after normalising:
- *   - they're identical (callers only ever compare names from DIFFERENT
- *     billing entities, so two groups already sharing a normalised
- *     name would mean something else is wrong — not this function's
- *     job to catch), or
- *   - one is wholly contained in the other ("Harcourts" inside
- *     "Harcourts Property Hub" — a common abbreviation pattern), or
- *   - they share the same first word, at least 3 characters long (two
- *     different-looking names for what's likely the same brand
- *     prefix, e.g. "Harcourts Prop Hub" / "Harcourts Pty Ltd").
- * Known limitation, deliberately not solved here: two names with no
- * shared prefix or substring at all (e.g. "HPH" vs "Harcourts Property
- * Hub") will never be flagged — that case still needs a human to
- * notice, same as before this feature existed.
- */
-export function namesLikelySameAgency(nameA, nameB) {
-  const a = normalizeAgencyName(nameA);
-  const b = normalizeAgencyName(nameB);
-  if (!a || !b || a === b) return false;
-  if (a.includes(b) || b.includes(a)) return true;
-  const firstWordA = a.split(' ')[0];
-  const firstWordB = b.split(' ')[0];
-  return firstWordA.length >= 3 && firstWordA === firstWordB;
-}
-
-/**
- * Scans every agent (users with 'agent' in their roles) and resolves
- * each one's CURRENT billing entity exactly as a real charge would
- * (brand -> companyName fallback -> independent, including any
- * existing override), then looks for pairs of DIFFERENT entities whose
- * names look like they might be the same real agency
- * (namesLikelySameAgency). Read-only — never merges, verifies, or
- * links anything itself; the admin UI calls mergeIntoBillingEntity
- * (or the agency-membership approval flow) separately once a human
- * has reviewed and confirmed a pair really is a duplicate.
- *
- * Deliberately groups by raw, normalised companyName text directly —
- * NOT by resolveBillingEntity/resolveAgencyBrand's actual (now
- * verification-gated) billing resolution. Those two concerns are
- * different on purpose: real billing must never trust a bare
- * companyName match, but an admin-only DISCOVERY tool, which writes
- * nothing and grants no trust by itself, is exactly where that same
- * signal is still useful — it's how an admin finds candidates to
- * manually verify in the first place, now that nothing does this
- * automatically any more.
- *
- * Scoped to agents only (roles array-contains 'agent'), not every user
- * — buyers/homeowners never have a billing entity to begin with.
- */
-export async function findPossibleDuplicateAgencies() {
-  const snap = await adminDb.collection('users').where('roles', 'array-contains', 'agent').get();
-  const agents = snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((a) => a.companyName && a.companyName.trim());
-
-  const groups = {};
-  for (const agent of agents) {
-    const override = await resolveBillingOverride(agent.id);
-    const key = override ? override.billingEntityKey : `agency:${agent.companyName.trim().toLowerCase()}`;
-    const name = override ? override.billingEntityName : agent.companyName.trim();
-
-    groups[key] = groups[key] || { billingEntityKey: key, billingEntityName: name, agents: [] };
-    groups[key].agents.push({
-      agentUserId: agent.id,
-      agentName: `${agent.firstName || ''} ${agent.lastName || ''}`.trim() || 'Unknown agent',
-      companyName: agent.companyName.trim(),
-    });
-  }
-
-  const groupList = Object.values(groups);
-  const possibleDuplicates = [];
-  for (let i = 0; i < groupList.length; i++) {
-    for (let j = i + 1; j < groupList.length; j++) {
-      if (namesLikelySameAgency(groupList[i].billingEntityName, groupList[j].billingEntityName)) {
-        possibleDuplicates.push({ groupA: groupList[i], groupB: groupList[j] });
-      }
-    }
-  }
-  return possibleDuplicates;
 }
 
 /** Pure (no Firestore) — the three amounts a single property's charge
@@ -656,103 +423,6 @@ export function computeChargeAmounts(pricePerListing, gstRate) {
     subtotalEx: Math.round(subtotalEx * 100) / 100,
     gstAmount: Math.round(gstAmount * 100) / 100,
   };
-}
-
-/**
- * Read-only. Looks for this agent's own oldest prior charge (if any)
- * that was itself resolved via companyName — never one that was
- * brand- or override-based, since those stay live/dynamic and must
- * keep tracking whatever the agent's current brand/override actually
- * is, not freeze onto a stale snapshot. A plain equality `where` on
- * agentUserId needs no composite index, so this never requires a
- * separate Firestore index deploy.
- *
- * `limit(1)` with no `orderBy` is deliberate and safe here, not just
- * convenient: billing has never been activated for any real agency
- * yet (billingActivatedAt is still null as of this fix), so there is
- * zero pre-existing charge history anywhere that this fix could ever
- * see as "inconsistent" — from the very first real charge onward,
- * every charge resolveAgencyIdentity pins will already agree with
- * every other one for that agent, by construction.
- */
-async function resolvePinnedCompanyNameEntity(agentUserId) {
-  // No .limit() here deliberately — not every Firestore query builder
-  // in this codebase's test fakes chains .limit() after .where() the
-  // same way, and a plain equality query over one agent's own (small)
-  // charge history costs nothing extra to read in full and pick the
-  // first doc from in JS instead.
-  const snap = await adminDb
-    .collection('propertyCharges')
-    .where('agentUserId', '==', agentUserId)
-    .get();
-
-  if (snap.empty || snap.docs.length === 0) return null;
-  const prior = snap.docs[0].data();
-  if (prior.agencyBrandId) return null; // was brand-based — not ours to pin
-  if (!prior.billingEntityKey) return null;
-
-  return {
-    billingEntityType: prior.billingEntityType,
-    billingEntityKey: prior.billingEntityKey,
-    billingEntityName: prior.billingEntityName,
-    agencyBrandId: null,
-  };
-}
-
-/**
- * Decides which billing entity a NEW charge resolves to, when no
- * admin override exists (resolveChargeForAgent checks that first).
- * Three tiers, most to least authoritative:
- *
- *   1. A real agencyBrandId — always checked fresh, always wins when
- *      present. Getting a brand is a deliberate, server-validated
- *      action (see brandProfileService.js / /api/branding/confirm),
- *      never something a plain profile edit can trigger, so it's
- *      trusted completely, same as before this fix.
- *
- *   2. This agent's own PINNED prior billing entity, if they've ever
- *      had a companyName-based charge before. This is the fix: once
- *      an agent's first charge resolves to entity X via whatever
- *      companyName they had at that moment, every later charge stays
- *      pinned to X — even if they rename companyName afterwards,
- *      even to a name that would otherwise resolve to some OTHER
- *      agency's existing entity. A companyName edit can no longer
- *      silently redirect an agent's charges onto a different agency's
- *      invoice, which is exactly the risk this fix closes.
- *
- *   3. A fresh companyName resolution — only ever reached for an
- *      agent's very first charge, when no brand and no prior history
- *      exist yet. Identical to this codebase's original behaviour.
- *
- * Preserves agency branding and every existing agent-facing flow
- * untouched: nothing about getting/having a brand, or about editing
- * companyName in dashboard/settings, changes at all. This only
- * changes which billing entity a later charge resolves to when that
- * agent has no brand and has been charged before.
- */
-async function resolveAgencyIdentity(agent, agentUserId) {
-  const { verified: matchedBrand, pending: pendingBrand } = await resolveAgencyBrand(agent, agentUserId);
-  if (matchedBrand) {
-    return resolveBillingEntity({
-      agentUserId,
-      companyName: agent.companyName,
-      firstName: agent.firstName,
-      lastName: agent.lastName,
-      matchedBrand,
-    });
-  }
-
-  const pinned = await resolvePinnedCompanyNameEntity(agentUserId);
-  if (pinned) return pinned;
-
-  return resolveBillingEntity({
-    agentUserId,
-    companyName: agent.companyName,
-    firstName: agent.firstName,
-    lastName: agent.lastName,
-    matchedBrand: null,
-    pendingAgencyName: pendingBrand?.name || null,
-  });
 }
 
 /**
@@ -792,17 +462,14 @@ async function resolveChargeForAgent({ propertyId, propertyAddress, agentUserId,
     return null;
   }
 
-  // Priority, most to least authoritative — see resolveAgencyIdentity's
-  // own comment for why pinned history sits between brand and a fresh
-  // companyName resolution, not above brand or below override.
-  // An admin's explicit "these are the same agency" merge (see
-  // mergeIntoBillingEntity below) always wins over everything else —
-  // it exists specifically for the case neither brand nor companyName
-  // can bridge (two genuinely different-looking company names, neither
-  // with a brand). Checked first so there's only ever one code path
-  // that decides an agent's billing group.
-  const override = await resolveBillingOverride(agentUserId);
-  const entity = override || await resolveAgencyIdentity(agent, agentUserId);
+  // ONE AGENT = ONE BILLING ACCOUNT — always resolves to this agent's
+  // own agent:{uid}, never an agency/brand/company-name grouping. See
+  // resolveBillingEntity's own comment.
+  const entity = resolveBillingEntity({
+    agentUserId,
+    firstName: agent.firstName,
+    lastName: agent.lastName,
+  });
   const amounts = computeChargeAmounts(settings.pricePerListing, settings.gstRate);
 
   return {
@@ -1077,25 +744,6 @@ export async function releaseCharges(propertyIds) {
 }
 
 /** Flips queued charges to invoiced once their Xero invoice send succeeds. */
-/**
- * How many of an agent's charges are currently held back from every
- * invoice run (see invoiceRunService.createInvoiceRunFromPendingCharges's
- * pendingAgencyName filter) because their agency membership is
- * unresolved. Read-only — purely for admin visibility (surfaced next
- * to each pending membership in the admin UI), never affects which
- * charges actually get held; that's decided solely by the
- * pendingAgencyName flag already stamped on each charge.
- */
-export async function countHeldChargesForAgent(agentUserId) {
-  if (!agentUserId) return 0;
-  const snap = await adminDb
-    .collection('propertyCharges')
-    .where('agentUserId', '==', agentUserId)
-    .where('status', '==', 'pending')
-    .get();
-  return snap.docs.filter((d) => !!d.data().pendingAgencyName).length;
-}
-
 export async function markChargesInvoiced(propertyIds) {
   if (!propertyIds?.length) return;
   const batch = adminDb.batch();

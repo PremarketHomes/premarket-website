@@ -6,14 +6,16 @@ import { resolveBillingEntityForAgent, getBillingContactStatus } from '../../ser
  * GET /api/agency/billing-contact-status
  *
  * Tells the AUTHENTICATED caller's own dashboard whether to show the
- * "Confirm Your Agency's Billing Details" prompt. The billing entity
- * is resolved server-side from auth.uid — never a client-supplied
- * key — via the exact same resolution a real charge uses, so this can
- * never be pointed at another agency.
+ * "Confirm Your Billing Details" prompt. The billing entity is
+ * resolved server-side from auth.uid — never a client-supplied key —
+ * via the exact same resolution a real charge uses (always their own
+ * `agent:{uid}`), so this can never be pointed at another agent.
  *
- * Returns { applicable: false } for independent agents (no company) —
- * their own identity is already the correct billing contact, so they
- * never see this prompt at all.
+ * Always applicable: every agent is their own independent billing
+ * account under the UID-only model, so every agent sees this prompt
+ * until their OWN billing contact is confirmed — never shared with,
+ * or satisfied by, any other agent's confirmation, even one at the
+ * same agency.
  */
 export async function GET(request) {
   try {
@@ -23,12 +25,7 @@ export async function GET(request) {
     }
 
     const entity = await resolveBillingEntityForAgent(auth.uid);
-    if (!entity || entity.billingEntityType !== 'agency') {
-      return NextResponse.json({ applicable: false });
-    }
-
     const statusInfo = await getBillingContactStatus(entity.billingEntityKey);
-
     return NextResponse.json({
       applicable: true,
       billingEntityName: entity.billingEntityName,

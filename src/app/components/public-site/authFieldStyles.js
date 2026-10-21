@@ -7,7 +7,7 @@
 export const AUTH_LABEL_CLASS = 'block text-sm font-medium text-slate-700 mb-2';
 
 export const AUTH_INPUT_CLASS =
-  'w-full px-4 py-3 rounded-xl border border-slate-300 focus:border-[#e48900] focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-[15px]';
+  'w-full px-4 py-3 rounded-xl border border-slate-300 focus:border-[#e48900] focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 bg-white placeholder:text-slate-400 text-[15px]';
 
 export const AUTH_SUBMIT_CLASS =
   'w-full py-3.5 rounded-xl bg-[#e48900] text-white font-semibold text-[15px] hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed';

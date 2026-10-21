@@ -6,13 +6,20 @@ import { resolveBillingEntityForAgent, proposeBillingContact } from '../../servi
  * POST /api/agency/propose-billing-contact
  * Body: { billingName, contactName, contactEmail }
  *
- * Submits the AUTHENTICATED caller's agency billing details for
- * Premarket-admin review. The billing entity (which agency this
- * applies to) is resolved server-side from auth.uid — never a
- * client-supplied billingEntityKey — so an agent can only ever
- * propose details for their own, real agency. Rejected with 409 if
- * that agency's contact is already confirmed or already has a
- * proposal pending review — see proposeBillingContact's own comment.
+ * The one shared entry point for both the existing dashboard
+ * "Confirm Your Billing Details" banner AND the signup form's
+ * billing-details section — same fields, same call, same server-side
+ * resolution either way. The billing entity is always resolved from
+ * auth.uid — never a client-supplied key — so a caller can only ever
+ * act on their own, real identity: always their own exclusive
+ * `agent:{uid}`, never shared with any other agent regardless of
+ * agency name, branding, or billing email.
+ *
+ * Always files a pending proposal awaiting one superAdmin review —
+ * there is no instant self-confirm path for any agent any more (the
+ * old "genuinely independent agents confirm immediately" shortcut is
+ * removed): every agent, solo or at a large agency, goes through the
+ * same one approval queue, per the simplified admin model.
  */
 export async function POST(request) {
   try {
@@ -24,10 +31,6 @@ export async function POST(request) {
     const { billingName, contactName, contactEmail } = await request.json();
 
     const entity = await resolveBillingEntityForAgent(auth.uid);
-    if (!entity || entity.billingEntityType !== 'agency') {
-      return NextResponse.json({ error: 'Not applicable for an independent agent' }, { status: 400 });
-    }
-
     const result = await proposeBillingContact({
       billingEntityKey: entity.billingEntityKey,
       billingEntityType: entity.billingEntityType,
@@ -37,7 +40,6 @@ export async function POST(request) {
       proposedEmail: contactEmail,
       agentUserId: auth.uid,
     });
-
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     console.error('Propose billing contact error:', err);

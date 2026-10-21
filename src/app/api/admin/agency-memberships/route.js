@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyAdmin } from '../../middleware/auth';
 import { listPendingAgencyMemberships } from '../../services/brandProfileService';
-import { countHeldChargesForAgent } from '../../services/billingService';
 
 /**
  * GET /api/admin/agency-memberships
@@ -12,11 +11,10 @@ import { countHeldChargesForAgent } from '../../services/billingService';
  * listPendingAgencyMemberships). Nothing is written by this route;
  * it's purely the discovery surface for approve/reject below.
  *
- * Each entry also carries heldChargeCount — how many of that agent's
- * own charges are currently sitting isolated, excluded from every
- * invoice run, because their membership is unresolved (see
- * invoiceRunService.js's pendingAgencyName filter) — so an admin can
- * see at a glance whether resolving this is urgent.
+ * Branding only: approving or rejecting here affects agencyBrandId
+ * (visual branding/logo display) and nothing else — it has no effect
+ * on billing, charges, or invoicing, which are always resolved purely
+ * from the agent's own Firebase UID (see billingService.js).
  */
 export async function GET(request) {
   try {
@@ -26,13 +24,7 @@ export async function GET(request) {
     }
 
     const pending = await listPendingAgencyMemberships();
-    const withCounts = await Promise.all(
-      pending.map(async (entry) => ({
-        ...entry,
-        heldChargeCount: await countHeldChargesForAgent(entry.uid),
-      }))
-    );
-    return NextResponse.json({ success: true, pending: withCounts });
+    return NextResponse.json({ success: true, pending });
   } catch (err) {
     console.error('List pending agency memberships error:', err);
     return NextResponse.json({ error: 'Failed to list pending agency memberships' }, { status: 500 });

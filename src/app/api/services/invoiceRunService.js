@@ -18,7 +18,7 @@
 
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
-import { reconcileMissingCharges, resolveBillingContact, getBillingContactStatus } from './billingService';
+import { reconcileMissingCharges, resolveBillingContact } from './billingService';
 
 /**
  * Groups a list of { id, ...chargeData } charge docs by
@@ -107,22 +107,23 @@ export async function createInvoiceRunFromPendingCharges({ createdBy, onlyEntity
 
   let charges = pendingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-  // Charges flagged pendingAgencyName (the agent has claimed, but is
-  // not yet VERIFIED for, an agency's billing identity — see
-  // billingService.js's resolveBillingEntity) are held back from every
-  // invoice run entirely, manual or cron-created. Billing them as the
-  // agent's own independent charge would be wrong (they believe — and
-  // may genuinely be — part of an agency that should be billed
-  // instead), and bundling them into the agency's run would be exactly
-  // the unverified-trust gap this whole system exists to close. They
-  // stay 'pending' at the charge level — visible to an admin in the
-  // Charges panel and counted by countHeldChargesForMembership below —
-  // until the membership is resolved one way or the other, never
-  // silently dropped or auto-billed. The return contract here is
-  // deliberately unchanged (null when nothing is runnable) so neither
-  // existing caller (the manual admin action, the daily cron) needs to
-  // handle a new shape.
-  charges = charges.filter((c) => !c.pendingAgencyName);
+  // Every charge's billingEntityKey is exclusively one agent's own
+  // (`agent:{uid}` — see billingService.js's resolveBillingEntity).
+  // A charge is held back from every invoice run entirely, manual or
+  // cron-created, until THAT agent's own billing contact has been
+  // confirmed by a superAdmin — checked live here, never from a
+  // stored flag, so a contact confirmed moments ago is picked up
+  // immediately with no separate reconciliation step. They stay
+  // 'pending' at the charge level — visible to an admin in the
+  // Charges panel — until confirmed, never silently dropped or
+  // auto-billed, and never bundled under any OTHER agent's contact
+  // even if they share an agency name, branding, or billing email.
+  const uniqueKeys = [...new Set(charges.map((c) => c.billingEntityKey))];
+  const confirmedKeys = new Set();
+  for (const key of uniqueKeys) {
+    if (await resolveBillingContact(key)) confirmedKeys.add(key);
+  }
+  charges = charges.filter((c) => confirmedKeys.has(c.billingEntityKey));
 
   if (onlyEntityKeys) {
     const allowed = new Set(onlyEntityKeys);
@@ -132,33 +133,18 @@ export async function createInvoiceRunFromPendingCharges({ createdBy, onlyEntity
 
   const items = groupChargesByEntity(charges);
 
-  // The agency's designated billing contact (if one has been set)
-  // overrides whichever agent's charge happened to be grouped first —
-  // see billingService.setBillingContact. This stamp is informational
-  // only, for the admin's draft/approved-run preview — the actual send
-  // route never trusts it; it always re-resolves resolveBillingContact
-  // live, right before creating anything in Xero, so a contact
-  // confirmed (or changed) after this run was created still takes
-  // effect correctly at send time.
-  //
-  // billingContactStatus likewise is purely a display flag — it's what
-  // lets the admin UI show "Billing details required" / "Pending
-  // confirmation" next to an agency before the run is even approved,
-  // without the admin having to attempt a send first to find out.
+  // Every item here already has a confirmed contact — that's exactly
+  // what the filter above guaranteed before grouping. Stamp the
+  // confirmed name/email for the admin's draft/approved-run preview
+  // only; the actual send route never trusts this stamp either way —
+  // it always re-resolves resolveBillingContact live, right before
+  // creating anything in Xero, so a contact changed after this run
+  // was created still takes effect correctly at send time.
   for (const item of items) {
-    if (item.billingEntityType === 'independent') {
-      item.billingContactStatus = 'not_applicable';
-      continue;
-    }
     const contact = await resolveBillingContact(item.billingEntityKey);
-    if (contact) {
-      item.agentName = contact.name;
-      item.agentEmail = contact.email;
-      item.billingContactStatus = 'confirmed';
-    } else {
-      const statusInfo = await getBillingContactStatus(item.billingEntityKey);
-      item.billingContactStatus = statusInfo.status;
-    }
+    item.agentName = contact?.name || item.agentName;
+    item.agentEmail = contact?.email || item.agentEmail;
+    item.billingContactStatus = 'confirmed';
   }
 
   const totalProperties = items.reduce((sum, i) => sum + i.propertyCount, 0);

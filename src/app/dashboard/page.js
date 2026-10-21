@@ -518,7 +518,7 @@ function BillingAnnouncementBanner({ userData, onAcknowledged }) {
               From 21 October 2026, new property submissions incur a $200 campaign fee (no GST).
             </p>
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              Charges are consolidated into one agency invoice every 30 days, with payment due within 14 days.
+              Charges are consolidated into one invoice every 30 days, with payment due within 14 days.
             </p>
           </div>
         </div>
@@ -534,17 +534,18 @@ function BillingAnnouncementBanner({ userData, onAcknowledged }) {
   );
 }
 
-// --- Agency Billing Contact Prompt ---
-// Unlike BillingAnnouncementBanner above (one-time, dismissed against
-// the AGENT's own account), this one's "dismissed" state lives at the
-// AGENCY level, server-side, in billingContacts/{billingEntityKey} —
-// see /api/agency/billing-contact-status. Deliberately never checks
-// or writes anything to userData/localStorage for its visibility
-// itself: every agent at the same agency must see the same status.
-// "Remind me later" is the one exception — a purely personal,
-// per-device snooze of the UNSET-state form only; it never hides the
-// agency-wide "pending confirmation" strip once a proposal exists,
-// since that's no longer this agent's call to dismiss.
+// --- Billing Contact Prompt ---
+// Unlike BillingAnnouncementBanner above (one-time, dismissed purely
+// client-side), this one's "dismissed" state lives server-side, in
+// billingContacts/agent:{uid} — see /api/agency/billing-contact-status.
+// It is always THIS agent's own status, never shared with or
+// satisfied by any other agent — even one at the same named agency —
+// so two agents who both type "Harcourts" as their agency name each
+// see, and must each individually clear, their own prompt. "Remind me
+// later" is a purely personal, per-device snooze of the UNSET-state
+// form only; it never hides the "pending confirmation" strip once a
+// proposal exists, since that's no longer this agent's call to
+// dismiss.
 const BILLING_CONTACT_REMIND_KEY = 'billing_contact_prompt_remind_after';
 
 function BillingContactPrompt() {
@@ -628,8 +629,8 @@ function BillingContactPrompt() {
   if (loading || !applicable) return null;
   if (status === 'confirmed') return null;
 
-  // Agency-wide, non-dismissible by design — every agent at this
-  // agency sees this exact line until a Premarket admin acts.
+  // Non-dismissible by design once a proposal exists — only a
+  // Premarket admin acting on THIS agent's own proposal clears it.
   if (status === 'pending') {
     return (
       <motion.div
@@ -641,7 +642,7 @@ function BillingContactPrompt() {
           <Clock className="w-5 h-5 text-amber-600" />
         </div>
         <p className="text-sm text-amber-800">
-          <span className="font-semibold">Billing details pending confirmation</span> — your agency's accounts contact has been submitted and is awaiting Premarket's review.
+          <span className="font-semibold">Billing details pending confirmation</span> — your accounts contact has been submitted and is awaiting Premarket's review.
         </p>
       </motion.div>
     );
@@ -662,13 +663,13 @@ function BillingContactPrompt() {
           <Building className="w-5 h-5 text-slate-600" />
         </div>
         <div>
-          <p className="font-semibold text-slate-900 text-sm">Confirm Your Agency's Billing Details</p>
+          <p className="font-semibold text-slate-900 text-sm">Confirm Your Billing Details</p>
           <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-            Premarket invoices are issued to your agency, not individual agents. Please confirm the correct billing contact to ensure invoices reach the right person.
+            Premarket invoices are issued to you individually, as your own billing account. Please confirm the correct accounts contact to ensure invoices reach the right person.
           </p>
           {status === 'rejected' && (
             <p className="text-xs text-red-600 mt-2">
-              Your agency's previous submission needs changes{rejectionReason ? `: ${rejectionReason}` : '.'} Please resubmit below.
+              Your previous submission needs changes{rejectionReason ? `: ${rejectionReason}` : '.'} Please resubmit below.
             </p>
           )}
         </div>

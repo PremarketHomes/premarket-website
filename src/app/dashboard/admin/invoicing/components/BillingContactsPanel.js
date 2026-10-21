@@ -5,13 +5,18 @@ import { CheckCircle, XCircle, Clock } from 'lucide-react';
 import { authFetch } from '../../../../utils/authFetch';
 
 /**
- * Admin review queue for agency billing-contact proposals — agents
- * submit these from their dashboard (see BillingContactPrompt in
- * dashboard/page.js); nothing here becomes the live, invoice-safe
- * contact until Approve is used. Discoverable on its own, independent
- * of any invoice run existing yet — a proposal can arrive the moment
- * an agent first sees the prompt, long before their agency's first
- * 30-day cycle is due.
+ * Admin review queue for billing-contact proposals — ONE ROW PER
+ * AGENT, never per agency. Agents submit these from signup or their
+ * dashboard (see BillingContactPrompt in dashboard/page.js); nothing
+ * here becomes the live, invoice-safe contact until Approve is used.
+ * Discoverable on its own, independent of any invoice run existing
+ * yet — a proposal can arrive the moment an agent first sees the
+ * prompt, long before their own first 30-day cycle is due.
+ *
+ * Two different agents can show an identical agency name, accounts
+ * contact, or billing email here without being linked in any way —
+ * each row is approved independently, against that one agent's own
+ * `agent:{uid}` billing record.
  */
 export default function BillingContactsPanel() {
   const [pending, setPending] = useState([]);
@@ -120,7 +125,7 @@ export default function BillingContactsPanel() {
               <div>
                 <p className="font-medium text-slate-900 text-sm">{item.billingEntityName}</p>
                 <p className="text-xs text-slate-500">
-                  Proposed: {item.proposedBillingName || '—'} · {item.proposedName || '—'} · {item.proposedEmail}
+                  Agency: {item.proposedBillingName || '—'} · Accounts contact: {item.proposedName || '—'} · Billing email: {item.proposedEmail}
                 </p>
               </div>
             </div>
