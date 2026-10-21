@@ -124,6 +124,20 @@ export default function AddPropertyPage() {
   const [termsText, setTermsText] = useState('');
   const [termsLoading, setTermsLoading] = useState(true);
 
+  // Pricing disclosure state — fetched from the narrow public
+  // pricing-info endpoint so this always matches the real configured
+  // price/GST/terms rather than text that could silently drift out of
+  // sync with settings/invoicing (which this page has no read access
+  // to directly — see that endpoint's own comment). The initial value
+  // here is a DISPLAY fallback only, shown while the real fetch is in
+  // flight — it must never be trusted as a reason to allow submission;
+  // pricingLoaded below is what actually gates the Submit button, so
+  // a failed/slow lookup can never let an agent submit against a
+  // number this page never actually confirmed with the server.
+  const [pricingInfo, setPricingInfo] = useState({ pricePerListing: 200, gstRate: 0, paymentTermsDays: 14 });
+  const [pricingLoaded, setPricingLoaded] = useState(false);
+  const [pricingLoadFailed, setPricingLoadFailed] = useState(false);
+
   // UX state
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -172,6 +186,33 @@ export default function AddPropertyPage() {
     };
     loadTerms();
   }, [user, userData?.agent]);
+
+  // Fetch the current campaign fee/GST/payment-terms for the pricing
+  // disclosure below — a narrow public endpoint, not a direct read of
+  // settings/invoicing (which this page can't read at all). Falls
+  // back to the known real defaults already set as this state's
+  // initial value if the fetch fails, never a broken disclosure.
+  useEffect(() => {
+    fetch('/api/public/pricing-info')
+      .then((res) => {
+        if (!res.ok) throw new Error(`pricing-info returned ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        setPricingInfo((prev) => ({ ...prev, ...data }));
+        setPricingLoaded(true);
+      })
+      .catch((err) => {
+        console.error('Error loading pricing info:', err);
+        // Deliberately do NOT fall back to treating the initial
+        // display value as confirmed — pricingLoaded stays false, and
+        // the Submit button below stays disabled until a real value
+        // is confirmed or the agent retries. A silent fallback here
+        // is exactly the "agent unknowingly incurs a charge" risk
+        // this is meant to rule out.
+        setPricingLoadFailed(true);
+      });
+  }, []);
 
   // Fetch team agents
   useEffect(() => {
@@ -597,6 +638,14 @@ export default function AddPropertyPage() {
     setErrors({});
     if (!termsAccepted) {
       setErrors({ step: 'Please accept the terms and conditions to continue.' });
+      return;
+    }
+    // Server-side enforcement, not just the disabled button below —
+    // a pricing lookup that never actually confirmed a real value
+    // must never let a submission (and its charge) through, no
+    // matter how the button's disabled state was reached.
+    if (!pricingLoaded) {
+      setErrors({ step: 'Unable to confirm current pricing. Please wait a moment or refresh the page before submitting.' });
       return;
     }
     if (!user) return;
@@ -1461,6 +1510,49 @@ export default function AddPropertyPage() {
       {/* Bottom Navigation */}
       <div className="bg-white border-t border-slate-200 sticky bottom-0 z-10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4">
+          {/* Pricing disclosure — shown once, directly above Submit, on
+              the terms/final step only. Figures come from the live
+              /api/public/pricing-info endpoint (see pricingInfo
+              state above), which reads the real settings/invoicing
+              document server-side — never hardcoded independently of
+              it, so this can't drift out of sync if pricing/terms
+              are ever changed from the admin settings page. The
+              30-day consolidation cycle itself isn't an admin-
+              configurable setting (DEFAULT_BILLING_CYCLE_DAYS is a
+              fixed constant in billingService.js), so that figure is
+              safe to state directly. */}
+          {step === STEPS.TERMS && pricingLoadFailed && (
+            <div className="mb-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+              <p className="text-sm text-red-700">
+                Unable to confirm current pricing. Submission is disabled until this is confirmed.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setPricingLoadFailed(false);
+                  fetch('/api/public/pricing-info')
+                    .then((res) => { if (!res.ok) throw new Error(`pricing-info returned ${res.status}`); return res.json(); })
+                    .then((data) => { setPricingInfo((prev) => ({ ...prev, ...data })); setPricingLoaded(true); })
+                    .catch(() => setPricingLoadFailed(true));
+                }}
+                className="text-sm font-semibold text-red-700 underline whitespace-nowrap"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {step === STEPS.TERMS && !pricingLoadFailed && (
+            <div className="mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+              <p className="text-sm font-semibold text-slate-900">
+                {pricingLoaded
+                  ? `Premarket campaign fee — $${pricingInfo.pricePerListing} AUD (${pricingInfo.gstRate === 0 ? 'no GST charged' : 'plus GST'})`
+                  : 'Confirming current pricing…'}
+              </p>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                By submitting this property, you acknowledge that your agency will be charged ${pricingInfo.pricePerListing}. Charges are consolidated into one agency invoice every 30 days, with payment due within {pricingInfo.paymentTermsDays} days of issue.
+              </p>
+            </div>
+          )}
           <div className="flex justify-between items-center">
             {step > STEPS.ADDRESS ? (
               <button
@@ -1483,10 +1575,10 @@ export default function AddPropertyPage() {
             ) : (
               <button
                 onClick={handleSubmit}
-                disabled={isSubmitting || !termsAccepted}
+                disabled={isSubmitting || !termsAccepted || !pricingLoaded}
                 className="px-8 py-3 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSubmitting ? 'Submitting...' : 'Submit Property'}
+                {isSubmitting ? 'Submitting...' : !pricingLoaded ? 'Confirming pricing…' : 'Submit Property'}
               </button>
             )}
           </div>
