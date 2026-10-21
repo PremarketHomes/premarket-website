@@ -682,7 +682,7 @@ function BillingContactPrompt() {
               type="text"
               value={billingName}
               onChange={(e) => setBillingName(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
             />
           </div>
           <div>
@@ -691,7 +691,7 @@ function BillingContactPrompt() {
               type="text"
               value={contactName}
               onChange={(e) => setContactName(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
             />
           </div>
         </div>
@@ -702,7 +702,7 @@ function BillingContactPrompt() {
             required
             value={contactEmail}
             onChange={(e) => setContactEmail(e.target.value)}
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
           />
         </div>
 
