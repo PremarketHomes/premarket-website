@@ -6,6 +6,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
+import { authFetch } from '../../utils/authFetch';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase/clientApp';
 import {
@@ -449,9 +450,14 @@ export default function PlaygroundPage() {
     const maxAgeDays = dataRange === 'all' ? undefined : parseInt(dataRange);
 
     try {
-      const res = await fetch('/api/admin/compute-scores', {
+      // compute-scores is now superAdmin-only (verifyAdmin) — it needs
+      // the caller's own Firebase session, not the approved-API-client
+      // x-api-key every other playground call uses. A non-admin now
+      // correctly gets a 403 here instead of being able to trigger a
+      // platform-wide recompute.
+      const res = await authFetch('/api/admin/compute-scores', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ maxAgeDays }),
       });
       const data = await res.json();

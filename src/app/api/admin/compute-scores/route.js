@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { validateApiKey } from '../../v1/middleware';
+import { verifyAdmin } from '../../middleware/auth';
 import {
   getUniqueSuburbs,
   computeSuburbScores,
@@ -10,10 +10,14 @@ import {
 export const maxDuration = 300;
 
 export async function POST(request) {
-  // Validate via API key (approved users only)
-  const auth = await validateApiKey(request);
-  if (!auth.valid) {
-    return NextResponse.json({ error: auth.error }, { status: 401 });
+  // This is an expensive (maxDuration=300), platform-wide recompute —
+  // genuinely admin-only, like every other route under /admin/.
+  // Previously used validateApiKey, whose bearer-token fallback
+  // accepts ANY signed-in user, not just approved API clients or
+  // admins — any ordinary agent or buyer could trigger this.
+  const auth = await verifyAdmin(request);
+  if (!auth.authenticated) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   try {
