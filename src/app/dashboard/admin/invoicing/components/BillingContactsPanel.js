@@ -143,7 +143,7 @@ export default function BillingContactsPanel() {
                     type="text"
                     value={form.billingName}
                     onChange={(e) => setForm((f) => ({ ...f, billingName: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 bg-white placeholder:text-slate-400"
                   />
                 </div>
                 <div>
@@ -152,7 +152,7 @@ export default function BillingContactsPanel() {
                     type="text"
                     value={form.name}
                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 bg-white placeholder:text-slate-400"
                   />
                 </div>
                 <div>
@@ -161,7 +161,7 @@ export default function BillingContactsPanel() {
                     type="email"
                     value={form.email}
                     onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 bg-white placeholder:text-slate-400"
                   />
                 </div>
               </div>

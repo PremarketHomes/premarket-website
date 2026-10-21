@@ -135,13 +135,16 @@ beforeEach(() => {
 });
 
 describe('resolveBillingEntity (pure)', () => {
-  it('groups by normalised companyName when present', async () => {
+  it('SECURITY: companyName alone, with no verified brand, is billed as independent — never silently grouped by name text', async () => {
     const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
     const a = resolveBillingEntity({ agentUserId: 'u1', companyName: 'Harcourts Property Hub ' });
     const b = resolveBillingEntity({ agentUserId: 'u2', companyName: ' harcourts property hub' });
-    expect(a.billingEntityType).toBe('agency');
-    expect(a.billingEntityKey).toBe(b.billingEntityKey);
-    expect(a.billingEntityName).toBe('Harcourts Property Hub');
+    expect(a.billingEntityType).toBe('independent');
+    expect(b.billingEntityType).toBe('independent');
+    // Different agents, different keys — this is the exact fix: two
+    // unrelated accounts sharing a company name string must never be
+    // folded into one billing identity.
+    expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
   });
 
   it('treats an agent with no companyName as independent, keyed by their own uid', async () => {
@@ -179,49 +182,80 @@ describe('resolveBillingEntity (pure)', () => {
     expect(a.billingEntityKey).toBe(b.billingEntityKey);
   });
 
-  it('falls back to normalised companyName when no brand matches', async () => {
+  it('no brand at all (not even pending) never creates a shared agency key from companyName', async () => {
     const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
     const a = resolveBillingEntity({ agentUserId: 'u1', companyName: 'Acme' });
     const b = resolveBillingEntity({ agentUserId: 'u2', companyName: 'Acme' });
-    expect(a.billingEntityKey).toBe(b.billingEntityKey);
+    expect(a.billingEntityType).toBe('independent');
+    expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
     expect(a.agencyBrandId).toBeNull();
+    expect(a.pendingAgencyName).toBeUndefined(); // no claimed brand relationship to flag at all
+  });
+
+  it('flags a claimed-but-unverified agency membership for admin visibility, without affecting the billing key or type', async () => {
+    const { resolveBillingEntity } = await import('../../src/app/api/services/billingService.js');
+    const result = resolveBillingEntity({ agentUserId: 'u1', companyName: 'Harcourts Property Hub', matchedBrand: null, pendingAgencyName: 'Harcourts Property Hub' });
+    expect(result.billingEntityType).toBe('independent');
+    expect(result.billingEntityKey).toBe('agent:u1');
+    expect(result.pendingAgencyName).toBe('Harcourts Property Hub');
   });
 });
 
 describe('resolveAgencyBrand', () => {
-  it('returns the brand pointed to by agencyBrandId when it exists', async () => {
+  it('returns verified when the agent is the brand\'s own creator — no separate membership record needed', async () => {
     const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active' });
-    const result = await resolveAgencyBrand({ agencyBrandId: 'brand-123', companyName: 'something else entirely' });
-    expect(result).toEqual({ id: 'brand-123', name: 'Harcourts Property Hub' });
+    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
+    const result = await resolveAgencyBrand({ agencyBrandId: 'brand-123' }, 'agent1');
+    expect(result.verified).toEqual({ id: 'brand-123', name: 'Harcourts Property Hub' });
+    expect(result.pending).toBeNull();
   });
 
-  it('falls back to an exact companyName match when agencyBrandId is not set', async () => {
+  it('returns verified for a non-creator with an explicit verified agencyMemberships record for that exact brand', async () => {
     const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active' });
-    const result = await resolveAgencyBrand({ companyName: 'harcourts property hub ' }); // no agencyBrandId, differs only by case/whitespace
-    expect(result).toEqual({ id: 'brand-123', name: 'Harcourts Property Hub' });
+    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
+    fakeDb.collection('agencyMemberships').doc('agent2').set({ uid: 'agent2', agencyBrandId: 'brand-123', status: 'verified' });
+    const result = await resolveAgencyBrand({ agencyBrandId: 'brand-123' }, 'agent2');
+    expect(result.verified).toEqual({ id: 'brand-123', name: 'Harcourts Property Hub' });
   });
 
-  it('falls through to companyName matching if agencyBrandId points at a brand that no longer exists', async () => {
+  it('SECURITY: agencyBrandId set with NO membership record at all is NOT verified — returned as pending, never usable for billing', async () => {
     const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('agencyBrands').doc('brand-456').set({ name: 'Ray White', status: 'active' });
-    const result = await resolveAgencyBrand({ agencyBrandId: 'deleted-brand', companyName: 'Ray White' });
-    expect(result).toEqual({ id: 'brand-456', name: 'Ray White' });
+    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
+    const result = await resolveAgencyBrand({ agencyBrandId: 'brand-123' }, 'agent2');
+    expect(result.verified).toBeNull();
+    expect(result.pending).toEqual({ id: 'brand-123', name: 'Harcourts Property Hub' });
   });
 
-  it('returns null when neither agencyBrandId nor companyName matches any brand', async () => {
+  it('SECURITY: a rejected membership is not verified either', async () => {
     const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    const result = await resolveAgencyBrand({ companyName: 'Some Agency With No Brand' });
-    expect(result).toBeNull();
+    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
+    fakeDb.collection('agencyMemberships').doc('agent2').set({ uid: 'agent2', agencyBrandId: 'brand-123', status: 'rejected' });
+    const result = await resolveAgencyBrand({ agencyBrandId: 'brand-123' }, 'agent2');
+    expect(result.verified).toBeNull();
   });
 
-  it('never writes to agencyBrandId or the brand itself — purely read-only', async () => {
+  it('SECURITY: companyName matching an existing brand\'s name, with no agencyBrandId at all, is never trusted — this was the exact self-escalation path that got fixed', async () => {
     const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
-    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active' });
-    const before = JSON.stringify(fakeDb._store.agencyBrands);
-    await resolveAgencyBrand({ companyName: 'Harcourts Property Hub' });
-    expect(JSON.stringify(fakeDb._store.agencyBrands)).toBe(before);
+    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
+    const result = await resolveAgencyBrand({ companyName: 'Harcourts Property Hub' }, 'agent2'); // no agencyBrandId
+    expect(result.verified).toBeNull();
+    expect(result.pending).toBeNull(); // not even flagged as pending — they never claimed anything
+  });
+
+  it('returns nothing for a dangling agencyBrandId pointing at a deleted brand', async () => {
+    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
+    const result = await resolveAgencyBrand({ agencyBrandId: 'deleted-brand', companyName: 'Ray White' }, 'agent2');
+    expect(result.verified).toBeNull();
+    expect(result.pending).toBeNull();
+  });
+
+  it('never writes to agencyBrandId, the brand, or any membership record — purely read-only', async () => {
+    const { resolveAgencyBrand } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('agencyBrands').doc('brand-123').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
+    const beforeBrands = JSON.stringify(fakeDb._store.agencyBrands);
+    await resolveAgencyBrand({ agencyBrandId: 'brand-123' }, 'agent2');
+    expect(JSON.stringify(fakeDb._store.agencyBrands)).toBe(beforeBrands);
+    expect(fakeDb._store.agencyMemberships || {}).toEqual({});
     expect(fakeDb._store.users || {}).toEqual({});
   });
 });
@@ -273,15 +307,15 @@ describe('recordPropertyCharge', () => {
     return svc;
   }
 
-  it('creates exactly one charge for a new property', async () => {
+  it('creates exactly one charge for a new property — billed independently, since agent1 has a companyName but no verified brand', async () => {
     const { recordPropertyCharge } = await setup();
     const result = await recordPropertyCharge({ id: 'prop1', userId: 'agent1', address: '1 Test St', createdAt: new Date() });
     expect(result.created).toBe(true);
     const doc = await fakeDb.collection('propertyCharges').doc('prop1').get();
     expect(doc.exists).toBe(true);
     expect(doc.data().status).toBe('pending');
-    expect(doc.data().billingEntityType).toBe('agency');
-    expect(doc.data().billingEntityName).toBe('Harcourts Property Hub');
+    expect(doc.data().billingEntityType).toBe('independent');
+    expect(doc.data().billingEntityName).toBe('Jo Lee');
     expect(doc.data().totalInc).toBe(200);
   });
 
@@ -338,7 +372,7 @@ describe('recordPropertyCharge', () => {
     expect(result.reason).toBe('no-agent');
   });
 
-  it('two agents at the same company (same normalised name) group under one billing entity', async () => {
+  it('SECURITY: two agents merely sharing a companyName (no verified brand) are billed SEPARATELY — never grouped by name text alone', async () => {
     const { recordPropertyCharge } = await setup();
     fakeDb.collection('users').doc('agent2').set({ firstName: 'Max', lastName: 'Tan', companyName: 'harcourts property hub', email: 'max@example.com' });
 
@@ -347,53 +381,73 @@ describe('recordPropertyCharge', () => {
 
     const docA = await fakeDb.collection('propertyCharges').doc('propA').get();
     const docB = await fakeDb.collection('propertyCharges').doc('propB').get();
-    expect(docA.data().billingEntityKey).toBe(docB.data().billingEntityKey);
+    expect(docA.data().billingEntityKey).not.toBe(docB.data().billingEntityKey);
+    expect(docB.data().billingEntityType).toBe('independent');
   });
 
-  describe('agency billing identity stays pinned across a companyName edit (Priority 2 fix)', () => {
-    it('a later companyName rename does not change where an agent\'s future charges are billed', async () => {
+  it('two VERIFIED members of the same real brand correctly group under one billing entity', async () => {
+    const { recordPropertyCharge } = await setup();
+    fakeDb.collection('agencyBrands').doc('brand-hph').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brand-hph' });
+    fakeDb.collection('users').doc('agent2').set({ firstName: 'Max', lastName: 'Tan', companyName: 'Harcourts Property Hub', email: 'max@example.com', agencyBrandId: 'brand-hph' });
+    fakeDb.collection('agencyMemberships').doc('agent2').set({ uid: 'agent2', agencyBrandId: 'brand-hph', status: 'verified', verifiedBy: 'admin1' });
+
+    await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
+    await recordPropertyCharge({ id: 'propB', userId: 'agent2', address: '2 B St', createdAt: new Date() });
+
+    const docA = await fakeDb.collection('propertyCharges').doc('propA').get();
+    const docB = await fakeDb.collection('propertyCharges').doc('propB').get();
+    expect(docA.data().billingEntityKey).toBe('brand:brand-hph');
+    expect(docB.data().billingEntityKey).toBe('brand:brand-hph');
+  });
+
+  it('an agent whose agencyBrandId is set but NOT yet verified is billed independently, flagged for admin review — never merged with the agency', async () => {
+    const { recordPropertyCharge } = await setup();
+    fakeDb.collection('agencyBrands').doc('brand-hph').set({ name: 'Harcourts Property Hub', status: 'active', createdBy: 'agent1' });
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brand-hph' });
+    // agent2 has the agencyBrandId set (e.g. requested to join) but no verified membership record yet.
+    fakeDb.collection('users').doc('agent2').set({ firstName: 'Max', lastName: 'Tan', companyName: 'Harcourts Property Hub', email: 'max@example.com', agencyBrandId: 'brand-hph' });
+
+    await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
+    await recordPropertyCharge({ id: 'propB', userId: 'agent2', address: '2 B St', createdAt: new Date() });
+
+    const docA = await fakeDb.collection('propertyCharges').doc('propA').get();
+    const docB = await fakeDb.collection('propertyCharges').doc('propB').get();
+    expect(docA.data().billingEntityKey).toBe('brand:brand-hph');
+    expect(docB.data().billingEntityKey).not.toBe('brand:brand-hph');
+    expect(docB.data().billingEntityType).toBe('independent');
+    expect(docB.data().pendingAgencyName).toBe('Harcourts Property Hub'); // flagged for admin resolution
+  });
+
+  describe('agency billing identity stays pinned to legacy history, never freshly re-derived from companyName (Priority 2 fix, updated for verified membership)', () => {
+    it('a pre-existing legacy agency-keyed charge (predating verified membership) continues to pin an agent\'s future charges', async () => {
       const { recordPropertyCharge } = await setup();
-      await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
-      const firstKey = (await fakeDb.collection('propertyCharges').doc('propA').get()).data().billingEntityKey;
+      // Simulates a charge recorded under the OLD companyName-fallback
+      // system, before verified membership existed — never
+      // retroactively touched by this fix (see requirement to never
+      // auto-migrate existing charges/entities).
+      fakeDb.collection('propertyCharges').doc('legacyProp').set({
+        agentUserId: 'agent1', propertyId: 'legacyProp',
+        billingEntityType: 'agency', billingEntityKey: 'agency:harcourts property hub',
+        billingEntityName: 'Harcourts Property Hub', agencyBrandId: null,
+      });
 
-      // Agent renames their company to something unrelated, after already being charged once.
-      fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Totally Different Name Pty Ltd', email: 'jo@example.com' });
       await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
-      const secondKey = (await fakeDb.collection('propertyCharges').doc('propB').get()).data().billingEntityKey;
+      const doc = await fakeDb.collection('propertyCharges').doc('propB').get();
 
-      expect(secondKey).toBe(firstKey);
-      expect((await fakeDb.collection('propertyCharges').doc('propB').get()).data().billingEntityName).toBe('Harcourts Property Hub');
+      expect(doc.data().billingEntityKey).toBe('agency:harcourts property hub');
+      expect(doc.data().billingEntityType).toBe('agency');
     });
 
-    it('renaming to match an existing, unrelated agency\'s exact name cannot redirect charges onto that agency\'s invoice', async () => {
+    it('a real, verified brand still takes priority over pinned legacy history — an agent can still legitimately upgrade — and the historical charge is never rewritten', async () => {
       const { recordPropertyCharge } = await setup();
-      // agent1 charged once under "Harcourts Property Hub" (set up above).
-      await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
-      const agent1Key = (await fakeDb.collection('propertyCharges').doc('propA').get()).data().billingEntityKey;
+      fakeDb.collection('propertyCharges').doc('legacyProp').set({
+        agentUserId: 'agent1', propertyId: 'legacyProp',
+        billingEntityType: 'agency', billingEntityKey: 'agency:harcourts property hub',
+        billingEntityName: 'Harcourts Property Hub', agencyBrandId: null,
+      });
 
-      // A second, genuinely different agency already exists and has its own charge.
-      fakeDb.collection('users').doc('agent2').set({ firstName: 'Max', lastName: 'Tan', companyName: 'Ray White Coastal', email: 'max@example.com' });
-      await recordPropertyCharge({ id: 'propX', userId: 'agent2', address: '9 X St', createdAt: new Date() });
-      const agent2Key = (await fakeDb.collection('propertyCharges').doc('propX').get()).data().billingEntityKey;
-      expect(agent2Key).not.toBe(agent1Key);
-
-      // agent1 now renames their company to EXACTLY agent2's company name —
-      // attempting exactly the redirection this fix exists to prevent.
-      fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Ray White Coastal', email: 'jo@example.com' });
-      await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
-      const agent1SecondKey = (await fakeDb.collection('propertyCharges').doc('propB').get()).data().billingEntityKey;
-
-      // Still pinned to agent1's own original entity — never agent2's.
-      expect(agent1SecondKey).toBe(agent1Key);
-      expect(agent1SecondKey).not.toBe(agent2Key);
-    });
-
-    it('a real brand still takes priority over pinned history — an agent can still legitimately upgrade — and the historical charge is never rewritten', async () => {
-      const { recordPropertyCharge } = await setup();
-      await recordPropertyCharge({ id: 'propA', userId: 'agent1', address: '1 A St', createdAt: new Date() });
-      const historicalKeyBefore = (await fakeDb.collection('propertyCharges').doc('propA').get()).data().billingEntityKey;
-
-      fakeDb.collection('agencyBrands').doc('brand1').set({ name: 'Harcourts Property Hub (Verified)' });
+      fakeDb.collection('agencyBrands').doc('brand1').set({ name: 'Harcourts Property Hub (Verified)', createdBy: 'agent1' });
       fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brand1' });
 
       await recordPropertyCharge({ id: 'propB', userId: 'agent1', address: '2 B St', createdAt: new Date() });
@@ -401,25 +455,27 @@ describe('recordPropertyCharge', () => {
       expect(doc.data().billingEntityKey).toBe('brand:brand1');
       expect(doc.data().agencyBrandId).toBe('brand1');
 
-      // The historical charge — recorded before the brand even
-      // existed — must never be retroactively rewritten onto the new
-      // brand-based entity. Only NEW charges are affected by this.
-      const historicalAfter = await fakeDb.collection('propertyCharges').doc('propA').get();
-      expect(historicalAfter.data().billingEntityKey).toBe(historicalKeyBefore);
+      // The historical (legacy) charge must never be retroactively
+      // rewritten onto the new brand-based entity.
+      const historicalAfter = await fakeDb.collection('propertyCharges').doc('legacyProp').get();
+      expect(historicalAfter.data().billingEntityKey).toBe('agency:harcourts property hub');
       expect(historicalAfter.data().billingEntityKey).not.toBe('brand:brand1');
     });
 
-    it('switching from one real brand to another real brand (a genuine agency transfer) only redirects FUTURE charges — history for both stays correct', async () => {
+    it('switching from one VERIFIED brand to another VERIFIED brand (a genuine agency transfer) only redirects FUTURE charges — history for both stays correct', async () => {
       const { recordPropertyCharge } = await setup();
-      fakeDb.collection('agencyBrands').doc('brandOld').set({ name: 'Harcourts Property Hub' });
-      fakeDb.collection('agencyBrands').doc('brandNew').set({ name: 'Ray White Coastal' });
+      fakeDb.collection('agencyBrands').doc('brandOld').set({ name: 'Harcourts Property Hub', createdBy: 'agent1' });
+      fakeDb.collection('agencyBrands').doc('brandNew').set({ name: 'Ray White Coastal', createdBy: 'agent9' });
       fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Harcourts Property Hub', email: 'jo@example.com', agencyBrandId: 'brandOld' });
 
       await recordPropertyCharge({ id: 'propOld', userId: 'agent1', address: '1 Old St', createdAt: new Date() });
       const oldChargeKeyBefore = (await fakeDb.collection('propertyCharges').doc('propOld').get()).data().billingEntityKey;
       expect(oldChargeKeyBefore).toBe('brand:brandOld');
 
-      // Agent genuinely moves to a different real agency.
+      // Agent genuinely transfers — the NEW brand must ALSO verify them
+      // (a bare agencyBrandId switch is not enough on its own, exactly
+      // the point of this fix: a superAdmin confirms the transfer).
+      fakeDb.collection('agencyMemberships').doc('agent1').set({ uid: 'agent1', agencyBrandId: 'brandNew', status: 'verified', verifiedBy: 'admin1' });
       fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee', companyName: 'Ray White Coastal', email: 'jo@example.com', agencyBrandId: 'brandNew' });
       await recordPropertyCharge({ id: 'propNew', userId: 'agent1', address: '2 New St', createdAt: new Date() });
 
@@ -428,11 +484,6 @@ describe('recordPropertyCharge', () => {
 
       // Old charge still correctly billed to the OLD agency — untouched.
       expect(oldChargeAfter.data().billingEntityKey).toBe('brand:brandOld');
-      // New charge correctly follows the agent to the NEW agency —
-      // this is the intended, legitimate behaviour for a real brand
-      // change (unlike a free-text companyName edit, a brand change
-      // is validated/deliberate, so it's trusted to redirect future
-      // billing — see resolveAgencyIdentity's own comment).
       expect(newCharge.data().billingEntityKey).toBe('brand:brandNew');
     });
 
@@ -453,12 +504,13 @@ describe('recordPropertyCharge', () => {
       expect(doc.data().billingEntityKey).toBe('agency:some-other-entity');
     });
 
-    it('a brand-new agent with no prior charges still resolves fresh from their current companyName', async () => {
+    it('a brand-new agent with no prior charges and no verified brand resolves fresh as independent, billed under their own name', async () => {
       const { recordPropertyCharge } = await setup();
       fakeDb.collection('users').doc('agent2').set({ firstName: 'New', lastName: 'Agent', companyName: 'Never Charged Before Realty', email: 'new@example.com' });
       await recordPropertyCharge({ id: 'propZ', userId: 'agent2', address: '1 Z St', createdAt: new Date() });
       const doc = await fakeDb.collection('propertyCharges').doc('propZ').get();
-      expect(doc.data().billingEntityName).toBe('Never Charged Before Realty');
+      expect(doc.data().billingEntityType).toBe('independent');
+      expect(doc.data().billingEntityName).toBe('New Agent');
     });
   });
 });

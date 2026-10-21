@@ -29,8 +29,12 @@ export async function GET(request) {
     let brand = await getBrandForUser(auth.uid);
 
     if (!brand) {
+      // 'created' is the only outcome that needs a re-fetch — this no
+      // longer auto-joins an existing brand ('existing-match-found'
+      // instead just falls through to the suggestion lookup below,
+      // same as it would with no companyName match at all).
       const autoResult = await autoEstablishBrandForUser(auth.uid);
-      if (autoResult.status === 'created' || autoResult.status === 'linked') {
+      if (autoResult.status === 'created') {
         brand = await getBrandForUser(auth.uid);
       }
     }
