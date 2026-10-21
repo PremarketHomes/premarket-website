@@ -138,6 +138,10 @@ function makeFakeDb() {
       update: (ref, patch) => pendingWrites.push(() => {
         store[ref._col][ref.id] = { ...(store[ref._col][ref.id] || {}), ...patch };
       }),
+      set: (ref, data) => pendingWrites.push(() => {
+        store[ref._col] = store[ref._col] || {};
+        store[ref._col][ref.id] = { ...data };
+      }),
     };
     const result = await updateFn(tx);
     pendingWrites.forEach((write) => write());

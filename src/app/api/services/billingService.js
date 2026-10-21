@@ -152,31 +152,64 @@ export async function resolveBillingContact(billingEntityKey) {
   const doc = await adminDb.collection('billingContacts').doc(billingEntityKey).get();
   if (!doc.exists) return null;
   const data = doc.data();
-  if (!data.email) return null;
-  return { name: data.name || '', email: data.email };
+  // status must be the admin-confirmed state — a 'pending' (agent
+  // proposed, not yet reviewed) or 'rejected' doc has no `email` field
+  // at all by construction (see proposeBillingContact), so the second
+  // half of this check is redundant with the first in practice, but
+  // kept as defence in depth: this is the one function every invoice
+  // send ultimately trusts, so it never returns a contact on anything
+  // less than an explicit admin confirmation.
+  if (data.status !== 'confirmed' || !data.email) return null;
+  return { name: data.name || '', email: data.email, billingName: data.billingName || '' };
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * Admin action — designates who an agency's invoices get emailed to,
- * going forward. Also immediately updates any invoiceRunItems for
- * this entity still sitting at item-level status 'pending' (i.e. in a
+ * going forward, and the org name its Xero contact is created under
+ * (billingName). Works whether or not an agent ever proposed
+ * anything first — an admin can always set this directly (e.g. a
+ * brand-new agency with no proposal yet) and always wins over
+ * whatever an agent proposed, which is why this is the one and only
+ * function that ever writes status: 'confirmed'. Wrapped in a
+ * transaction purely so the read-then-write (checking for a prior
+ * proposal to carry its audit fields forward) is atomic against a
+ * concurrent reject/approve of the same key, not because an
+ * unconditional admin overwrite needs protecting from itself.
+ *
+ * Also immediately updates any invoiceRunItems for this entity still
+ * sitting at item-level status 'pending' (i.e. in a
  * draft/approved-but-not-yet-sent run) so a correction made before
  * sending takes effect on what's about to be sent, not just future
  * runs — items already sent are financial history and are never
- * touched here.
+ * touched here. This is purely a display convenience for the admin's
+ * draft/approved view: the actual send route (see
+ * runs/[runId]/send/route.js) never trusts these stamped fields
+ * either way — it always re-resolves resolveBillingContact live,
+ * right before creating the Xero contact.
  */
-export async function setBillingContact({ billingEntityKey, name, email, adminUid }) {
+export async function setBillingContact({ billingEntityKey, billingName, name, email, adminUid }) {
   if (!billingEntityKey) throw new Error('billingEntityKey is required');
   if (!email || !EMAIL_RE.test(email)) throw new Error('A valid email is required');
 
-  await adminDb.collection('billingContacts').doc(billingEntityKey).set({
-    billingEntityKey,
-    name: name || '',
-    email,
-    setBy: adminUid,
-    setAt: FieldValue.serverTimestamp(),
+  const ref = adminDb.collection('billingContacts').doc(billingEntityKey);
+  await adminDb.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const prior = snap.exists ? snap.data() : {};
+    tx.set(ref, {
+      billingEntityKey,
+      billingEntityType: prior.billingEntityType || 'agency',
+      billingEntityName: prior.billingEntityName || null,
+      status: 'confirmed',
+      billingName: billingName || prior.proposedBillingName || prior.billingName || '',
+      name: name || '',
+      email,
+      setBy: adminUid,
+      setAt: FieldValue.serverTimestamp(),
+      proposedBy: prior.proposedBy ?? null,
+      proposedAt: prior.proposedAt ?? null,
+    });
   });
 
   const pendingItemsSnap = await adminDb
@@ -190,6 +223,164 @@ export async function setBillingContact({ billingEntityKey, name, email, adminUi
   }
 
   return { billingEntityKey, email, updatedOpenItems: pendingItemsSnap.size };
+}
+
+/**
+ * Agent action — proposes their agency's billing details for review.
+ * Never trusts a client-supplied billingEntityKey/Type/Name: every
+ * caller of this (see /api/agency/propose-billing-contact) resolves
+ * those server-side from the authenticated agent via
+ * resolveBillingEntityForAgent below, exactly the same resolution a
+ * real charge would use, before this function ever sees them.
+ *
+ * Rejected with 409 if a proposal is already pending (so one agent
+ * can't silently overwrite another's still-unreviewed submission —
+ * the first one in holds the slot until an admin acts on it) or if
+ * the contact is already confirmed (changes past that point are
+ * admin-only, via setBillingContact/rejectBillingContact, never
+ * through this path again). Wrapped in a transaction so two agents
+ * submitting at nearly the same moment can't both "win" and silently
+ * clobber each other.
+ */
+export async function proposeBillingContact({
+  billingEntityKey,
+  billingEntityType,
+  billingEntityName,
+  proposedBillingName,
+  proposedName,
+  proposedEmail,
+  agentUserId,
+}) {
+  if (!billingEntityKey) throw new Error('billingEntityKey is required');
+  if (billingEntityType === 'independent') {
+    throw new Error('Independent agents have no separate agency billing contact to propose');
+  }
+  if (!proposedEmail || !EMAIL_RE.test(proposedEmail)) throw new Error('A valid email is required');
+
+  const ref = adminDb.collection('billingContacts').doc(billingEntityKey);
+
+  return adminDb.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.exists ? snap.data() : null;
+    if (data?.status === 'confirmed') {
+      const err = new Error("This agency's billing contact is already confirmed — changes require a Premarket admin.");
+      err.status = 409;
+      throw err;
+    }
+    if (data?.status === 'pending') {
+      const err = new Error('A billing-contact proposal is already pending review for this agency.');
+      err.status = 409;
+      throw err;
+    }
+    tx.set(ref, {
+      billingEntityKey,
+      billingEntityType,
+      billingEntityName,
+      status: 'pending',
+      proposedBillingName: proposedBillingName || '',
+      proposedName: proposedName || '',
+      proposedEmail,
+      proposedBy: agentUserId,
+      proposedAt: FieldValue.serverTimestamp(),
+    });
+    return { billingEntityKey, status: 'pending' };
+  });
+}
+
+/**
+ * Admin action — declines a pending proposal so the agency can submit
+ * a corrected one. Transactional for the same reason propose/approve
+ * are: safe against a reject racing an approve (or a second reject)
+ * for the same key. Keeps the declined submission under
+ * previousProposal purely for audit; it is never auto-reused.
+ */
+export async function rejectBillingContact({ billingEntityKey, reason, adminUid }) {
+  if (!billingEntityKey) throw new Error('billingEntityKey is required');
+  const ref = adminDb.collection('billingContacts').doc(billingEntityKey);
+
+  return adminDb.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists || snap.data().status !== 'pending') {
+      const err = new Error('No pending proposal for this agency — it may already have been approved or rejected.');
+      err.status = 409;
+      throw err;
+    }
+    const data = snap.data();
+    tx.set(ref, {
+      billingEntityKey,
+      billingEntityType: data.billingEntityType,
+      billingEntityName: data.billingEntityName,
+      status: 'rejected',
+      rejectionReason: reason || '',
+      rejectedBy: adminUid,
+      rejectedAt: FieldValue.serverTimestamp(),
+      previousProposal: {
+        proposedBillingName: data.proposedBillingName || '',
+        proposedName: data.proposedName || '',
+        proposedEmail: data.proposedEmail || '',
+        proposedBy: data.proposedBy || null,
+        proposedAt: data.proposedAt || null,
+      },
+    });
+    return { billingEntityKey, status: 'rejected' };
+  });
+}
+
+/**
+ * Read-only status lookup — powers both the agent-facing prompt
+ * (which only needs to know unset/pending/confirmed, see
+ * /api/agency/billing-contact-status) and the admin "pending
+ * proposals" list. Deliberately never returns the confirmed name/
+ * email/billingName unless status is actually 'confirmed' — a
+ * still-pending proposal's contents are visible to admins through
+ * listPendingBillingContacts, not through this agent-facing shape.
+ */
+export async function getBillingContactStatus(billingEntityKey) {
+  if (!billingEntityKey) return { status: 'unset' };
+  const doc = await adminDb.collection('billingContacts').doc(billingEntityKey).get();
+  if (!doc.exists) return { billingEntityKey, status: 'unset' };
+  const data = doc.data();
+  return {
+    billingEntityKey,
+    status: data.status || 'unset',
+    billingEntityName: data.billingEntityName || null,
+    proposedBillingName: data.proposedBillingName || null,
+    proposedName: data.proposedName || null,
+    proposedEmail: data.proposedEmail || null,
+    proposedBy: data.proposedBy || null,
+    proposedAt: data.proposedAt || null,
+    billingName: data.status === 'confirmed' ? data.billingName || null : null,
+    name: data.status === 'confirmed' ? data.name || null : null,
+    email: data.status === 'confirmed' ? data.email || null : null,
+    rejectionReason: data.status === 'rejected' ? data.rejectionReason || null : null,
+  };
+}
+
+/**
+ * Admin-dashboard listing — every agency currently awaiting review,
+ * discoverable even before any invoice run exists (a proposal can
+ * arrive the moment an agent first sees the dashboard prompt, long
+ * before their agency's first 30-day cycle is even due).
+ */
+export async function listPendingBillingContacts() {
+  const snap = await adminDb.collection('billingContacts').where('status', '==', 'pending').get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+/**
+ * Resolves the billing entity an AUTHENTICATED agent's own charges
+ * currently resolve to — the exact same override > brand > pinned >
+ * companyName chain resolveChargeForAgent uses for a real charge, so
+ * this is provably the right billingEntityKey for them, never a
+ * client-supplied one. Read-only: creates nothing, pins nothing.
+ * Used by the agency billing-contact endpoints so an agent can only
+ * ever act on their own, server-resolved agency.
+ */
+export async function resolveBillingEntityForAgent(agentUserId) {
+  const agentDoc = await adminDb.collection('users').doc(agentUserId).get();
+  const agent = agentDoc.exists ? agentDoc.data() : {};
+  const override = await resolveBillingOverride(agentUserId);
+  return override || resolveAgencyIdentity(agent, agentUserId);
 }
 
 /**

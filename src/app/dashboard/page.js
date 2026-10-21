@@ -45,6 +45,8 @@ import {
   Building2,
   Loader2,
   Megaphone,
+  Clock,
+  Building,
 } from 'lucide-react';
 
 // --- Shimmer Image Wrapper ---
@@ -528,6 +530,202 @@ function BillingAnnouncementBanner({ userData, onAcknowledged }) {
           {saving ? 'Saving…' : 'Got it'}
         </button>
       </div>
+    </motion.div>
+  );
+}
+
+// --- Agency Billing Contact Prompt ---
+// Unlike BillingAnnouncementBanner above (one-time, dismissed against
+// the AGENT's own account), this one's "dismissed" state lives at the
+// AGENCY level, server-side, in billingContacts/{billingEntityKey} —
+// see /api/agency/billing-contact-status. Deliberately never checks
+// or writes anything to userData/localStorage for its visibility
+// itself: every agent at the same agency must see the same status.
+// "Remind me later" is the one exception — a purely personal,
+// per-device snooze of the UNSET-state form only; it never hides the
+// agency-wide "pending confirmation" strip once a proposal exists,
+// since that's no longer this agent's call to dismiss.
+const BILLING_CONTACT_REMIND_KEY = 'billing_contact_prompt_remind_after';
+
+function BillingContactPrompt() {
+  const [loading, setLoading] = useState(true);
+  const [applicable, setApplicable] = useState(false);
+  const [status, setStatus] = useState('unset');
+  const [rejectionReason, setRejectionReason] = useState(null);
+  const [snoozed, setSnoozed] = useState(false);
+
+  const [billingName, setBillingName] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(BILLING_CONTACT_REMIND_KEY);
+      if (stored && Date.now() < Number(stored)) setSnoozed(true);
+    } catch {
+      // ignore — localStorage can throw in a private window; default to not-snoozed
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    authFetch('/api/agency/billing-contact-status')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active) return;
+        setApplicable(!!data.applicable);
+        setStatus(data.status || 'unset');
+        setRejectionReason(data.rejectionReason || null);
+        setBillingName((prev) => prev || data.billingEntityName || '');
+      })
+      .catch((err) => console.error('Failed to load billing contact status:', err))
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  const remindLater = () => {
+    try {
+      const remindAfter = Date.now() + 1000 * 60 * 60 * 24 * 3;
+      localStorage.setItem(BILLING_CONTACT_REMIND_KEY, String(remindAfter));
+    } catch {
+      // ignore
+    }
+    setSnoozed(true);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (submitting) return;
+    if (!contactEmail.trim()) {
+      setSubmitError('An accounts email address is required');
+      return;
+    }
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await authFetch('/api/agency/propose-billing-contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          billingName: billingName.trim(),
+          contactName: contactName.trim(),
+          contactEmail: contactEmail.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to submit billing details');
+      setStatus('pending');
+    } catch (err) {
+      console.error('Propose billing contact error:', err);
+      setSubmitError(err.message || 'Failed to submit billing details');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading || !applicable) return null;
+  if (status === 'confirmed') return null;
+
+  // Agency-wide, non-dismissible by design — every agent at this
+  // agency sees this exact line until a Premarket admin acts.
+  if (status === 'pending') {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-amber-50 rounded-xl border border-amber-200 p-4 mb-6 flex items-center gap-3"
+      >
+        <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+          <Clock className="w-5 h-5 text-amber-600" />
+        </div>
+        <p className="text-sm text-amber-800">
+          <span className="font-semibold">Billing details pending confirmation</span> — your agency's accounts contact has been submitted and is awaiting Premarket's review.
+        </p>
+      </motion.div>
+    );
+  }
+
+  // status is 'unset' or 'rejected' — show the form. A personal "remind
+  // me later" snooze only applies here.
+  if (snoozed) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white rounded-xl border border-slate-200 p-5 mb-6"
+    >
+      <div className="flex items-start gap-3 mb-4">
+        <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0">
+          <Building className="w-5 h-5 text-slate-600" />
+        </div>
+        <div>
+          <p className="font-semibold text-slate-900 text-sm">Confirm Your Agency's Billing Details</p>
+          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+            Premarket invoices are issued to your agency, not individual agents. Please confirm the correct billing contact to ensure invoices reach the right person.
+          </p>
+          {status === 'rejected' && (
+            <p className="text-xs text-red-600 mt-2">
+              Your agency's previous submission needs changes{rejectionReason ? `: ${rejectionReason}` : '.'} Please resubmit below.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Agency billing name</label>
+            <input
+              type="text"
+              value={billingName}
+              onChange={(e) => setBillingName(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Accounts contact name</label>
+            <input
+              type="text"
+              value={contactName}
+              onChange={(e) => setContactName(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Accounts email address</label>
+          <input
+            type="email"
+            required
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
+
+        {submitError && <p className="text-xs text-red-600">{submitError}</p>}
+
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-semibold hover:bg-orange-700 disabled:opacity-60 transition-colors"
+          >
+            {submitting ? 'Submitting…' : 'Confirm details'}
+          </button>
+          <button
+            type="button"
+            onClick={remindLater}
+            disabled={submitting}
+            className="px-4 py-2 text-slate-500 rounded-lg text-sm font-medium hover:bg-slate-100 transition-colors"
+          >
+            Remind me later
+          </button>
+        </div>
+      </form>
     </motion.div>
   );
 }
@@ -1157,6 +1355,7 @@ function DashboardPage() {
               }));
             }}
           />
+          <BillingContactPrompt />
           <DownloadBanner />
 
           {/* Page Header */}
