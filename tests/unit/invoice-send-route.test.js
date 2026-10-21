@@ -117,7 +117,7 @@ beforeEach(() => {
   // Mirrors the real resolveBillingContact's contract against this
   // file's fake Firestore store, so each test's own
   // fakeDb._seed('billingContacts', key, {...}) is what actually
-  // decides whether an agency item is treated as confirmed — the real
+  // decides whether an item is treated as confirmed — the real
   // billingService.js implementation is never exercised here, since
   // the whole module is mocked above.
   mockResolveBillingContact.mockImplementation(async (billingEntityKey) => {
@@ -141,14 +141,14 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
 
   it('passes taxType NONE and each property\'s own ex-GST subtotal as the unit amount when not GST registered', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
-    fakeDb._seed('billingContacts', 'agency:acme agency', { status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com' });
+    fakeDb._seed('billingContacts', 'agent:uid1', { status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com' });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
-      agencyName: 'Acme Agency',
+      agencyName: 'Jo Bloggs',
       agentName: 'Jo Bloggs',
       agentEmail: 'jo@example.com',
-      billingEntityType: 'agency',
-      billingEntityKey: 'agency:acme agency',
+      billingEntityType: 'independent',
+      billingEntityKey: 'agent:uid1',
       properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
     });
 
@@ -165,14 +165,14 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
 
   it('passes taxType OUTPUT and that property\'s own ex-GST amount when its charge was snapshotted with GST', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
-    fakeDb._seed('billingContacts', 'agency:acme agency', { status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com' });
+    fakeDb._seed('billingContacts', 'agent:uid1', { status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com' });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
-      agencyName: 'Acme Agency',
+      agencyName: 'Jo Bloggs',
       agentName: 'Jo Bloggs',
       agentEmail: 'jo@example.com',
-      billingEntityType: 'agency',
-      billingEntityKey: 'agency:acme agency',
+      billingEntityType: 'independent',
+      billingEntityKey: 'agent:uid1',
       properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 181.82, gstAmount: 18.18, totalInc: 200 }],
     });
 
@@ -186,14 +186,14 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
 
   it('a consolidated invoice itemises every property with ITS OWN amount and tax status, never a single run-wide value', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
-    fakeDb._seed('billingContacts', 'agency:acme agency', { status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com' });
+    fakeDb._seed('billingContacts', 'agent:uid1', { status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com' });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
-      agencyName: 'Acme Agency',
+      agencyName: 'Jo Bloggs',
       agentName: 'Jo Bloggs',
       agentEmail: 'jo@example.com',
-      billingEntityType: 'agency',
-      billingEntityKey: 'agency:acme agency',
+      billingEntityType: 'independent',
+      billingEntityKey: 'agent:uid1',
       properties: [
         { propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 },
         { propertyId: 'p2', address: '2 Test St', subtotalEx: 181.82, gstAmount: 18.18, totalInc: 200 },
@@ -211,9 +211,11 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
   });
 });
 
-describe('POST .../send — Xero contact name-collision fix', () => {
-  it('two different independent agents who happen to share a personal name get two DIFFERENT, disambiguated Xero contact names', async () => {
+describe('POST .../send — Xero contact name-collision fix (ONE AGENT = ONE BILLING ACCOUNT)', () => {
+  it('two different agents who happen to share a personal name get two DIFFERENT, disambiguated Xero contact names', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('billingContacts', 'agent:uidAAAAAAAA', { status: 'confirmed', name: 'Jo Lee', email: 'jo.a@example.com' });
+    fakeDb._seed('billingContacts', 'agent:uidBBBBBBBB', { status: 'confirmed', name: 'Jo Lee', email: 'jo.b@example.com' });
     fakeDb._seed('invoiceRunItems', 'itemA', {
       runId: 'run1', agencyName: 'Jo Lee', agentName: 'Jo Lee', agentEmail: 'jo.a@example.com',
       billingEntityType: 'independent', billingEntityKey: 'agent:uidAAAAAAAA',
@@ -236,24 +238,33 @@ describe('POST .../send — Xero contact name-collision fix', () => {
     expect(name2).toContain('Jo Lee');
   });
 
-  it('two agents at the SAME real company still share one Xero contact name — consolidation is intentional, not a collision', async () => {
+  it('SECURITY: two agents who both confirmed the SAME agency name as their billingName still get disambiguated Xero contacts — never merged', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
-    fakeDb._seed('billingContacts', 'agency:harcourts property hub', {
-      status: 'confirmed', billingName: 'Harcourts Property Hub', name: 'Jo Lee', email: 'jo@example.com',
+    fakeDb._seed('billingContacts', 'agent:agentA', { status: 'confirmed', billingName: 'Harcourts Property Hub', name: 'Jo Lee', email: 'jo@example.com' });
+    fakeDb._seed('billingContacts', 'agent:agentB', { status: 'confirmed', billingName: 'Harcourts Property Hub', name: 'Max Tan', email: 'max@example.com' });
+    fakeDb._seed('invoiceRunItems', 'itemA', {
+      runId: 'run1', agencyName: 'Jo Lee', agentName: 'Jo Lee', agentEmail: 'jo@example.com',
+      billingEntityType: 'independent', billingEntityKey: 'agent:agentA',
+      properties: [{ propertyId: 'pA', address: '1 A St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
     });
-    fakeDb._seed('invoiceRunItems', 'item1', {
-      runId: 'run1', agencyName: 'Harcourts Property Hub', agentName: 'Jo Lee', agentEmail: 'jo@example.com',
-      billingEntityType: 'agency', billingEntityKey: 'agency:harcourts property hub',
-      properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    fakeDb._seed('invoiceRunItems', 'itemB', {
+      runId: 'run1', agencyName: 'Max Tan', agentName: 'Max Tan', agentEmail: 'max@example.com',
+      billingEntityType: 'independent', billingEntityKey: 'agent:agentB',
+      properties: [{ propertyId: 'pB', address: '2 B St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
     });
 
     const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
     await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
 
-    expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ name: 'Harcourts Property Hub' }));
+    expect(mockFindOrCreateContact).toHaveBeenCalledTimes(2);
+    const name1 = mockFindOrCreateContact.mock.calls[0][0].name;
+    const name2 = mockFindOrCreateContact.mock.calls[1][0].name;
+    expect(name1).not.toBe(name2);
+    expect(name1).toContain('Harcourts Property Hub');
+    expect(name2).toContain('Harcourts Property Hub');
   });
 
-  it('an independent agent with a CONFIRMED billing-email override (e.g. set at signup, different from their login email) gets invoiced to that override, not their login email', async () => {
+  it('an agent with a CONFIRMED billing-email override (different from their login email) gets invoiced to that override, never their login email', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
     fakeDb._seed('billingContacts', 'agent:uidSolo', {
       status: 'confirmed', billingName: 'Jo Lee', name: 'Jo\'s Bookkeeper', email: 'bookkeeper@different-domain.example.com',
@@ -268,12 +279,12 @@ describe('POST .../send — Xero contact name-collision fix', () => {
     const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
     const body = await res.json();
 
-    expect(body.status).toBe('sent'); // never blocked — independent agents always have a safe fallback
+    expect(body.status).toBe('sent');
     expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ email: 'bookkeeper@different-domain.example.com' }));
     expect(mockFindOrCreateContact).not.toHaveBeenCalledWith(expect.objectContaining({ email: 'jo.lee@login-email.example.com' }));
   });
 
-  it('an independent agent with NO confirmed billing-contact override still sends normally, using their own login email as the safe fallback', async () => {
+  it('SECURITY: an agent with NO confirmed billing contact is BLOCKED entirely — never falls back to their own login email', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
     // Deliberately no billingContacts doc at all for this key.
     fakeDb._seed('invoiceRunItems', 'item1', {
@@ -286,14 +297,17 @@ describe('POST .../send — Xero contact name-collision fix', () => {
     const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
     const body = await res.json();
 
-    expect(body.status).toBe('sent');
-    expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ email: 'max@login-email.example.com' }));
+    expect(body.status).toBe('failed');
+    expect(mockFindOrCreateContact).not.toHaveBeenCalled();
+    expect(mockCreateInvoice).not.toHaveBeenCalled();
+    expect(body.errors[0].error).toMatch(/[Bb]illing details required/);
+    expect(mockMarkChargesFailed).toHaveBeenCalledWith(['p1']);
+
+    const item = (await fakeDb.collection('invoiceRunItems').doc('item1').get()).data();
+    expect(item.status).toBe('contact_required');
   });
 
   it('an item with no billingEntityType/billingEntityKey at all (older data shape) is safely blocked, never silently invoiced to a fallback contact', async () => {
-    // Deliberately NOT using seedSingleItemRun() — that helper now
-    // seeds a confirmed contact by default; this test needs an item
-    // with genuinely nothing to resolve a contact from.
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
@@ -313,23 +327,23 @@ describe('POST .../send — Xero contact name-collision fix', () => {
 });
 
 // Every test using this helper is exercising something OTHER than the
-// agency billing-contact requirement itself (GST handling, duplicate
-// protection, idempotency, concurrency) — see
+// per-agent billing-contact requirement itself (GST handling,
+// duplicate protection, idempotency, concurrency) — see
 // billing-contact-confirmation.test.js for that feature's own
 // dedicated tests — so a confirmed contact is seeded here by default,
 // at the exact billingEntityKey send/route.js now requires one for.
 function seedSingleItemRun(overrides = {}) {
   fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
-  fakeDb._seed('billingContacts', 'agency:acme agency', {
+  fakeDb._seed('billingContacts', 'agent:uid1', {
     status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com',
   });
   fakeDb._seed('invoiceRunItems', 'item1', {
     runId: 'run1',
-    agencyName: 'Acme Agency',
+    agencyName: 'Jo Bloggs',
     agentName: 'Jo Bloggs',
     agentEmail: 'jo@example.com',
-    billingEntityType: 'agency',
-    billingEntityKey: 'agency:acme agency',
+    billingEntityType: 'independent',
+    billingEntityKey: 'agent:uid1',
     properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
     ...overrides,
   });

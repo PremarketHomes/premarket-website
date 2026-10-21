@@ -17,9 +17,7 @@
 import { adminDb } from '../../firebase/adminApp';
 import {
   getInvoicingSettings,
-  resolveAgencyBrand,
   resolveBillingEntity,
-  resolveBillingOverride,
   resolveBillingContact,
   computeChargeAmounts,
 } from './billingService';
@@ -97,14 +95,10 @@ export async function buildAgencyInvoicePreview({ agentUserId }) {
   const invoicePrefix = rawSettings.invoicePrefix || 'PM-';
   const xeroAccountCode = rawSettings.xeroAccountCode || '200';
 
-  const override = await resolveBillingOverride(agentUserId);
-  const matchedBrand = override ? null : (await resolveAgencyBrand(agent, agentUserId)).verified;
-  const entity = override || resolveBillingEntity({
+  const entity = resolveBillingEntity({
     agentUserId,
-    companyName: agent.companyName,
     firstName: agent.firstName,
     lastName: agent.lastName,
-    matchedBrand,
   });
 
   const billingContact = (await resolveBillingContact(entity.billingEntityKey))

@@ -143,6 +143,8 @@ describe('GET /api/cron/invoice-dry-run — per-agency 30-day cycle', () => {
 
   it('creates a draft run containing only the agency whose cycle is due, leaving the other agency alone', async () => {
     fakeDb._seed('settings', 'invoicing', { cronEnabled: true, pricePerListing: 200, gstRate: 0, excludeAgentIds: [] });
+    fakeDb._seed('billingContacts', 'agency:due', { status: 'confirmed', name: 'Jo', email: 'jo@example.com' });
+    fakeDb._seed('billingContacts', 'agency:not-due', { status: 'confirmed', name: 'Max', email: 'max@example.com' });
     fakeDb._seed('propertyCharges', 'propA', {
       propertyId: 'propA', billingEntityKey: 'agency:due', billingEntityName: 'Due Agency',
       agentUserId: 'agent1', agentName: 'Jo', agentEmail: 'jo@example.com',
@@ -178,6 +180,7 @@ describe('GET /api/cron/invoice-dry-run — per-agency 30-day cycle', () => {
 
   it('never auto-approves or auto-sends — the created run is a draft', async () => {
     fakeDb._seed('settings', 'invoicing', { cronEnabled: true, pricePerListing: 200, gstRate: 0, excludeAgentIds: [] });
+    fakeDb._seed('billingContacts', 'agency:due', { status: 'confirmed', name: 'Jo', email: 'jo@example.com' });
     fakeDb._seed('propertyCharges', 'propA', {
       propertyId: 'propA', billingEntityKey: 'agency:due', billingEntityName: 'Due Agency',
       agentUserId: 'agent1', agentName: 'Jo', agentEmail: 'jo@example.com',

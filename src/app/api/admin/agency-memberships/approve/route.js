@@ -9,9 +9,9 @@ import { approveAgencyMembership } from '../../../services/brandProfileService';
  * The one and only way agencyMemberships.status ever becomes
  * 'verified' for a non-creator — see approveAgencyMembership's own
  * comment for the "legacy link" case (no membership doc exists yet).
- * Once verified, billingService.js's resolveAgencyBrand will start
- * trusting this account's agencyBrandId for real billing/charges/
- * Xero recipient purposes, going forward only — never retroactive.
+ * Branding only: this never affects billing, charges, or Xero
+ * recipient resolution, which always key purely off the agent's own
+ * Firebase UID (see billingService.js) — never agencyBrandId.
  */
 export async function POST(request) {
   try {

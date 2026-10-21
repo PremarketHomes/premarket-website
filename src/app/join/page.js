@@ -130,14 +130,12 @@ export default function AgentSignup() {
       sessionStorage.setItem('agentSignupUid', user.uid);
 
       // Submit billing details now that companyName is written and
-      // the account has a valid session — resolves server-side to
-      // either an immediate self-confirmation (no agency given) or a
-      // pending proposal (agency name given, awaiting one superAdmin
-      // review — see /api/agency/propose-billing-contact). Never
-      // blocks account usability: a failure here is logged but the
-      // agent still reaches their dashboard immediately, exactly like
-      // requirement #2 — this can also be completed later from the
-      // dashboard banner if it fails here.
+      // the account has a valid session — files a pending proposal
+      // under this agent's own UID, awaiting one superAdmin review
+      // (see /api/agency/propose-billing-contact). Never blocks
+      // account usability: a failure here is logged but the agent
+      // still reaches their dashboard immediately — this can also be
+      // completed later from the dashboard banner if it fails here.
       try {
         await authFetch('/api/agency/propose-billing-contact', {
           method: 'POST',

@@ -138,24 +138,17 @@ beforeEach(() => {
 
 // ─── billingService-level: resolveBillingEntityForAgent ───
 
-describe('resolveBillingEntityForAgent', () => {
-  it('resolves a VERIFIED agency agent (brand creator) to an agency-type entity', async () => {
+describe('resolveBillingEntityForAgent — ONE AGENT = ONE BILLING ACCOUNT', () => {
+  it('always resolves to the agent\'s own UID, even for a verified brand creator', async () => {
     fakeDb._seed('users', 'agent1', { companyName: 'Acme Realty', firstName: 'Jo', lastName: 'Bloggs', agencyBrandId: 'brand-acme' });
     fakeDb._seed('agencyBrands', 'brand-acme', { name: 'Acme Realty', createdBy: 'agent1' });
     const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
     const entity = await resolveBillingEntityForAgent('agent1');
-    expect(entity.billingEntityType).toBe('agency');
-    expect(entity.billingEntityKey).toBe('brand:brand-acme');
-  });
-
-  it('SECURITY: companyName alone, with no verified brand, resolves as independent — never agency', async () => {
-    fakeDb._seed('users', 'agent1', { companyName: 'Acme Realty', firstName: 'Jo', lastName: 'Bloggs' });
-    const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
-    const entity = await resolveBillingEntityForAgent('agent1');
     expect(entity.billingEntityType).toBe('independent');
+    expect(entity.billingEntityKey).toBe('agent:agent1');
   });
 
-  it('resolves an agent with no companyName to independent — no separate agency to confirm', async () => {
+  it('resolves an agent with no companyName to the same independent shape, keyed by their own uid', async () => {
     fakeDb._seed('users', 'agent1', { firstName: 'Jo', lastName: 'Solo' });
     const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
     const entity = await resolveBillingEntityForAgent('agent1');
@@ -163,16 +156,7 @@ describe('resolveBillingEntityForAgent', () => {
     expect(entity.billingEntityKey).toBe('agent:agent1');
   });
 
-  it('two differently-spelled but genuinely different agency names never resolve to the same key', async () => {
-    fakeDb._seed('users', 'agentA', { companyName: 'Harcourts Property Hub' });
-    fakeDb._seed('users', 'agentB', { companyName: 'Harcourts Properties Hub' }); // one letter different — a real, different agency
-    const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
-    const a = await resolveBillingEntityForAgent('agentA');
-    const b = await resolveBillingEntityForAgent('agentB');
-    expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
-  });
-
-  it('two VERIFIED members of the same agency resolve to the SAME key', async () => {
+  it('two agents who are both VERIFIED members of the same real brand still resolve to DIFFERENT keys — branding never influences billing identity', async () => {
     fakeDb._seed('agencyBrands', 'brand-hph', { name: 'Harcourts Property Hub', createdBy: 'agentA' });
     fakeDb._seed('users', 'agentA', { companyName: 'Harcourts Property Hub', agencyBrandId: 'brand-hph' });
     fakeDb._seed('users', 'agentB', { companyName: 'Harcourts Property Hub', agencyBrandId: 'brand-hph' });
@@ -180,10 +164,12 @@ describe('resolveBillingEntityForAgent', () => {
     const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
     const a = await resolveBillingEntityForAgent('agentA');
     const b = await resolveBillingEntityForAgent('agentB');
-    expect(a.billingEntityKey).toBe(b.billingEntityKey);
+    expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
+    expect(a.billingEntityKey).toBe('agent:agentA');
+    expect(b.billingEntityKey).toBe('agent:agentB');
   });
 
-  it('SECURITY: two agents merely sharing the same companyName (no verified brand) do NOT resolve to the same key', async () => {
+  it('SECURITY: two agents merely sharing the same companyName never resolve to the same key', async () => {
     fakeDb._seed('users', 'agentA', { companyName: 'Harcourts Property Hub' });
     fakeDb._seed('users', 'agentB', { companyName: '  harcourts property hub  ' });
     const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
@@ -191,77 +177,78 @@ describe('resolveBillingEntityForAgent', () => {
     const b = await resolveBillingEntityForAgent('agentB');
     expect(a.billingEntityKey).not.toBe(b.billingEntityKey);
   });
-
-  it('an admin override always wins, even over companyName', async () => {
-    fakeDb._seed('users', 'agent1', { companyName: 'Some Agency' });
-    fakeDb._seed('billingAgencyOverrides', 'agent1', { billingEntityKey: 'agency:override-target', billingEntityName: 'Override Target' });
-    const { resolveBillingEntityForAgent } = await import('../../src/app/api/services/billingService.js');
-    const entity = await resolveBillingEntityForAgent('agent1');
-    expect(entity.billingEntityKey).toBe('agency:override-target');
-  });
 });
 
 // ─── billingService-level: propose / approve / reject lifecycle ───
 
 describe('proposeBillingContact / setBillingContact / rejectBillingContact lifecycle', () => {
-  it('independent agents cannot propose a billing contact at all', async () => {
-    const { proposeBillingContact } = await import('../../src/app/api/services/billingService.js');
-    await expect(proposeBillingContact({
-      billingEntityKey: 'agent:solo1', billingEntityType: 'independent', billingEntityName: 'Jo Solo',
-      proposedEmail: 'jo@example.com', agentUserId: 'solo1',
-    })).rejects.toThrow(/independent/i);
-  });
-
-  it('a fresh proposal on an unset agency succeeds and is NOT usable for invoicing yet', async () => {
+  it('a fresh proposal is NOT usable for invoicing yet', async () => {
     const { proposeBillingContact, resolveBillingContact, getBillingContactStatus } = await import('../../src/app/api/services/billingService.js');
     const result = await proposeBillingContact({
-      billingEntityKey: 'agency:a', billingEntityType: 'agency', billingEntityName: 'Agency A',
+      billingEntityKey: 'agent:agent1', billingEntityType: 'independent', billingEntityName: 'Jo Bloggs',
       proposedBillingName: 'Agency A Pty Ltd', proposedName: 'Jane Accounts', proposedEmail: 'accounts@a.example.com',
       agentUserId: 'agent1',
     });
     expect(result.status).toBe('pending');
-    expect(await resolveBillingContact('agency:a')).toBeNull(); // critical: never usable until confirmed
-    expect((await getBillingContactStatus('agency:a')).status).toBe('pending');
+    expect(await resolveBillingContact('agent:agent1')).toBeNull(); // critical: never usable until confirmed
+    expect((await getBillingContactStatus('agent:agent1')).status).toBe('pending');
   });
 
-  it('a SECOND agent at the same agency cannot overwrite a still-pending proposal — the first submission holds the slot', async () => {
+  it('two DIFFERENT agents at the same named agency each file their own independent pending proposal — no collision, no 409', async () => {
     const { proposeBillingContact } = await import('../../src/app/api/services/billingService.js');
     await proposeBillingContact({
-      billingEntityKey: 'agency:a', billingEntityType: 'agency', billingEntityName: 'Agency A',
-      proposedEmail: 'first@a.example.com', agentUserId: 'agentOne',
+      billingEntityKey: 'agent:agentOne', billingEntityType: 'independent', billingEntityName: 'Jo Lee',
+      proposedBillingName: 'Agency A', proposedEmail: 'first@a.example.com', agentUserId: 'agentOne',
     });
-    await expect(proposeBillingContact({
-      billingEntityKey: 'agency:a', billingEntityType: 'agency', billingEntityName: 'Agency A',
-      proposedEmail: 'second@a.example.com', agentUserId: 'agentTwo',
-    })).rejects.toThrow(/pending/i);
+    await proposeBillingContact({
+      billingEntityKey: 'agent:agentTwo', billingEntityType: 'independent', billingEntityName: 'Max Tan',
+      proposedBillingName: 'Agency A', proposedEmail: 'second@a.example.com', agentUserId: 'agentTwo',
+    });
 
-    expect(fakeDb._store.billingContacts['agency:a'].proposedEmail).toBe('first@a.example.com'); // unchanged
+    expect(fakeDb._store.billingContacts['agent:agentOne'].proposedEmail).toBe('first@a.example.com');
+    expect(fakeDb._store.billingContacts['agent:agentTwo'].proposedEmail).toBe('second@a.example.com');
   });
 
-  it('an agent cannot propose a change once the agency contact is confirmed — admin-only from that point', async () => {
+  it('an agent cannot change their own contact once it is confirmed — admin-only from that point', async () => {
     const { proposeBillingContact, setBillingContact } = await import('../../src/app/api/services/billingService.js');
-    await setBillingContact({ billingEntityKey: 'agency:a', billingName: 'Agency A', name: 'Jane', email: 'jane@a.example.com', adminUid: 'admin1' });
+    await setBillingContact({ billingEntityKey: 'agent:agent1', billingName: 'Agency A', name: 'Jane', email: 'jane@a.example.com', adminUid: 'admin1' });
 
     await expect(proposeBillingContact({
-      billingEntityKey: 'agency:a', billingEntityType: 'agency', billingEntityName: 'Agency A',
-      proposedEmail: 'sneaky@attacker.example.com', agentUserId: 'agentX',
+      billingEntityKey: 'agent:agent1', billingEntityType: 'independent', billingEntityName: 'Jo Bloggs',
+      proposedEmail: 'sneaky@attacker.example.com', agentUserId: 'agent1',
     })).rejects.toThrow(/confirmed/i);
 
-    expect(fakeDb._store.billingContacts['agency:a'].email).toBe('jane@a.example.com'); // untouched
+    expect(fakeDb._store.billingContacts['agent:agent1'].email).toBe('jane@a.example.com'); // untouched
   });
 
-  it('rejecting a pending proposal lets the agency resubmit afterwards', async () => {
+  it('one agent\'s proposal, confirmation, or rejection never touches a DIFFERENT agent\'s record, even with an identical agency name or billing email', async () => {
+    const { proposeBillingContact, setBillingContact } = await import('../../src/app/api/services/billingService.js');
+    await proposeBillingContact({
+      billingEntityKey: 'agent:agentA', billingEntityType: 'independent', billingEntityName: 'Jo Lee',
+      proposedBillingName: 'Shared Agency', proposedEmail: 'shared@example.com', agentUserId: 'agentA',
+    });
+    await proposeBillingContact({
+      billingEntityKey: 'agent:agentB', billingEntityType: 'independent', billingEntityName: 'Max Tan',
+      proposedBillingName: 'Shared Agency', proposedEmail: 'shared@example.com', agentUserId: 'agentB',
+    });
+    await setBillingContact({ billingEntityKey: 'agent:agentA', billingName: 'Shared Agency', name: 'Jo Lee', email: 'shared@example.com', adminUid: 'admin1' });
+
+    expect(fakeDb._store.billingContacts['agent:agentA'].status).toBe('confirmed');
+    expect(fakeDb._store.billingContacts['agent:agentB'].status).toBe('pending'); // entirely unaffected
+  });
+
+  it('rejecting a pending proposal lets the agent resubmit afterwards', async () => {
     const { proposeBillingContact, rejectBillingContact, getBillingContactStatus } = await import('../../src/app/api/services/billingService.js');
     await proposeBillingContact({
-      billingEntityKey: 'agency:a', billingEntityType: 'agency', billingEntityName: 'Agency A',
+      billingEntityKey: 'agent:agent1', billingEntityType: 'independent', billingEntityName: 'Jo Bloggs',
       proposedEmail: 'wrong-department@a.example.com', agentUserId: 'agent1',
     });
-    await rejectBillingContact({ billingEntityKey: 'agency:a', reason: 'Wrong department — please resubmit with the accounts team\'s address', adminUid: 'admin1' });
-    expect((await getBillingContactStatus('agency:a')).status).toBe('rejected');
+    await rejectBillingContact({ billingEntityKey: 'agent:agent1', reason: 'Wrong department — please resubmit with the accounts team\'s address', adminUid: 'admin1' });
+    expect((await getBillingContactStatus('agent:agent1')).status).toBe('rejected');
 
     // Resubmission now succeeds.
     const result = await proposeBillingContact({
-      billingEntityKey: 'agency:a', billingEntityType: 'agency', billingEntityName: 'Agency A',
+      billingEntityKey: 'agent:agent1', billingEntityType: 'independent', billingEntityName: 'Jo Bloggs',
       proposedEmail: 'corrected@a.example.com', agentUserId: 'agent1',
     });
     expect(result.status).toBe('pending');
@@ -269,19 +256,19 @@ describe('proposeBillingContact / setBillingContact / rejectBillingContact lifec
 
   it('rejecting when nothing is pending (already approved, or a concurrent reject already won) fails safely', async () => {
     const { rejectBillingContact } = await import('../../src/app/api/services/billingService.js');
-    await expect(rejectBillingContact({ billingEntityKey: 'agency:never-proposed', adminUid: 'admin1' })).rejects.toThrow(/no pending/i);
+    await expect(rejectBillingContact({ billingEntityKey: 'agent:never-proposed', adminUid: 'admin1' })).rejects.toThrow(/no pending/i);
   });
 
   it('approving (setBillingContact) a pending proposal moves it to confirmed and it becomes invoice-usable', async () => {
     const { proposeBillingContact, setBillingContact, resolveBillingContact } = await import('../../src/app/api/services/billingService.js');
     await proposeBillingContact({
-      billingEntityKey: 'agency:a', billingEntityType: 'agency', billingEntityName: 'Agency A',
+      billingEntityKey: 'agent:agent1', billingEntityType: 'independent', billingEntityName: 'Jo Bloggs',
       proposedBillingName: 'Agency A Pty Ltd', proposedName: 'Jane Accounts', proposedEmail: 'accounts@a.example.com',
       agentUserId: 'agent1',
     });
-    await setBillingContact({ billingEntityKey: 'agency:a', billingName: 'Agency A Pty Ltd', name: 'Jane Accounts', email: 'accounts@a.example.com', adminUid: 'admin1' });
+    await setBillingContact({ billingEntityKey: 'agent:agent1', billingName: 'Agency A Pty Ltd', name: 'Jane Accounts', email: 'accounts@a.example.com', adminUid: 'admin1' });
 
-    const contact = await resolveBillingContact('agency:a');
+    const contact = await resolveBillingContact('agent:agent1');
     expect(contact).toEqual({ name: 'Jane Accounts', email: 'accounts@a.example.com', billingName: 'Agency A Pty Ltd' });
   });
 });
@@ -295,16 +282,17 @@ describe('GET /api/agency/billing-contact-status', () => {
     expect(res.status).toBe(401);
   });
 
-  it('independent agents get applicable: false', async () => {
+  it('is ALWAYS applicable — every agent has their own billing identity, with or without a companyName', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'solo1' });
-    fakeDb._seed('users', 'solo1', { firstName: 'Jo' }); // no companyName
+    fakeDb._seed('users', 'solo1', { firstName: 'Jo' }); // no companyName at all
     const { GET } = await import('../../src/app/api/agency/billing-contact-status/route.js');
     const res = await GET(makeGetRequest('Bearer t'));
     const data = await res.json();
-    expect(data.applicable).toBe(false);
+    expect(data.applicable).toBe(true);
+    expect(data.status).toBe('unset');
   });
 
-  it('reflects the real, server-resolved status for a VERIFIED agency agent', async () => {
+  it('reflects the real, server-resolved status for THIS agent\'s own key — unaffected by agencyBrandId', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
     fakeDb._seed('agencyBrands', 'brand-a', { name: 'Agency A', createdBy: 'agent1' });
     fakeDb._seed('users', 'agent1', { companyName: 'Agency A', agencyBrandId: 'brand-a' });
@@ -315,24 +303,19 @@ describe('GET /api/agency/billing-contact-status', () => {
     expect(data.status).toBe('unset');
   });
 
-  it('IS applicable (pending) for an agent with only a companyName and no verified brand — the simplified, low-friction signup path', async () => {
-    mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
-    fakeDb._seed('users', 'agent1', { companyName: 'Agency A' });
-    const { GET } = await import('../../src/app/api/agency/billing-contact-status/route.js');
-    const res = await GET(makeGetRequest('Bearer t'));
-    const data = await res.json();
-    expect(data.applicable).toBe(true);
-    expect(data.status).toBe('unset');
-    expect(data.billingEntityName).toBe('Agency A');
-  });
+  it('two agents at the same agency each see only their OWN status — one being confirmed never clears the other\'s prompt', async () => {
+    fakeDb._seed('users', 'agentA', { companyName: 'Shared Agency' });
+    fakeDb._seed('users', 'agentB', { companyName: 'Shared Agency' });
+    fakeDb._seed('billingContacts', 'agent:agentA', { status: 'confirmed', email: 'a@example.com' });
 
-  it('is NOT applicable for a genuinely independent agent — no companyName at all', async () => {
-    mockVerifyIdToken.mockResolvedValue({ uid: 'solo1' });
-    fakeDb._seed('users', 'solo1', {});
     const { GET } = await import('../../src/app/api/agency/billing-contact-status/route.js');
-    const res = await GET(makeGetRequest('Bearer t'));
-    const data = await res.json();
-    expect(data.applicable).toBe(false);
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agentA' });
+    const dataA = await (await GET(makeGetRequest('Bearer t'))).json();
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agentB' });
+    const dataB = await (await GET(makeGetRequest('Bearer t'))).json();
+
+    expect(dataA.status).toBe('confirmed');
+    expect(dataB.status).toBe('unset');
   });
 });
 
@@ -343,19 +326,19 @@ describe('POST /api/agency/propose-billing-contact', () => {
     expect(res.status).toBe(401);
   });
 
-  it('a genuinely independent agent (no companyName) confirms their own billing email immediately — no admin review', async () => {
+  it('SECURITY: always files a PENDING proposal awaiting superAdmin review — no instant self-confirm for any agent any more', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'solo1' });
     fakeDb._seed('users', 'solo1', {});
     const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
     const res = await POST(makeRequest({ contactEmail: 'solo@example.com' }, 'Bearer t'));
     const data = await res.json();
     expect(res.status).toBe(200);
-    expect(data.status).toBe('confirmed');
-    expect(fakeDb._store.billingContacts['agent:solo1'].status).toBe('confirmed');
-    expect(fakeDb._store.billingContacts['agent:solo1'].email).toBe('solo@example.com');
+    expect(data.status).toBe('pending');
+    expect(fakeDb._store.billingContacts['agent:solo1'].status).toBe('pending');
+    expect(fakeDb._store.billingContacts['agent:solo1'].proposedEmail).toBe('solo@example.com');
   });
 
-  it('ALWAYS writes under the server-resolved key, ignoring any billingEntityKey the client tries to supply', async () => {
+  it('ALWAYS writes under the server-resolved agent:{uid} key, ignoring any billingEntityKey the client tries to supply', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
     fakeDb._seed('agencyBrands', 'brand-real', { name: 'Real Agency', createdBy: 'agent1' });
     fakeDb._seed('users', 'agent1', { companyName: 'Real Agency', agencyBrandId: 'brand-real' });
@@ -367,102 +350,49 @@ describe('POST /api/agency/propose-billing-contact', () => {
     const data = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.billingEntityKey).toBe('brand:brand-real'); // the agent's OWN real key, never the injected one
+    expect(data.billingEntityKey).toBe('agent:agent1'); // the agent's OWN real key, never the injected one
     expect(fakeDb._store.billingContacts['agency:someone-elses-agency']).toBeUndefined();
   });
 
-  it('two VERIFIED agents proposing for the same real agency both land under the one shared key', async () => {
+  it('two VERIFIED agents at the SAME real agency land under TWO separate keys, never one shared entry', async () => {
     fakeDb._seed('agencyBrands', 'brand-shared', { name: 'Shared Agency', createdBy: 'agentA' });
     fakeDb._seed('users', 'agentA', { companyName: 'Shared Agency', agencyBrandId: 'brand-shared' });
-    mockVerifyIdToken.mockResolvedValue({ uid: 'agentA' });
+    fakeDb._seed('users', 'agentB', { companyName: 'Shared Agency', agencyBrandId: 'brand-shared' });
+    fakeDb._seed('agencyMemberships', 'agentB', { uid: 'agentB', agencyBrandId: 'brand-shared', status: 'verified' });
     const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
+
+    mockVerifyIdToken.mockResolvedValue({ uid: 'agentA' });
     await POST(makeRequest({ contactEmail: 'first@shared.example.com' }, 'Bearer t'));
-
-    expect(Object.keys(fakeDb._store.billingContacts)).toEqual(['brand:brand-shared']);
-  });
-
-  it('SECURITY: an agent with only a companyName (no verified brand) files a PENDING proposal — never instantly confirmed, isolated under its own agency key', async () => {
-    mockVerifyIdToken.mockResolvedValue({ uid: 'agentX' });
-    fakeDb._seed('users', 'agentX', { companyName: 'Harcourts Property Hub' }); // unverified — the exact scenario from the Phil incident
-    const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
-    const res = await POST(makeRequest({ contactEmail: 'attempt@example.com' }, 'Bearer t'));
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(data.status).toBe('pending'); // filed for review, never auto-confirmed off the name match
-    const doc = fakeDb._store.billingContacts['agency:harcourts property hub'];
-    expect(doc.status).toBe('pending');
-    expect(doc.proposedBy).toBe('agentX');
-  });
-
-  it('SECURITY: two different agents with the same unresolved company name both land as claimants on the ONE pending entry, never two separate confirmed entities', async () => {
-    fakeDb._seed('users', 'agentA', { companyName: 'New Agency' });
-    fakeDb._seed('users', 'agentB', { companyName: 'New Agency' });
-    const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
-
-    mockVerifyIdToken.mockResolvedValue({ uid: 'agentA' });
-    await POST(makeRequest({ contactEmail: 'a@example.com' }, 'Bearer t'));
     mockVerifyIdToken.mockResolvedValue({ uid: 'agentB' });
-    const res = await POST(makeRequest({ contactEmail: 'b@example.com' }, 'Bearer t'));
+    await POST(makeRequest({ contactEmail: 'second@shared.example.com' }, 'Bearer t'));
 
-    expect(res.status).toBe(200); // never rejected/409 — this is the exact lean-onboarding fix
-    const doc = fakeDb._store.billingContacts['agency:new agency'];
-    expect(doc.status).toBe('pending');
-    expect(doc.proposedByUids).toEqual(['agentA', 'agentB']);
-    expect(Object.keys(fakeDb._store.billingContacts)).toHaveLength(1); // one entity, not two
+    expect(Object.keys(fakeDb._store.billingContacts).sort()).toEqual(['agent:agentA', 'agent:agentB']);
   });
 
-  it('a new agent entering an ALREADY-CONFIRMED agency\'s exact name is low-friction folded in for billing (the explicit, approved trade-off) but CANNOT overwrite the confirmed contact', async () => {
-    fakeDb._seed('billingContacts', 'agency:established agency', {
-      billingEntityKey: 'agency:established agency', billingEntityType: 'agency', billingEntityName: 'Established Agency',
+  it('SECURITY: an agent with a companyName matching an EXISTING, already-confirmed agency is STILL only ever confirmed through their own separate review — never inherits the other entity\'s confirmed status', async () => {
+    fakeDb._seed('billingContacts', 'agent:establishedAgent', {
       status: 'confirmed', billingName: 'Established Agency Pty Ltd', name: 'Real Accounts', email: 'real-accounts@established.example.com',
     });
     fakeDb._seed('users', 'newAgent', { companyName: 'Established Agency' });
     mockVerifyIdToken.mockResolvedValue({ uid: 'newAgent' });
 
-    // Their own charge/entity resolution already folds them in —
-    // confirmed via the status route.
     const { GET } = await import('../../src/app/api/agency/billing-contact-status/route.js');
-    const statusRes = await GET(makeGetRequest('Bearer t'));
-    const statusData = await statusRes.json();
+    const statusData = await (await GET(makeGetRequest('Bearer t'))).json();
     expect(statusData.applicable).toBe(true);
-    expect(statusData.status).toBe('confirmed');
+    expect(statusData.status).toBe('unset'); // newAgent's OWN key — unaffected by the other agent's confirmation
 
-    // But attempting to propose/change the contact is rejected — the
-    // confirmed record is admin-only to change, regardless of who
-    // tries, satisfying "never overwrite an existing agency's
-    // confirmed billing contact with information entered by a newly
-    // registered agent."
     const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
-    const res = await POST(makeRequest({ contactEmail: 'attacker-chosen@example.com' }, 'Bearer t'));
-    expect(res.status).toBe(409);
-    expect(fakeDb._store.billingContacts['agency:established agency'].email).toBe('real-accounts@established.example.com'); // untouched
-  });
-
-  it('two unrelated agencies that happen to share a name resolve to the SAME key by construction but each independently requires its own superAdmin confirmation — never merged by the name alone', async () => {
-    fakeDb._seed('users', 'agentFromAgencyOne', { companyName: 'Prestige Realty' });
-    fakeDb._seed('users', 'agentFromUnrelatedAgencyTwo', { companyName: 'Prestige Realty' }); // coincidentally identical name, genuinely unrelated business
-    const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
-
-    mockVerifyIdToken.mockResolvedValue({ uid: 'agentFromAgencyOne' });
-    await POST(makeRequest({ contactEmail: 'one@example.com' }, 'Bearer t'));
-
-    // Nothing is confirmed yet — a superAdmin must explicitly review,
-    // and would see BOTH claimants on the one entry rather than either
-    // being silently trusted. This is the documented, intentional
-    // limitation: an exact name collision between genuinely unrelated
-    // businesses relies on the superAdmin noticing during review, not
-    // on automatic detection — the system never auto-merges or
-    // auto-confirms either one.
-    const doc = fakeDb._store.billingContacts['agency:prestige realty'];
-    expect(doc.status).toBe('pending');
-    expect(doc.email).toBeUndefined(); // never auto-confirmed/usable for a real invoice
+    const res = await POST(makeRequest({ contactEmail: 'newagent@example.com' }, 'Bearer t'));
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe('pending');
+    // The unrelated, already-confirmed agent's record is completely untouched.
+    expect(fakeDb._store.billingContacts['agent:establishedAgent'].email).toBe('real-accounts@established.example.com');
   });
 });
 
 // ─── Route-level: admin approval workflow ───
 
-describe('GET /api/admin/invoicing/billing-contacts (pending list)', () => {
+describe('GET /api/admin/invoicing/billing-contacts (pending list) — one row per agent', () => {
   it('401s with no auth, 403s for a non-admin', async () => {
     const { GET } = await import('../../src/app/api/admin/invoicing/billing-contacts/route.js');
     expect((await GET(makeGetRequest())).status).toBe(401);
@@ -475,42 +405,54 @@ describe('GET /api/admin/invoicing/billing-contacts (pending list)', () => {
   it('lists only pending proposals, discoverable with no invoice run involved at all', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
     fakeDb._seed('users', 'admin1', { superAdmin: true });
-    fakeDb._seed('billingContacts', 'agency:a', { billingEntityKey: 'agency:a', status: 'pending', proposedEmail: 'a@example.com' });
-    fakeDb._seed('billingContacts', 'agency:b', { billingEntityKey: 'agency:b', status: 'confirmed', email: 'b@example.com' });
+    fakeDb._seed('billingContacts', 'agent:a', { billingEntityKey: 'agent:a', status: 'pending', proposedEmail: 'a@example.com' });
+    fakeDb._seed('billingContacts', 'agent:b', { billingEntityKey: 'agent:b', status: 'confirmed', email: 'b@example.com' });
 
     const { GET } = await import('../../src/app/api/admin/invoicing/billing-contacts/route.js');
     const res = await GET(makeGetRequest('Bearer t'));
     const data = await res.json();
     expect(data.pending).toHaveLength(1);
-    expect(data.pending[0].billingEntityKey).toBe('agency:a');
+    expect(data.pending[0].billingEntityKey).toBe('agent:a');
+  });
+
+  it('two agents at the SAME named agency both appear as SEPARATE rows, never grouped into one', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+    fakeDb._seed('users', 'admin1', { superAdmin: true });
+    fakeDb._seed('billingContacts', 'agent:agentA', { billingEntityKey: 'agent:agentA', billingEntityName: 'Jo Lee', status: 'pending', proposedBillingName: 'Harcourts Property Hub', proposedEmail: 'jo@example.com' });
+    fakeDb._seed('billingContacts', 'agent:agentB', { billingEntityKey: 'agent:agentB', billingEntityName: 'Max Tan', status: 'pending', proposedBillingName: 'Harcourts Property Hub', proposedEmail: 'max@example.com' });
+
+    const { GET } = await import('../../src/app/api/admin/invoicing/billing-contacts/route.js');
+    const data = await (await GET(makeGetRequest('Bearer t'))).json();
+    expect(data.pending).toHaveLength(2);
+    expect(data.pending.map((p) => p.billingEntityKey).sort()).toEqual(['agent:agentA', 'agent:agentB']);
   });
 });
 
 describe('POST /api/admin/invoicing/billing-contacts/reject', () => {
   it('401s with no auth, 403s for a non-admin', async () => {
     const { POST } = await import('../../src/app/api/admin/invoicing/billing-contacts/reject/route.js');
-    expect((await POST(makeRequest({ billingEntityKey: 'agency:a' }))).status).toBe(401);
+    expect((await POST(makeRequest({ billingEntityKey: 'agent:a' }))).status).toBe(401);
 
     mockVerifyIdToken.mockResolvedValue({ uid: 'agent1' });
     fakeDb._seed('users', 'agent1', { superAdmin: false });
-    expect((await POST(makeRequest({ billingEntityKey: 'agency:a' }, 'Bearer t'))).status).toBe(403);
+    expect((await POST(makeRequest({ billingEntityKey: 'agent:a' }, 'Bearer t'))).status).toBe(403);
   });
 
   it('rejects a pending proposal as an admin', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
     fakeDb._seed('users', 'admin1', { superAdmin: true });
-    fakeDb._seed('billingContacts', 'agency:a', { billingEntityKey: 'agency:a', status: 'pending', proposedEmail: 'bad@@a.example' });
+    fakeDb._seed('billingContacts', 'agent:a', { billingEntityKey: 'agent:a', status: 'pending', proposedEmail: 'bad@@a.example' });
 
     const { POST } = await import('../../src/app/api/admin/invoicing/billing-contacts/reject/route.js');
-    const res = await POST(makeRequest({ billingEntityKey: 'agency:a', reason: 'Bad email' }, 'Bearer t'));
+    const res = await POST(makeRequest({ billingEntityKey: 'agent:a', reason: 'Bad email' }, 'Bearer t'));
     expect(res.status).toBe(200);
-    expect(fakeDb._store.billingContacts['agency:a'].status).toBe('rejected');
+    expect(fakeDb._store.billingContacts['agent:a'].status).toBe('rejected');
   });
 });
 
 // ─── Send-time safety: the critical invoice guard ───
 
-describe('send/route.js — agency billing-contact safety guard', () => {
+describe('send/route.js — per-agent billing-contact safety guard', () => {
   function makeSendRequest() {
     const headers = new Headers({ authorization: 'Bearer t' });
     return new Request('http://localhost/test', { method: 'POST', headers });
@@ -530,19 +472,19 @@ describe('send/route.js — agency billing-contact safety guard', () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
     fakeDb._seed('invoiceRunItems', 'item1', {
       runId: 'run1',
-      billingEntityType: 'agency',
-      billingEntityKey: 'agency:a',
+      billingEntityType: 'independent',
+      billingEntityKey: 'agent:a',
       agencyName: 'Agency A',
       agentName: 'Whoever Submitted First', // deliberately the STALE/wrong value — see the test below
       agentEmail: 'whoever-submitted-first@example.com',
       properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
     });
     if (billingContact) {
-      fakeDb._seed('billingContacts', 'agency:a', billingContact);
+      fakeDb._seed('billingContacts', 'agent:a', billingContact);
     }
   }
 
-  it('blocks sending for an agency with no confirmed contact — charge stays recorded, nothing sent to Xero', async () => {
+  it('blocks sending for an agent with no confirmed contact — charge stays recorded, nothing sent to Xero', async () => {
     seedRun(); // no billingContacts doc at all
     const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
     const res = await POST(makeSendRequest(), { params: Promise.resolve({ runId: 'run1' }) });
@@ -558,16 +500,16 @@ describe('send/route.js — agency billing-contact safety guard', () => {
   });
 
   it('a merely PENDING (not yet admin-approved) proposal still blocks sending — proposing is not the same as confirming', async () => {
-    seedRun({ billingContact: { billingEntityKey: 'agency:a', status: 'pending', proposedEmail: 'proposed@a.example.com' } });
+    seedRun({ billingContact: { billingEntityKey: 'agent:a', status: 'pending', proposedEmail: 'proposed@a.example.com' } });
     const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
     await POST(makeSendRequest(), { params: Promise.resolve({ runId: 'run1' }) });
     expect(mockFindOrCreateContact).not.toHaveBeenCalled();
   });
 
-  it('once confirmed, sends using the CONFIRMED contact — never the stale agentName/agentEmail stamped on the item', async () => {
+  it('once confirmed, sends using the CONFIRMED contact — never the stale agentName/agentEmail stamped on the item, never a login-email fallback', async () => {
     seedRun({
       billingContact: {
-        billingEntityKey: 'agency:a', status: 'confirmed',
+        billingEntityKey: 'agent:a', status: 'confirmed',
         billingName: 'Agency A Pty Ltd', name: 'Real Accounts Contact', email: 'real-accounts@a.example.com',
       },
     });
@@ -577,38 +519,23 @@ describe('send/route.js — agency billing-contact safety guard', () => {
 
     expect(body.status).toBe('sent');
     expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Agency A Pty Ltd',
       email: 'real-accounts@a.example.com',
     }));
     // The stale item-level fields were never used for anything sent to Xero.
     expect(mockFindOrCreateContact).not.toHaveBeenCalledWith(expect.objectContaining({ email: 'whoever-submitted-first@example.com' }));
   });
 
-  it('independent agents are completely unaffected — their own identity remains the contact, no confirmation required', async () => {
-    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
-    fakeDb._seed('invoiceRunItems', 'item1', {
-      runId: 'run1', billingEntityType: 'independent', billingEntityKey: 'agent:solo1',
-      agencyName: 'Jo Solo', agentName: 'Jo Solo', agentEmail: 'jo@example.com',
-      properties: [{ propertyId: 'p1', address: '1 Test St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
-    });
-    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
-    const res = await POST(makeSendRequest(), { params: Promise.resolve({ runId: 'run1' }) });
-    const body = await res.json();
-    expect(body.status).toBe('sent');
-    expect(mockFindOrCreateContact).toHaveBeenCalledWith(expect.objectContaining({ email: 'jo@example.com' }));
-  });
-
-  it('blocking one agency item in a run never touches a different, already-confirmed agency item in the SAME run', async () => {
+  it('blocking one agent\'s item in a run never touches a DIFFERENT, already-confirmed agent\'s item in the SAME run', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
     fakeDb._seed('invoiceRunItems', 'itemBlocked', {
-      runId: 'run1', billingEntityType: 'agency', billingEntityKey: 'agency:unconfirmed',
-      agencyName: 'Unconfirmed Agency', agentName: 'X', agentEmail: 'x@example.com',
+      runId: 'run1', billingEntityType: 'independent', billingEntityKey: 'agent:unconfirmed',
+      agencyName: 'Unconfirmed Agent', agentName: 'X', agentEmail: 'x@example.com',
       properties: [{ propertyId: 'pX', address: '1 X St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
     });
-    fakeDb._seed('billingContacts', 'agency:confirmed', { status: 'confirmed', billingName: 'Confirmed Agency', name: 'Y', email: 'y@example.com' });
+    fakeDb._seed('billingContacts', 'agent:confirmed', { status: 'confirmed', billingName: 'Confirmed Agent', name: 'Y', email: 'y@example.com' });
     fakeDb._seed('invoiceRunItems', 'itemConfirmed', {
-      runId: 'run1', billingEntityType: 'agency', billingEntityKey: 'agency:confirmed',
-      agencyName: 'Confirmed Agency', agentName: 'Y', agentEmail: 'y@example.com',
+      runId: 'run1', billingEntityType: 'independent', billingEntityKey: 'agent:confirmed',
+      agencyName: 'Confirmed Agent', agentName: 'Y', agentEmail: 'y@example.com',
       properties: [{ propertyId: 'pY', address: '1 Y St', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
     });
 

@@ -70,15 +70,16 @@ beforeEach(() => {
 });
 
 async function seedPendingCharge(id, overrides = {}) {
+  const agentUserId = overrides.agentUserId || 'agent1';
   fakeDb.collection('propertyCharges').doc(id).set({
     propertyId: id,
     propertyAddress: `${id} Test St`,
-    agentUserId: 'agent1',
+    agentUserId,
     agentName: 'Jo Lee',
     agentEmail: 'jo@example.com',
-    billingEntityType: 'agency',
-    billingEntityKey: 'agency:harcourts',
-    billingEntityName: 'Harcourts',
+    billingEntityType: 'independent',
+    billingEntityKey: `agent:${agentUserId}`,
+    billingEntityName: 'Jo Lee',
     status: 'pending',
     subtotalEx: 181.82,
     gstAmount: 18.18,
@@ -88,6 +89,12 @@ async function seedPendingCharge(id, overrides = {}) {
   });
 }
 
+// Confirms the given agent's billing contact — a charge is only ever
+// bundled into a run once this exists (see createInvoiceRunFromPendingCharges).
+function confirmContact(billingEntityKey, { name = 'Jo Lee', email = 'jo@example.com' } = {}) {
+  fakeDb.collection('billingContacts').doc(billingEntityKey).set({ billingEntityKey, status: 'confirmed', name, email });
+}
+
 describe('createInvoiceRunFromPendingCharges', () => {
   it('returns null when there is nothing pending', async () => {
     const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
@@ -95,26 +102,21 @@ describe('createInvoiceRunFromPendingCharges', () => {
     expect(result).toBeNull();
   });
 
-  it('holds back a charge flagged pendingAgencyName (unresolved agency membership) — never bundled, never billed independently', async () => {
-    await seedPendingCharge('propHeld', {
-      billingEntityType: 'independent', billingEntityKey: 'agent:agentUnverified',
-      agentUserId: 'agentUnverified', pendingAgencyName: 'Harcourts Property Hub',
-    });
+  it('holds back a charge whose agent has no confirmed billing contact yet — never bundled, never billed', async () => {
+    await seedPendingCharge('propHeld', { agentUserId: 'agentUnconfirmed' });
     const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
 
     const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
 
     expect(result).toBeNull(); // the only pending charge was held — nothing runnable
     const charge = await fakeDb.collection('propertyCharges').doc('propHeld').get();
-    expect(charge.data().status).toBe('pending'); // untouched — still awaiting admin resolution, not lost
+    expect(charge.data().status).toBe('pending'); // untouched — still awaiting admin confirmation, not lost
   });
 
-  it('holds back an unresolved-membership charge while still bundling OTHER genuinely independent/agency charges normally', async () => {
-    await seedPendingCharge('propA'); // normal agency charge
-    await seedPendingCharge('propHeld', {
-      billingEntityType: 'independent', billingEntityKey: 'agent:agentUnverified',
-      agentUserId: 'agentUnverified', pendingAgencyName: 'Some Agency',
-    });
+  it('holds back an unconfirmed agent\'s charge while still bundling a DIFFERENT, confirmed agent\'s charges normally', async () => {
+    await seedPendingCharge('propA', { agentUserId: 'agentConfirmed' });
+    confirmContact('agent:agentConfirmed');
+    await seedPendingCharge('propHeld', { agentUserId: 'agentUnconfirmed' });
     const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
 
     const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
@@ -125,20 +127,20 @@ describe('createInvoiceRunFromPendingCharges', () => {
     expect(heldCharge.data().runId).toBeUndefined();
   });
 
-  it('a genuine independent agent (no pendingAgencyName at all) is billed normally — unaffected by the membership-hold logic', async () => {
-    await seedPendingCharge('propSolo', {
-      billingEntityType: 'independent', billingEntityKey: 'agent:soloAgent', agentUserId: 'soloAgent',
-    });
+  it('a confirmed agent is billed normally, keyed by their own UID', async () => {
+    await seedPendingCharge('propSolo', { agentUserId: 'soloAgent' });
+    confirmContact('agent:soloAgent');
     const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
 
     const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
 
     expect(result.totalProperties).toBe(1);
     const charge = await fakeDb.collection('propertyCharges').doc('propSolo').get();
-    expect(charge.data().status).toBe('queued'); // bundled and billed, exactly like today
+    expect(charge.data().status).toBe('queued'); // bundled and billed
   });
 
-  it('bundles every pending charge into one draft run, grouped by billing entity', async () => {
+  it('bundles every pending charge from ONE confirmed agent into one draft run item', async () => {
+    confirmContact('agent:agent1');
     await seedPendingCharge('propA');
     await seedPendingCharge('propB');
     const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
@@ -154,7 +156,34 @@ describe('createInvoiceRunFromPendingCharges', () => {
     expect(items.docs[0].data().propertyCount).toBe(2);
   });
 
+  it('two agents at the SAME named agency, both confirmed, bundle into TWO separate items — never consolidated', async () => {
+    confirmContact('agent:agentA', { name: 'Jo Lee', email: 'jo@example.com' });
+    confirmContact('agent:agentB', { name: 'Max Tan', email: 'max@example.com' });
+    await seedPendingCharge('propA', { agentUserId: 'agentA', billingEntityName: 'Jo Lee' });
+    await seedPendingCharge('propB', { agentUserId: 'agentB', billingEntityName: 'Max Tan' });
+    const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+
+    const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
+
+    expect(result.totalAgencies).toBe(2);
+    const items = await fakeDb.collection('invoiceRunItems').get();
+    const keys = items.docs.map((d) => d.data().billingEntityKey).sort();
+    expect(keys).toEqual(['agent:agentA', 'agent:agentB']);
+  });
+
+  it('two agents sharing the exact same billing email are still never consolidated into one item', async () => {
+    confirmContact('agent:agentA', { name: 'Jo Lee', email: 'shared@example.com' });
+    confirmContact('agent:agentB', { name: 'Max Tan', email: 'shared@example.com' });
+    await seedPendingCharge('propA', { agentUserId: 'agentA' });
+    await seedPendingCharge('propB', { agentUserId: 'agentB' });
+    const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+
+    const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
+    expect(result.totalAgencies).toBe(2);
+  });
+
   it('moves every included charge from pending to queued, attached to the new run', async () => {
+    confirmContact('agent:agent1');
     await seedPendingCharge('propA');
     const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
     const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
@@ -165,6 +194,7 @@ describe('createInvoiceRunFromPendingCharges', () => {
   });
 
   it('never re-includes an already-queued/invoiced charge in a second run', async () => {
+    confirmContact('agent:agent1');
     await seedPendingCharge('propA');
     const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
 
@@ -176,21 +206,24 @@ describe('createInvoiceRunFromPendingCharges', () => {
     expect(second).toBeNull();
   });
 
-  it('groups two different agencies into two separate items', async () => {
-    await seedPendingCharge('propA', { billingEntityKey: 'agency:harcourts', billingEntityName: 'Harcourts' });
-    await seedPendingCharge('propB', { billingEntityKey: 'agency:ray-white', billingEntityName: 'Ray White' });
-    const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+  it('sweeps for a property with no charge yet and records one before aggregating (the safety net) — still held until that agent is confirmed', async () => {
+    fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee' });
+    fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: new Date('2020-01-01') });
+    fakeDb.collection('properties').doc('propC').set({ userId: 'agent1', address: '3 C St', createdAt: new Date() });
 
+    const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
     const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
-    expect(result.totalAgencies).toBe(2);
+
+    // The sweep records the charge, but agent1 has no confirmed
+    // billing contact yet, so nothing is runnable this time.
+    expect(result).toBeNull();
+    const charge = await fakeDb.collection('propertyCharges').doc('propC').get();
+    expect(charge.exists).toBe(true);
+    expect(charge.data().status).toBe('pending');
   });
 
-  it('sweeps for a property with no charge yet and records one before aggregating (the safety net)', async () => {
-    // No companyName here deliberately — this test is purely about the
-    // sweep mechanism itself, not agency resolution; a companyName
-    // with no confirmed/verified entity would now correctly hold the
-    // charge back from the run (see the pendingAgencyName tests above),
-    // which would defeat what THIS test is checking.
+  it('a swept charge for an already-confirmed agent is bundled immediately, in the same run', async () => {
+    confirmContact('agent:agent1');
     fakeDb.collection('users').doc('agent1').set({ firstName: 'Jo', lastName: 'Lee' });
     fakeDb.collection('settings').doc('invoicing').set({ pricePerListing: 200, gstRate: 0.1, excludeAgentIds: [], billingActivatedAt: new Date('2020-01-01') });
     fakeDb.collection('properties').doc('propC').set({ userId: 'agent1', address: '3 C St', createdAt: new Date() });
@@ -200,8 +233,7 @@ describe('createInvoiceRunFromPendingCharges', () => {
 
     expect(result.totalProperties).toBe(1);
     const charge = await fakeDb.collection('propertyCharges').doc('propC').get();
-    expect(charge.exists).toBe(true);
-    expect(charge.data().status).toBe('queued'); // swept, then immediately included
+    expect(charge.data().status).toBe('queued');
   });
 
   it('the pre-run sweep never backfills a historical property into this (or any) run', async () => {
@@ -217,7 +249,8 @@ describe('createInvoiceRunFromPendingCharges', () => {
     expect(charge.exists).toBe(false);
   });
 
-  it('sums GST-inclusive totals accurately across multiple properties for one agency', async () => {
+  it('sums GST-inclusive totals accurately across multiple properties for one confirmed agent', async () => {
+    confirmContact('agent:agent1');
     await seedPendingCharge('propA', { subtotalEx: 181.82, gstAmount: 18.18, totalInc: 200 });
     await seedPendingCharge('propB', { subtotalEx: 181.82, gstAmount: 18.18, totalInc: 200 });
     await seedPendingCharge('propC', { subtotalEx: 181.82, gstAmount: 18.18, totalInc: 200 });
@@ -229,13 +262,15 @@ describe('createInvoiceRunFromPendingCharges', () => {
     expect(result.totalGst).toBeCloseTo(54.54, 2);
   });
 
-  describe('onlyEntityKeys — the 30-day-per-agency cron filter', () => {
-    it('bundles only the given entities, leaving every other agency\'s charges untouched at pending', async () => {
-      await seedPendingCharge('propA', { billingEntityKey: 'agency:due', billingEntityName: 'Due Agency' });
-      await seedPendingCharge('propB', { billingEntityKey: 'agency:not-due', billingEntityName: 'Not Due Agency' });
+  describe('onlyEntityKeys — the 30-day-per-agent cron filter', () => {
+    it('bundles only the given agents, leaving every other agent\'s charges untouched at pending', async () => {
+      confirmContact('agent:due');
+      confirmContact('agent:not-due');
+      await seedPendingCharge('propA', { agentUserId: 'due', billingEntityKey: 'agent:due' });
+      await seedPendingCharge('propB', { agentUserId: 'not-due', billingEntityKey: 'agent:not-due' });
       const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
 
-      const result = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agency:due'] });
+      const result = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agent:due'] });
 
       expect(result.totalProperties).toBe(1);
       expect(result.totalAgencies).toBe(1);
@@ -246,50 +281,53 @@ describe('createInvoiceRunFromPendingCharges', () => {
       expect(chargeB.data().status).toBe('pending'); // left alone — not due yet
     });
 
-    it('returns null (no run created) when none of the given entities have anything pending', async () => {
-      await seedPendingCharge('propA', { billingEntityKey: 'agency:not-due' });
+    it('returns null (no run created) when none of the given agents have anything pending', async () => {
+      confirmContact('agent:not-due');
+      await seedPendingCharge('propA', { agentUserId: 'not-due', billingEntityKey: 'agent:not-due' });
       const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
 
-      const result = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agency:due'] });
+      const result = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agent:due'] });
       expect(result).toBeNull();
       const charge = await fakeDb.collection('propertyCharges').doc('propA').get();
       expect(charge.data().status).toBe('pending'); // never touched
     });
 
-    it('a retry (same due set, called again) never double-bundles — the second call finds nothing left pending for that entity', async () => {
-      await seedPendingCharge('propA', { billingEntityKey: 'agency:due' });
+    it('a retry (same due set, called again) never double-bundles — the second call finds nothing left pending for that agent', async () => {
+      confirmContact('agent:due');
+      await seedPendingCharge('propA', { agentUserId: 'due', billingEntityKey: 'agent:due' });
       const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
 
-      const first = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agency:due'] });
+      const first = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agent:due'] });
       expect(first.totalProperties).toBe(1);
 
-      const second = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agency:due'] });
+      const second = await createInvoiceRunFromPendingCharges({ createdBy: 'cron', onlyEntityKeys: ['agent:due'] });
       expect(second).toBeNull();
     });
   });
 
-  describe('designated billing contact override', () => {
-    it('uses the designated billing contact instead of the charge\'s own agent, when one has been set', async () => {
-      await seedPendingCharge('propA', { billingEntityKey: 'agency:a', agentName: 'Jo (whoever created the first charge)', agentEmail: 'jo@example.com' });
-      fakeDb.collection('billingContacts').doc('agency:a').set({ billingEntityKey: 'agency:a', status: 'confirmed', name: 'Accounts Payable', email: 'accounts@agency-a.example.com' });
+  describe('designated billing contact stamp', () => {
+    it('stamps the confirmed contact\'s name/email onto the run item for admin preview', async () => {
+      confirmContact('agent:a', { name: 'Accounts Payable', email: 'accounts@example.com' });
+      await seedPendingCharge('propA', { agentUserId: 'a', billingEntityKey: 'agent:a', agentName: 'Jo (login name)', agentEmail: 'jo@example.com' });
 
       const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
       await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
 
       const items = await fakeDb.collection('invoiceRunItems').get();
       expect(items.docs[0].data().agentName).toBe('Accounts Payable');
-      expect(items.docs[0].data().agentEmail).toBe('accounts@agency-a.example.com');
+      expect(items.docs[0].data().agentEmail).toBe('accounts@example.com');
+      expect(items.docs[0].data().billingContactStatus).toBe('confirmed');
     });
 
-    it('falls back to the triggering agent\'s own name/email when no contact has been designated', async () => {
-      await seedPendingCharge('propA', { billingEntityKey: 'agency:a', agentName: 'Jo Lee', agentEmail: 'jo@example.com' });
+    it('never falls back to the agent\'s own login email/name — an unconfirmed agent is held, not bundled with a fallback', async () => {
+      await seedPendingCharge('propA', { agentUserId: 'unconfirmed', billingEntityKey: 'agent:unconfirmed', agentName: 'Jo Lee', agentEmail: 'jo@example.com' });
 
       const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
-      await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
+      const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
 
+      expect(result).toBeNull();
       const items = await fakeDb.collection('invoiceRunItems').get();
-      expect(items.docs[0].data().agentName).toBe('Jo Lee');
-      expect(items.docs[0].data().agentEmail).toBe('jo@example.com');
+      expect(items.docs.length).toBe(0);
     });
   });
 });

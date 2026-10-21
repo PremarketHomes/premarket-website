@@ -148,19 +148,17 @@ export async function createBrand({ uid, name, logoUrl, primary, secondary }) {
  * UX, see dashboard/branding/page.js's "Apply Branding" button), and
  * simultaneously files a membership request that starts at 'pending'.
  *
- * This is deliberately NOT the same as being trusted for BILLING.
- * Historically this function immediately made the joining agent's
- * billing consolidate with the brand's, authorised by nothing more
- * than their own companyName matching the brand's name — exactly the
- * unverified signal that let an unrelated agent influence another
- * agency's billing contact just by typing its name. Billing/charges/
- * Xero now only ever trust a VERIFIED agencyMemberships record (see
- * isVerifiedAgencyMember in billingService.js's resolveAgencyBrand) —
- * a superAdmin must explicitly approve this request before that
- * happens (see approveAgencyMembership below).
+ * This has no bearing on BILLING at all, approved or not: under the
+ * UID-only billing model every agent bills independently under their
+ * own Firebase UID (see billingService.js's resolveBillingEntity) —
+ * agencyBrandId and agencyMemberships are purely a visual
+ * branding/logo concern, never read by any billing, charge, or Xero
+ * recipient resolution. A superAdmin still explicitly approves this
+ * request before the brand's logo/colours are trusted for display
+ * (see approveAgencyMembership below).
  *
  * The companyName match check is kept as a sanity/spam guard only —
- * it no longer grants any trust by itself, just avoids a flood of
+ * it grants no trust of any kind by itself, just avoids a flood of
  * obviously-unrelated join requests landing in the admin queue.
  */
 export async function requestAgencyMembership({ uid, brandId }) {
@@ -249,11 +247,9 @@ export async function approveAgencyMembership({ uid, adminUid }) {
  * Declines a membership request/legacy link. Also clears the user's
  * own agencyBrandId — if they're confirmed NOT a member, they should
  * not keep displaying that agency's branding either. This never
- * touches any already-recorded charge or billing record; an agent who
- * had been incorrectly treated as part of the agency before this
- * system existed keeps their past charges exactly as they were (see
- * resolvePinnedCompanyNameEntity) — only their FUTURE resolution
- * changes, by virtue of agencyBrandId now being unset.
+ * touches any charge or billing record at all, past or future: every
+ * agent's billing always resolves purely from their own Firebase UID
+ * (see billingService.js), regardless of agencyBrandId.
  */
 export async function rejectAgencyMembership({ uid, adminUid, reason }) {
   const ref = adminDb.collection('agencyMemberships').doc(uid);
@@ -286,9 +282,10 @@ export async function rejectAgencyMembership({ uid, adminUid, reason }) {
 }
 
 /**
- * The single trust decision every billing-affecting use of
- * agencyBrandId goes through (see billingService.js's
- * resolveAgencyBrand). True only for:
+ * The single trust decision for whether an agent is a verified member
+ * of a brand, for branding/display purposes only — billing no longer
+ * reads agencyBrandId or this function at all (see billingService.js's
+ * resolveBillingEntity). True only for:
  *   - the brand's own createdBy (no separate record needed, including
  *     for brands that existed before this membership system shipped —
  *     they are, by definition, the account that established this
