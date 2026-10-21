@@ -44,6 +44,7 @@ import {
   Camera,
   Building2,
   Loader2,
+  Megaphone,
 } from 'lucide-react';
 
 // --- Shimmer Image Wrapper ---
@@ -456,6 +457,76 @@ function DownloadBanner() {
             <X className="w-4 h-4" />
           </button>
         </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// --- Billing Announcement Banner ---
+// Versioned announcement id — a FUTURE announcement uses a different
+// id (e.g. 'something-else-v1'), stored as its own independent key
+// (see acknowledge-announcement/route.js's own comment on why a
+// plain merge would be wrong here), so this one and any later one can
+// never clobber each other's acknowledgement.
+const BILLING_ANNOUNCEMENT_ID = 'billing-announcement-v1';
+
+function BillingAnnouncementBanner({ userData, onAcknowledged }) {
+  const [saving, setSaving] = useState(false);
+
+  // No extra Firestore read at all — userData is already loaded by
+  // AuthContext for every other use on this page; visibility is
+  // computed from data already in memory.
+  const acknowledged = !!userData?.acknowledgedAnnouncements?.[BILLING_ANNOUNCEMENT_ID];
+  if (acknowledged) return null;
+
+  const handleGotIt = async () => {
+    if (saving) return; // one acknowledgement in flight at a time
+    setSaving(true);
+    try {
+      const res = await authFetch('/api/users/acknowledge-announcement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ announcementId: BILLING_ANNOUNCEMENT_ID }),
+      });
+      if (!res.ok) throw new Error('Failed to acknowledge');
+      // Optimistic local update — one write, no re-fetch needed to
+      // hide the banner immediately.
+      onAcknowledged(BILLING_ANNOUNCEMENT_ID);
+    } catch (err) {
+      console.error('Failed to acknowledge billing announcement:', err);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="bg-white rounded-xl border border-orange-200 p-4 mb-6"
+    >
+      <div className="flex items-start justify-between gap-4 flex-wrap sm:flex-nowrap">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0">
+            <Megaphone className="w-5 h-5 text-orange-500" />
+          </div>
+          <div>
+            <p className="font-semibold text-slate-900 text-sm">Premarket Billing Is Now Active</p>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+              From 21 October 2026, new property submissions incur a $200 campaign fee (no GST).
+            </p>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+              Charges are consolidated into one agency invoice every 30 days, with payment due within 14 days.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={handleGotIt}
+          disabled={saving}
+          className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-semibold hover:bg-orange-700 disabled:opacity-60 transition-colors flex-shrink-0"
+        >
+          {saving ? 'Saving…' : 'Got it'}
+        </button>
       </div>
     </motion.div>
   );
@@ -1077,6 +1148,15 @@ function DashboardPage() {
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+          <BillingAnnouncementBanner
+            userData={userData}
+            onAcknowledged={(announcementId) => {
+              setUserData((prev) => ({
+                ...prev,
+                acknowledgedAnnouncements: { ...(prev?.acknowledgedAnnouncements || {}), [announcementId]: true },
+              }));
+            }}
+          />
           <DownloadBanner />
 
           {/* Page Header */}
