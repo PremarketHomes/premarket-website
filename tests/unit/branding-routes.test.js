@@ -37,6 +37,14 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
               state.agencyBrands[id] ? { exists: true, data: () => state.agencyBrands[id] } : { exists: false }
             )),
             set: vi.fn().mockImplementation(async (data) => { state.agencyBrands[id] = data; }),
+            create: vi.fn().mockImplementation(async (data) => {
+              if (state.agencyBrands[id]) {
+                const err = new Error('ALREADY_EXISTS: Document already exists');
+                err.code = 6;
+                throw err;
+              }
+              state.agencyBrands[id] = { ...data };
+            }),
           }),
           where: () => ({
             get: vi.fn().mockImplementation(async () => ({

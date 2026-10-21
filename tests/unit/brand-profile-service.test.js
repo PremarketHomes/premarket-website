@@ -12,6 +12,19 @@ function makeCollection(name) {
       update: vi.fn().mockImplementation(async (patch) => {
         state[name][id] = { ...(state[name][id] || {}), ...patch };
       }),
+      // Mirrors real Firestore: throws ALREADY_EXISTS (gRPC code 6)
+      // rather than overwriting, if a doc at this id already exists —
+      // including when two calls "race" (see the concurrent-creation
+      // test below, which relies on this synchronous check happening
+      // before either write lands, exactly like a real atomic create).
+      create: vi.fn().mockImplementation(async (data) => {
+        if (state[name][id]) {
+          const err = new Error('ALREADY_EXISTS: Document already exists');
+          err.code = 6;
+          throw err;
+        }
+        state[name][id] = { ...data };
+      }),
     }),
     where(field, op, value) {
       function matches(raw) {
@@ -105,6 +118,72 @@ describe('createBrand / getBrandForUser', () => {
 
     const resolved = await getBrandForUser('agent1');
     expect(resolved.name).toBe('Harcourts Property Hub');
+  });
+
+  it('SECURITY: an ordinary agent cannot "create" a brand with an EXISTING agency\'s exact name — createdBy, logo and colours stay the real creator\'s', async () => {
+    const { createBrand } = await import('../../src/app/api/services/brandProfileService');
+    await createBrand({ uid: 'realCreator', name: 'Harcourts Property Hub', logoUrl: 'https://real.example.com/logo.png', primary: '#011d47' });
+    const brandIdBefore = Object.keys(state.agencyBrands)[0];
+    const brandBefore = { ...state.agencyBrands[brandIdBefore] };
+
+    await expect(createBrand({
+      uid: 'attacker', name: 'Harcourts Property Hub', logoUrl: 'https://attacker.example.com/evil.png', primary: '#ff0000',
+    })).rejects.toThrow(/already exists/i);
+
+    // The real brand document is completely untouched — not just
+    // "mostly" unchanged.
+    expect(state.agencyBrands[brandIdBefore]).toEqual(brandBefore);
+    expect(state.agencyBrands[brandIdBefore].createdBy).toBe('realCreator');
+    expect(state.agencyBrands[brandIdBefore].logoUrl).toBe('https://real.example.com/logo.png');
+  });
+
+  it('SECURITY: a failed (colliding) brand creation leaves the attacker with NO agencyBrandId and NO verified membership', async () => {
+    const { createBrand } = await import('../../src/app/api/services/brandProfileService');
+    await createBrand({ uid: 'realCreator', name: 'Harcourts Property Hub', primary: '#011d47' });
+
+    await expect(createBrand({ uid: 'attacker', name: 'Harcourts Property Hub', primary: '#ff0000' })).rejects.toThrow();
+
+    expect(state.users.attacker).toBeUndefined();
+    expect(state.agencyMemberships.attacker).toBeUndefined();
+  });
+
+  it('SECURITY: alternate spellings/punctuation that normalise to the SAME slug are blocked exactly like an identical name', async () => {
+    const { createBrand } = await import('../../src/app/api/services/brandProfileService');
+    await createBrand({ uid: 'realCreator', name: 'Harcourts Property Hub', primary: '#011d47' });
+
+    // Different raw string, same slugified id — the attack doesn't
+    // require byte-identical input, just a name that resolves to the
+    // same document id.
+    await expect(createBrand({ uid: 'attacker', name: '  Harcourts   Property -- Hub!!', primary: '#ff0000' })).rejects.toThrow(/already exists/i);
+    expect(state.agencyBrands['harcourts-property-hub'].createdBy).toBe('realCreator');
+  });
+
+  it('SECURITY: of two simultaneous creation requests for the same agency name, exactly one succeeds and the other is rejected — never two brands, never an overwrite', async () => {
+    const { createBrand } = await import('../../src/app/api/services/brandProfileService');
+
+    const results = await Promise.allSettled([
+      createBrand({ uid: 'agentA', name: 'Simultaneous Agency', primary: '#011d47' }),
+      createBrand({ uid: 'agentB', name: 'Simultaneous Agency', primary: '#ff0000' }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason.message).toMatch(/already exists/i);
+
+    // Exactly one brand document exists, and exactly one of the two
+    // accounts ended up with a verified membership.
+    expect(Object.keys(state.agencyBrands)).toHaveLength(1);
+    const verifiedUids = Object.values(state.agencyMemberships).filter((m) => m.status === 'verified').map((m) => m.uid);
+    expect(verifiedUids).toHaveLength(1);
+  });
+
+  it('a genuinely new, non-colliding brand name still creates successfully (the fix only blocks real collisions)', async () => {
+    const { createBrand } = await import('../../src/app/api/services/brandProfileService');
+    const result = await createBrand({ uid: 'agent1', name: 'Totally Unique Agency Name', primary: '#011d47' });
+    expect(result.brandId).toBeTruthy();
+    expect(state.agencyBrands[result.brandId].createdBy).toBe('agent1');
   });
 
   it('getBrandForUser returns null for an account with no agencyBrandId (existing agents, unaffected)', async () => {

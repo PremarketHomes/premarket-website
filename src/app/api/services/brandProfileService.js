@@ -66,27 +66,63 @@ export function buildColorSet({ primary, secondary }) {
   return result;
 }
 
+/** Firestore Admin SDK uses gRPC status code 6 (ALREADY_EXISTS) for a
+ * failed .create() on an existing doc; this project's hand-rolled test
+ * mocks throw a plain Error with this message instead — same check
+ * billingService.js's recordPropertyCharge already uses for its own
+ * .create() race. */
+function isAlreadyExistsError(err) {
+  return err?.code === 6 || /already exists/i.test(err?.message || '');
+}
+
 /**
  * Creates a new agency brand and links the confirming user's account to
  * it. Does not touch any other user's document — inheriting the brand
  * (a second Harcourts agent joining the same office) is a deliberate,
  * separate, explicit action, not automatic.
+ *
+ * SECURITY: uses Firestore's atomic .create() — which fails rather
+ * than overwriting if a document at this ID already exists — not
+ * .set(). brandId is derived deterministically from the submitted
+ * name (slugify), which is fully attacker-controlled: without this,
+ * any agent could "create" a brand using an EXISTING agency's exact
+ * name and silently overwrite its real createdBy/logo/colours,
+ * instantly becoming that agency's trusted root of verification
+ * (isVerifiedAgencyMember trusts a brand's createdBy unconditionally)
+ * with zero admin review — a complete bypass of the whole membership
+ * model, not just a cosmetic takeover. A genuine same-name collision
+ * (not an attack — e.g. two unrelated real agencies that happen to
+ * share a name) must go through the explicit join/request flow
+ * instead (requestAgencyMembership), exactly like any other agent
+ * joining an existing brand.
  */
 export async function createBrand({ uid, name, logoUrl, primary, secondary }) {
   const colors = buildColorSet({ primary, secondary });
   const brandId = slugify(name);
   const brandRef = adminDb.collection(BRANDS_COLLECTION).doc(brandId);
 
-  await brandRef.set({
-    name: name.trim(),
-    logoUrl: logoUrl || null,
-    colors,
-    createdBy: uid,
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-    status: 'active',
-  });
+  try {
+    await brandRef.create({
+      name: name.trim(),
+      logoUrl: logoUrl || null,
+      colors,
+      createdBy: uid,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      status: 'active',
+    });
+  } catch (err) {
+    if (isAlreadyExistsError(err)) {
+      throw new Error(`An agency named "${name.trim()}" already exists. Request to join it instead of creating a new one.`);
+    }
+    throw err;
+  }
 
+  // Only ever reached if THIS call's .create() genuinely just
+  // succeeded — on any failure (including the collision case above),
+  // execution never reaches here, so a failed/colliding creation can
+  // never leave a dangling agencyBrandId or a verified membership
+  // behind for an account that doesn't actually own a real brand.
   await adminDb.collection('users').doc(uid).update({ agencyBrandId: brandId });
 
   // The creator is the root of trust for a brand they just made —
