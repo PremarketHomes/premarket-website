@@ -7,7 +7,7 @@ import { auth } from '../firebase/clientApp';
 import { useAuth } from '../context/AuthContext';
 import { defaultDashboardFor } from '../utils/roles';
 import { authFetch } from '../utils/authFetch';
-import { getSafeReturnTo } from '../utils/safeRedirect';
+import { getSafeReturnTo, resolveLoginRedirect } from '../utils/safeRedirect';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
@@ -53,12 +53,22 @@ function LoginPageContent() {
   const [resetError, setResetError] = useState('');
   const [resetSent, setResetSent] = useState(false);
 
-  // If already logged in, redirect to the right dashboard for their role.
-  // Wait for userData so buyers don't briefly land on /dashboard.
+  // Fires identically whether `user` just became truthy because this
+  // tab was ALREADY authenticated on load, or because handleLogin's
+  // signInWithEmailAndPassword below just succeeded — both land here
+  // via the same onAuthStateChanged-driven `user` update, so there is
+  // only ever this one redirect path, not two to keep in sync.
+  //
+  // With a validated returnTo (the office-invite case), redirect the
+  // moment `user` is set — deciding WHERE to send someone back to an
+  // exact invitation never needs their role/companyName, so there's
+  // no reason to also wait on userData's own separate Firestore fetch
+  // here. Without one (the ordinary login case), userData IS still
+  // required, since defaultDashboardFor needs it to tell a buyer from
+  // an agent.
   useEffect(() => {
-    if (!authLoading && user && userData) {
-      router.push(safeReturnTo || defaultDashboardFor(userData));
-    }
+    const destination = resolveLoginRedirect({ authLoading, user, userData, safeReturnTo, defaultDashboardFor });
+    if (destination) router.push(destination);
   }, [user, userData, authLoading, router, safeReturnTo]);
 
   const handleLogin = async (e) => {

@@ -26,3 +26,25 @@ export function getSafeReturnTo(raw) {
   if (raw.includes('\\')) return null;
   return raw;
 }
+
+/**
+ * Decides where a successful (or already-active) login should go —
+ * the one function login/page.js's single redirect effect delegates
+ * to, since "already authenticated on page load" and "just signed in
+ * via the form" both arrive at that effect via the exact same
+ * user/userData update and must never be two separately-maintained
+ * redirect paths.
+ *
+ * With a validated returnTo present (the office-invite case), this
+ * resolves the instant `user` is set — it deliberately never waits on
+ * `userData`, which that case has no use for at all (unlike
+ * defaultDashboardFor, which needs it to tell a buyer from an agent).
+ * Returns null when it isn't time to redirect yet (still loading, no
+ * user, or — only in the no-returnTo case — still waiting on userData).
+ */
+export function resolveLoginRedirect({ authLoading, user, userData, safeReturnTo, defaultDashboardFor }) {
+  if (authLoading || !user) return null;
+  if (safeReturnTo) return safeReturnTo;
+  if (userData) return defaultDashboardFor(userData);
+  return null;
+}
