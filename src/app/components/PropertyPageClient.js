@@ -314,13 +314,33 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
 
           setAgentData(data);
 
-          // Agency branding is entirely optional — if the owning agent
-          // hasn't opted in (no agencyBrandId), or the linked brand can't
-          // be read for any reason, `brand` simply stays null and every
-          // colour on this page falls back to the existing default theme.
-          if (userData.agencyBrandId) {
+          // Resolve which shared brand (if any) applies. An office
+          // member's brand is looked up via their office — never via
+          // their own agencyBrandId, which office members never have
+          // set — so that an office-wide branding change, or removing
+          // this agent from the office, takes effect immediately with
+          // nothing to clean up (see brandProfileService.js's
+          // resolveBrandIdForUser, which this mirrors for the public
+          // page's own direct Firestore reads). An independent agent's
+          // brand comes from their own agencyBrandId exactly as before
+          // office support existed. Agency branding is entirely
+          // optional either way — if nothing resolves, or the linked
+          // brand can't be read for any reason, `brand` simply stays
+          // null and every colour on this page falls back to the
+          // existing default theme.
+          let brandId = userData.agencyBrandId || null;
+          if (userData.officeId) {
             try {
-              const brandDoc = await getDoc(doc(db, 'agencyBrands', userData.agencyBrandId));
+              const officeDoc = await getDoc(doc(db, 'offices', userData.officeId));
+              brandId = officeDoc.exists() ? (officeDoc.data().agencyBrandId || null) : null;
+            } catch (err) {
+              console.error('Error fetching office (non-fatal):', err);
+              brandId = null;
+            }
+          }
+          if (brandId) {
+            try {
+              const brandDoc = await getDoc(doc(db, 'agencyBrands', brandId));
               if (brandDoc.exists()) {
                 setBrand({ id: brandDoc.id, ...brandDoc.data() });
               }

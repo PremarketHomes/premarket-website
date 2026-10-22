@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase/clientApp';
 import { useAuth } from '../context/AuthContext';
 import { defaultDashboardFor } from '../utils/roles';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import AuthShell from '../components/public-site/AuthShell';
@@ -19,7 +19,17 @@ import {
 } from '../components/public-site/authFieldStyles';
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageContent />
+    </Suspense>
+  );
+}
+
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const justActivated = searchParams.get('activated') === '1';
   const { user, userData, loading: authLoading } = useAuth();
   const [view, setView] = useState('login'); // 'login' | 'reset'
 
@@ -149,6 +159,11 @@ export default function LoginPage() {
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.3 }}
           >
+            {justActivated && (
+              <div className="mb-5 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-sm">
+                Your account is ready — sign in with the password you just set.
+              </div>
+            )}
             <form onSubmit={handleLogin} className="space-y-5">
               <div>
                 <label className={AUTH_LABEL_CLASS}>Email Address</label>

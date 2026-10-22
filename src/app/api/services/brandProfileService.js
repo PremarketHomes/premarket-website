@@ -30,6 +30,18 @@
  * directly. `brandColors` is likewise never in the client update
  * allowlist — color validation (buildColorSet) must always happen
  * server-side, so a direct client write could never bypass it.
+ *
+ * Office integration (see officeService.js): a member of an office
+ * (`users/{uid}.officeId` set) never uses steps 1/2 above at all — no
+ * exact-name text matching, ever, for an office member. Their shared
+ * brand is instead resolved directly from `offices/{officeId}.agencyBrandId`
+ * (see resolveBrandIdForUser) — an O(1) doc lookup, immune to typos, and
+ * it re-resolves live on every read, so removing someone from an office
+ * (officeId cleared) instantly drops the office's branding for them with
+ * nothing to clean up. `createBrand` accepts an optional `officeId` to
+ * support this: when given, it links the NEW brand to the office doc
+ * instead of the calling user's own doc (see /api/offices/{id}/branding).
+ * Personal overrides (step 3) are completely unaffected either way.
  */
 
 import { adminDb } from '../../firebase/adminApp';
@@ -108,10 +120,13 @@ function isAlreadyExistsError(err) {
  * is NOT an error under the no-approval model: the loser simply joins
  * the brand the winner just created — see the catch block below.
  */
-export async function createBrand({ uid, name, logoUrl, primary, secondary }) {
+export async function createBrand({ uid, name, logoUrl, primary, secondary, officeId }) {
   const colors = buildColorSet({ primary, secondary });
   const brandId = slugify(name);
   const brandRef = adminDb.collection(BRANDS_COLLECTION).doc(brandId);
+  const linkTarget = officeId
+    ? adminDb.collection('offices').doc(officeId)
+    : adminDb.collection('users').doc(uid);
 
   try {
     await brandRef.create({
@@ -132,7 +147,7 @@ export async function createBrand({ uid, name, logoUrl, primary, secondary }) {
       // match. The loser's own submitted logo/colours are discarded —
       // the brand that won the race is the one of record, byte for
       // byte, same guarantee as before this change.
-      await adminDb.collection('users').doc(uid).update({ agencyBrandId: brandId });
+      await linkTarget.update({ agencyBrandId: brandId });
       const existingBrand = await adminDb.collection(BRANDS_COLLECTION).doc(brandId).get();
       return { brandId, colors: existingBrand.data()?.colors || colors, joinedExisting: true };
     }
@@ -144,14 +159,30 @@ export async function createBrand({ uid, name, logoUrl, primary, secondary }) {
   // execution never reaches here, so a failed/colliding creation can
   // never leave a dangling agencyBrandId behind for an account that
   // doesn't actually own a real brand.
-  await adminDb.collection('users').doc(uid).update({ agencyBrandId: brandId });
+  await linkTarget.update({ agencyBrandId: brandId });
 
   return { brandId, colors };
 }
 
+/** Pure (well, one Firestore read) — which agencyBrands doc id (if any)
+ * applies to this user right now. An office member's brand ALWAYS
+ * comes from their office, never from their own agencyBrandId field
+ * (which office members never have set in the first place — see
+ * autoEstablishBrandForUser's early office-member skip below); an
+ * independent agent's comes from their own field exactly as before
+ * office support was added. */
+async function resolveBrandIdForUser(userData) {
+  if (userData?.officeId) {
+    const officeDoc = await adminDb.collection('offices').doc(userData.officeId).get();
+    return officeDoc.exists ? (officeDoc.data()?.agencyBrandId || null) : null;
+  }
+  return userData?.agencyBrandId || null;
+}
+
 export async function getBrandForUser(uid) {
   const userDoc = await adminDb.collection('users').doc(uid).get();
-  const brandId = userDoc.exists ? userDoc.data()?.agencyBrandId : null;
+  if (!userDoc.exists) return null;
+  const brandId = await resolveBrandIdForUser(userDoc.data());
   if (!brandId) return null;
   const brandDoc = await adminDb.collection(BRANDS_COLLECTION).doc(brandId).get();
   if (!brandDoc.exists) return null;
@@ -163,7 +194,7 @@ export async function getBrandForUser(uid) {
  * single space, so "Ray  White " and "ray white" compare identical, but
  * "Ray White" and "Ray White Brisbane" never do (no substring/fuzzy
  * matching here at all). */
-function normalizeAgencyNameExact(name) {
+export function normalizeAgencyNameExact(name) {
   return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
@@ -218,6 +249,13 @@ export async function autoEstablishBrandForUser(uid) {
   const userDoc = await adminDb.collection('users').doc(uid).get();
   if (!userDoc.exists) return { status: 'skipped', reason: 'no-user' };
   const u = userDoc.data();
+
+  // Office members never use exact-name text matching at all — their
+  // brand is resolved directly from their office (see
+  // resolveBrandIdForUser/getBrandForUser), which is immune to typos
+  // and re-resolves live, so there's nothing for this function to
+  // establish or join on their behalf, ever.
+  if (u.officeId) return { status: 'skipped', reason: 'office-member' };
 
   if (u.agencyBrandId) return { status: 'skipped', reason: 'already-branded' };
   if (!u.companyName || !u.companyName.trim()) return { status: 'skipped', reason: 'no-company-name' };

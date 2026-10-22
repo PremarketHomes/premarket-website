@@ -12,16 +12,23 @@ import { createBrand, setPersonalBrandOverride } from '../../services/brandProfi
  * One request shape, two outcomes, decided server-side by whether the
  * caller already has a shared brand linked — never by anything the
  * client asserts:
- *   - No agencyBrandId yet → this agent is the FIRST at this agency
- *     name: createBrand establishes the new shared default (or, if
- *     another agent's identical submission just won a creation race,
- *     silently joins that one instead — see createBrand's own
- *     comment). Every subsequent agent at the same exact name inherits
- *     this automatically, with no action from anyone.
- *   - agencyBrandId already set (inherited OR self-established) → this
- *     submission is always treated as a PERSONAL override only. It
- *     never touches the shared agencyBrands doc and never affects any
- *     other agent — see setPersonalBrandOverride.
+ *   - No agencyBrandId yet, AND no office membership → this agent is
+ *     the FIRST at this agency name: createBrand establishes the new
+ *     shared default (or, if another agent's identical submission just
+ *     won a creation race, silently joins that one instead — see
+ *     createBrand's own comment). Every subsequent agent at the same
+ *     exact name inherits this automatically, with no action from
+ *     anyone.
+ *   - agencyBrandId already set (inherited OR self-established), OR
+ *     the caller belongs to an office → this submission is ALWAYS
+ *     treated as a PERSONAL override only. It never touches the shared
+ *     agencyBrands doc and never affects any other agent — see
+ *     setPersonalBrandOverride. An office member can never establish
+ *     or rename the office's own shared brand through this route, even
+ *     if they're that office's administrator — that happens exclusively
+ *     through /api/offices/{officeId}/branding, which targets the
+ *     office doc explicitly rather than inferring it from "no brand yet
+ *     on my own account."
  */
 export async function POST(request) {
   try {
@@ -33,7 +40,8 @@ export async function POST(request) {
     const { name, logoUrl, primary, secondary } = await request.json();
 
     const userDoc = await adminDb.collection('users').doc(auth.uid).get();
-    const alreadyLinked = userDoc.exists ? userDoc.data()?.agencyBrandId : null;
+    const userRecord = userDoc.exists ? userDoc.data() : {};
+    const alreadyLinked = !!userRecord.agencyBrandId || !!userRecord.officeId;
 
     if (alreadyLinked) {
       // Personal override — logo and colour are independently optional

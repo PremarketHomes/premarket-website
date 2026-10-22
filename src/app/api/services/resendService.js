@@ -503,4 +503,73 @@ export async function sendPasswordResetEmailTemplate(userEmail, userFirstName, r
   });
 }
 
+/**
+ * Office activation invite — sent to a BRAND-NEW agent account created
+ * by an office's CSV import or "add an agent" action. `activationLink`
+ * is a Firebase Admin SDK generatePasswordResetLink (see
+ * officeImportService.js) — the same primitive /api/admin/users/[id]/
+ * reset-password already uses, just framed as account setup rather
+ * than a password reset. Never contains a password — the agent sets
+ * their own via Firebase's own secure link flow.
+ */
+export async function sendOfficeInviteEmail(email, firstName, officeName, activationLink) {
+  const bodyHTML = `
+    ${greeting(firstName)}
+    ${p(`<strong>${escapeHtml(officeName)}</strong> has set up your Premarket account — the platform they use to run premarket campaigns and track buyer interest ahead of going to market.`)}
+    ${p('Click the button below to set your own password and get straight into your dashboard. Your account is already connected to your office, with its branding applied automatically.')}
+    ${ctaButton('Activate Your Account', activationLink)}
+    ${infoBox(`
+      <p style="margin:0; font-size:13px; color:#64748b; line-height:1.5;">
+        This link is personal to you and will expire after a short time. If it's expired, ask your office administrator to resend your invitation.
+      </p>
+    `)}
+    ${signature()}
+  `;
+
+  return sendEmail({
+    to: email,
+    subject: `You've been invited to join ${officeName} on Premarket`,
+    html: wrapEmail({
+      previewText: `${officeName} has set up your Premarket account`,
+      bodyHTML,
+      recipientEmail: email,
+      reason: `You're receiving this because ${officeName} added you to their Premarket office account.`,
+    }),
+  });
+}
+
+/**
+ * Office join invite — sent to an agent who ALREADY has a Premarket
+ * account when an office imports/adds them. Deliberately a different,
+ * lighter email to sendOfficeInviteEmail above: no password/activation
+ * step at all, just a one-click confirmation (see
+ * officeImportService.js's acceptOfficeInvite) — they keep using their
+ * existing login, and nothing about their account changes unless they
+ * explicitly accept.
+ */
+export async function sendOfficeJoinInviteEmail(email, firstName, officeName, acceptLink) {
+  const bodyHTML = `
+    ${greeting(firstName)}
+    ${p(`<strong>${escapeHtml(officeName)}</strong> has added you to their Premarket office account. You already have a Premarket login, so nothing changes until you confirm — click below to join and have ${escapeHtml(officeName)}'s branding applied to your campaigns.`)}
+    ${ctaButton('Join ' + officeName, acceptLink)}
+    ${infoBox(`
+      <p style="margin:0; font-size:13px; color:#64748b; line-height:1.5;">
+        If you weren't expecting this, you can safely ignore this email — nothing about your account will change unless you click the button above.
+      </p>
+    `)}
+    ${signature()}
+  `;
+
+  return sendEmail({
+    to: email,
+    subject: `${officeName} added you to their Premarket office`,
+    html: wrapEmail({
+      previewText: `${officeName} added you to their Premarket office account`,
+      bodyHTML,
+      recipientEmail: email,
+      reason: `You're receiving this because ${officeName} added your existing Premarket account to their office.`,
+    }),
+  });
+}
+
 export { getResend as resend };

@@ -15,6 +15,7 @@ describe.each([
   { name: 'campaigns', col: 'campaigns' },
   { name: 'settings', col: 'settings' },
   { name: 'agencyBrands', col: 'agencyBrands' },
+  { name: 'offices', col: 'offices' },
 ])('$name (public read, no write)', ({ col }) => {
   // --- read ---
   it('allows unauthenticated read', async () => {

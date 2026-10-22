@@ -21,6 +21,14 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function AgentSignup() {
   const router = useRouter();
+  // Option A (default): the existing individual-agent flow, completely
+  // unchanged below. Option B: a real estate OFFICE registers once —
+  // the person submitting becomes that office's initial administrator
+  // and is taken to the Office Management dashboard instead of the
+  // normal agent dashboard. Independent agents never see or interact
+  // with any of the office-specific code added for Option B.
+  const [signupType, setSignupType] = useState('agent'); // 'agent' | 'office'
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -35,6 +43,19 @@ export default function AgentSignup() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const [officeFormData, setOfficeFormData] = useState({
+    officeName: '',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    countryCode: '+61',
+    password: '',
+    confirmPassword: '',
+  });
+  const [officeLoading, setOfficeLoading] = useState(false);
+  const [officeError, setOfficeError] = useState('');
 
   const countryCodes = [
     { code: '+61', country: 'AU', flag: '🇦🇺' },
@@ -57,6 +78,103 @@ export default function AgentSignup() {
   const handlePhoneChange = (e) => {
     const formatted = formatPhoneNumber(e.target.value);
     setFormData({ ...formData, phone: formatted });
+  };
+
+  const handleOfficePhoneChange = (e) => {
+    const formatted = formatPhoneNumber(e.target.value);
+    setOfficeFormData({ ...officeFormData, phone: formatted });
+  };
+
+  const handleOfficeSubmit = async (e) => {
+    e.preventDefault();
+    setOfficeError('');
+
+    if (officeFormData.password !== officeFormData.confirmPassword) {
+      setOfficeError('Passwords do not match');
+      return;
+    }
+    if (officeFormData.password.length < 6) {
+      setOfficeError('Password must be at least 6 characters');
+      return;
+    }
+    const phoneDigits = officeFormData.phone.replace(/\D/g, '');
+    if (phoneDigits.length < 9) {
+      setOfficeError('Please enter a valid phone number');
+      return;
+    }
+    if (!officeFormData.officeName.trim()) {
+      setOfficeError('Office name is required');
+      return;
+    }
+
+    setOfficeLoading(true);
+    try {
+      // Same client-side account-creation pattern as the individual
+      // agent flow above (createUserWithEmailAndPassword + a plain
+      // setDoc of only the fields every signup already writes) — the
+      // office-specific part (creating the offices doc and linking
+      // officeId/isOfficeAdmin) is deliberately a SEPARATE, server-only
+      // follow-up call (POST /api/offices), since those fields are not
+      // in the client's own write allowlist (see firestore.rules).
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        officeFormData.email,
+        officeFormData.password
+      );
+      const user = userCredential.user;
+      const fullPhone = `${officeFormData.countryCode}${phoneDigits}`;
+
+      await setDoc(doc(db, 'users', user.uid), {
+        activeCampaigns: 0,
+        availableCampaigns: 9999,
+        avatar: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png?20150327203541',
+        buyerMetrics: { budget: 0, cashBuyer: false, investor: false },
+        created: Timestamp.now(),
+        email: officeFormData.email.toLowerCase(),
+        firstName: officeFormData.firstName.trim(),
+        lastName: officeFormData.lastName.trim(),
+        phone: fullPhone,
+        companyName: officeFormData.officeName.trim(),
+        mobileConfirmedAt: Timestamp.now(),
+        pro: true,
+        agent: true,
+        active: true,
+        roles: ['agent'],
+        showLeaderboard: true,
+        tags: ['new', 'office-admin'],
+        updatedAt: Timestamp.now(),
+      });
+
+      const res = await authFetch('/api/offices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: officeFormData.officeName.trim() }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Failed to register office');
+
+      if (body.status === 'exists') {
+        // An office with this exact name already exists — never
+        // silently duplicated or joined. The account above is still a
+        // completely normal, working individual agent account; a
+        // join request has been filed for manual follow-up.
+        router.push('/dashboard?officeRequestPending=1');
+        return;
+      }
+
+      router.push('/dashboard/office');
+    } catch (err) {
+      console.error('Office signup error:', err);
+      if (err.code === 'auth/email-already-in-use') {
+        setOfficeError('An account with this email already exists');
+      } else if (err.code === 'auth/invalid-email') {
+        setOfficeError('Please enter a valid email address');
+      } else {
+        setOfficeError(err.message || 'Something went wrong. Please try again.');
+      }
+    } finally {
+      setOfficeLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -192,6 +310,157 @@ export default function AgentSignup() {
         </p>
       }
     >
+      <div className="flex rounded-xl bg-slate-100 p-1 mb-6">
+        <button
+          type="button"
+          onClick={() => setSignupType('agent')}
+          className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+            signupType === 'agent' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+          }`}
+        >
+          Individual Agent
+        </button>
+        <button
+          type="button"
+          onClick={() => setSignupType('office')}
+          className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+            signupType === 'office' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+          }`}
+        >
+          Real Estate Office
+        </button>
+      </div>
+
+      {signupType === 'office' ? (
+        <form onSubmit={handleOfficeSubmit} className="space-y-5">
+          <div>
+            <label className={AUTH_LABEL_CLASS}>Office Name</label>
+            <input
+              type="text"
+              required
+              value={officeFormData.officeName}
+              onChange={(e) => setOfficeFormData({ ...officeFormData, officeName: e.target.value })}
+              className={AUTH_INPUT_CLASS}
+              placeholder="e.g. Harcourts Property Hub"
+            />
+            <p className="text-xs text-slate-400 mt-1.5">
+              Every agent who signs up later with this exact office name is automatically connected to it.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={AUTH_LABEL_CLASS}>Your First Name</label>
+              <input
+                type="text"
+                required
+                value={officeFormData.firstName}
+                onChange={(e) => setOfficeFormData({ ...officeFormData, firstName: e.target.value })}
+                className={AUTH_INPUT_CLASS}
+                placeholder="John"
+              />
+            </div>
+            <div>
+              <label className={AUTH_LABEL_CLASS}>Your Last Name</label>
+              <input
+                type="text"
+                required
+                value={officeFormData.lastName}
+                onChange={(e) => setOfficeFormData({ ...officeFormData, lastName: e.target.value })}
+                className={AUTH_INPUT_CLASS}
+                placeholder="Smith"
+              />
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-500">You'll be registered as this office's initial administrator.</p>
+
+          <div>
+            <label className={AUTH_LABEL_CLASS}>Your Email Address</label>
+            <input
+              type="email"
+              required
+              value={officeFormData.email}
+              onChange={(e) => setOfficeFormData({ ...officeFormData, email: e.target.value })}
+              className={AUTH_INPUT_CLASS}
+              placeholder="john@agency.com.au"
+            />
+          </div>
+
+          <div>
+            <label className={AUTH_LABEL_CLASS}>Your Phone Number</label>
+            <div className="flex gap-2">
+              <select
+                value={officeFormData.countryCode}
+                onChange={(e) => setOfficeFormData({ ...officeFormData, countryCode: e.target.value })}
+                className="px-3 py-3 rounded-xl border border-slate-300 focus:border-[#e48900] focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-[15px] bg-white"
+              >
+                {countryCodes.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.flag} {c.code}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="tel"
+                required
+                value={officeFormData.phone}
+                onChange={handleOfficePhoneChange}
+                className={`flex-1 ${AUTH_INPUT_CLASS}`}
+                placeholder="412 345 678"
+                maxLength={11}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={AUTH_LABEL_CLASS}>Password</label>
+            <input
+              type="password"
+              required
+              value={officeFormData.password}
+              onChange={(e) => setOfficeFormData({ ...officeFormData, password: e.target.value })}
+              className={AUTH_INPUT_CLASS}
+              placeholder="Min 6 characters"
+            />
+          </div>
+
+          <div>
+            <label className={AUTH_LABEL_CLASS}>Confirm Password</label>
+            <input
+              type="password"
+              required
+              value={officeFormData.confirmPassword}
+              onChange={(e) => setOfficeFormData({ ...officeFormData, confirmPassword: e.target.value })}
+              className={AUTH_INPUT_CLASS}
+              placeholder="Confirm your password"
+            />
+          </div>
+
+          {officeError && (
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className={AUTH_ERROR_CLASS}>
+              {officeError}
+            </motion.div>
+          )}
+
+          <motion.button
+            type="submit"
+            disabled={officeLoading}
+            whileHover={{ scale: officeLoading ? 1 : 1.01 }}
+            whileTap={{ scale: officeLoading ? 1 : 0.99 }}
+            className={AUTH_SUBMIT_CLASS}
+          >
+            {officeLoading ? 'Setting Up Your Office...' : 'Create Office Account'}
+          </motion.button>
+
+          <p className="text-center text-xs text-slate-500">
+            By signing up, you agree to our{' '}
+            <a href="/terms" className={AUTH_LINK_CLASS}>Terms &amp; Conditions</a>{' '}
+            and{' '}
+            <a href="/privacy" className={AUTH_LINK_CLASS}>Privacy Policy</a>
+          </p>
+        </form>
+      ) : (
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -355,6 +624,7 @@ export default function AgentSignup() {
           <a href="/privacy" className={AUTH_LINK_CLASS}>Privacy Policy</a>
         </p>
       </form>
+      )}
     </AuthShell>
   );
 }
