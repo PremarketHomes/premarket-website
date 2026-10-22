@@ -37,4 +37,11 @@ describe('office setup flows refresh userData before navigating', () => {
     const src = readFileSync('src/app/dashboard/office/page.js', 'utf8');
     expect(src.indexOf('await refreshUserData()')).toBeLessThan(src.indexOf('onCreated();'));
   });
+
+  it('both flows fall back to a full page load (not a re-submit) when the refresh fails', () => {
+    for (const f of ['src/app/join/page.js', 'src/app/dashboard/office/page.js']) {
+      const src = readFileSync(f, 'utf8');
+      expect(src).toMatch(/if \(!\(await refreshUserData\(\)\)\) \{\s*window\.location\.assign\('\/dashboard\/office'\);/);
+    }
+  });
 });

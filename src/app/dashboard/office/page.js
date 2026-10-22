@@ -164,7 +164,12 @@ function CreateOfficeCard({ onCreated }) {
         setError(`An office named "${body.officeName}" already exists. We've filed a request for that office's administrators to review.`);
         return;
       }
-      await refreshUserData();
+      // Office exists now; if the refresh fails, a full page load
+      // re-reads userData instead of leaving the sidebar stale.
+      if (!(await refreshUserData())) {
+        window.location.assign('/dashboard/office');
+        return;
+      }
       onCreated();
     } catch (err) {
       setError(err.message);
