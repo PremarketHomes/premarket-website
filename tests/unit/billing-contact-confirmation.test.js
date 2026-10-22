@@ -72,6 +72,10 @@ function makeFakeDb() {
         }));
         return makeQuery(all.filter((d) => matches(d._raw, field, op, value)));
       },
+      async get() {
+        const docs = Object.entries(store[name]).map(([docId, data]) => ({ id: docId, data: () => data }));
+        return { docs, empty: docs.length === 0, size: docs.length };
+      },
     };
   }
 
@@ -209,16 +213,23 @@ describe('proposeBillingContact / setBillingContact / rejectBillingContact lifec
     expect(fakeDb._store.billingContacts['agent:agentTwo'].proposedEmail).toBe('second@a.example.com');
   });
 
-  it('an agent cannot change their own contact once it is confirmed — admin-only from that point', async () => {
-    const { proposeBillingContact, setBillingContact } = await import('../../src/app/api/services/billingService.js');
+  it('an agent submitting after confirmation files an amendment (changeRequest) — the active confirmed contact stays untouched until that amendment is separately approved', async () => {
+    const { proposeBillingContact, setBillingContact, resolveBillingContact } = await import('../../src/app/api/services/billingService.js');
     await setBillingContact({ billingEntityKey: 'agent:agent1', billingName: 'Agency A', name: 'Jane', email: 'jane@a.example.com', adminUid: 'admin1' });
 
-    await expect(proposeBillingContact({
+    const result = await proposeBillingContact({
       billingEntityKey: 'agent:agent1', billingEntityType: 'independent', billingEntityName: 'Jo Bloggs',
-      proposedEmail: 'sneaky@attacker.example.com', agentUserId: 'agent1',
-    })).rejects.toThrow(/confirmed/i);
+      proposedEmail: 'updated@a.example.com', agentUserId: 'agent1',
+    });
 
-    expect(fakeDb._store.billingContacts['agent:agent1'].email).toBe('jane@a.example.com'); // untouched
+    expect(result).toEqual({ billingEntityKey: 'agent:agent1', status: 'confirmed', changeRequestStatus: 'pending' });
+    // The active, already-confirmed contact is still exactly what it was — untouched, still invoice-usable.
+    expect(fakeDb._store.billingContacts['agent:agent1'].email).toBe('jane@a.example.com');
+    expect((await resolveBillingContact('agent:agent1')).email).toBe('jane@a.example.com');
+    // The amendment is recorded separately, awaiting its own review.
+    expect(fakeDb._store.billingContacts['agent:agent1'].changeRequest).toMatchObject({
+      status: 'pending', proposedEmail: 'updated@a.example.com',
+    });
   });
 
   it('one agent\'s proposal, confirmation, or rejection never touches a DIFFERENT agent\'s record, even with an identical agency name or billing email', async () => {

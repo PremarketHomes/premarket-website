@@ -191,6 +191,16 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * runs/[runId]/send/route.js) never trusts these stamped fields
  * either way — it always re-resolves resolveBillingContact live,
  * right before creating the Xero contact.
+ *
+ * Also the one function that approves an AMENDMENT (see
+ * proposeBillingContact's `changeRequest` branch, used by the agent's
+ * Account Settings "Edit Billing Details" flow) — called with exactly
+ * the same shape either way, since the admin always supplies the
+ * final name/email/billingName to confirm regardless of where they
+ * came from. Approving one always clears any changeRequest on the
+ * doc (the full `.set()` below omits it), since it's now fully
+ * superseded by this confirmation — never left dangling as "still
+ * pending" after its own approval.
  */
 export async function setBillingContact({ billingEntityKey, billingName, name, email, adminUid }) {
   if (!billingEntityKey) throw new Error('billingEntityKey is required');
@@ -205,7 +215,7 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
       billingEntityType: prior.billingEntityType || 'independent',
       billingEntityName: prior.billingEntityName || null,
       status: 'confirmed',
-      billingName: billingName || prior.proposedBillingName || prior.billingName || '',
+      billingName: billingName || prior.changeRequest?.proposedBillingName || prior.proposedBillingName || prior.billingName || '',
       name: name || '',
       email,
       setBy: adminUid,
@@ -237,13 +247,27 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
  * real charge would use, before this function ever sees them — so
  * billingEntityKey is always this agent's own exclusive `agent:{uid}`.
  *
- * There is no one else who could ever collide on this key (unlike the
- * old agency-grouping model this replaces), so a second submission
- * from the same agent while still pending simply updates it — no 409,
- * no "first one in holds the slot" semantics needed. Rejected with
- * 409 only once the contact is already confirmed — changes past that
- * point are admin-only, via setBillingContact/rejectBillingContact,
- * never through this path again.
+ * Two modes, chosen purely by the doc's CURRENT status:
+ *
+ *   1. Not yet confirmed (unset/pending/rejected) — the initial
+ *      confirmation workflow, unchanged: overwrites the top-level
+ *      status and proposed-name/email fields directly. There is no
+ *      one else who could ever collide on this key (unlike the old
+ *      agency-grouping model this replaces), so a second submission
+ *      from the same agent while still pending simply updates it —
+ *      no 409, no "first one in holds the slot" semantics needed.
+ *
+ *   2. Already confirmed — the AMENDMENT workflow (the agent's
+ *      Account Settings "Edit Billing Details" flow). The active,
+ *      previously-approved billingName/name/email/status fields are
+ *      left completely untouched — still fully valid for every charge
+ *      and invoice send in the meantime — and the proposed change is
+ *      attached ONLY as `changeRequest`, a separate pending record a
+ *      superAdmin reviews via the exact same approve/reject actions
+ *      (setBillingContact/rejectBillingContact). Only approving it
+ *      ever promotes changeRequest's values into the active contact.
+ *      Submitting again while a changeRequest is already pending
+ *      simply replaces it — same no-collision reasoning as mode 1.
  */
 export async function proposeBillingContact({
   billingEntityKey,
@@ -262,11 +286,22 @@ export async function proposeBillingContact({
   return adminDb.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const data = snap.exists ? snap.data() : null;
+
     if (data?.status === 'confirmed') {
-      const err = new Error('Your billing contact is already confirmed — changes require a Premarket admin.');
-      err.status = 409;
-      throw err;
+      tx.set(ref, {
+        ...data,
+        changeRequest: {
+          proposedBillingName: proposedBillingName || '',
+          proposedName: proposedName || '',
+          proposedEmail,
+          proposedBy: agentUserId,
+          proposedAt: FieldValue.serverTimestamp(),
+          status: 'pending',
+        },
+      });
+      return { billingEntityKey, status: 'confirmed', changeRequestStatus: 'pending' };
     }
+
     tx.set(ref, {
       billingEntityKey,
       billingEntityType,
@@ -283,11 +318,28 @@ export async function proposeBillingContact({
 }
 
 /**
- * Admin action — declines a pending proposal so the agency can submit
- * a corrected one. Transactional for the same reason propose/approve
- * are: safe against a reject racing an approve (or a second reject)
- * for the same key. Keeps the declined submission under
- * previousProposal purely for audit; it is never auto-reused.
+ * Admin action — declines a pending proposal OR a pending amendment
+ * (changeRequest) so the agent can submit a corrected one.
+ * Transactional for the same reason propose/approve are: safe against
+ * a reject racing an approve (or a second reject) for the same key.
+ *
+ * Two modes:
+ *
+ *   1. A pending changeRequest on an already-CONFIRMED contact —
+ *      rejecting it marks ONLY the changeRequest itself rejected
+ *      (with the reason, for the agent to see). The active
+ *      billingName/name/email/status fields are left byte-for-byte
+ *      as they were; the previously-approved contact keeps invoicing
+ *      exactly as before. The agent can submit another changeRequest
+ *      afterwards (see proposeBillingContact).
+ *
+ *   2. The original initial-confirmation proposal (status 'pending',
+ *      never yet confirmed) — unchanged: flips status to 'rejected'
+ *      so the agent can resubmit from scratch.
+ *
+ * Either way, keeps the declined submission under
+ * previousProposal/changeRequest purely for audit; it is never
+ * auto-reused.
  */
 export async function rejectBillingContact({ billingEntityKey, reason, adminUid }) {
   if (!billingEntityKey) throw new Error('billingEntityKey is required');
@@ -295,12 +347,27 @@ export async function rejectBillingContact({ billingEntityKey, reason, adminUid 
 
   return adminDb.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    if (!snap.exists || snap.data().status !== 'pending') {
+    const data = snap.exists ? snap.data() : null;
+
+    if (data?.status === 'confirmed' && data.changeRequest?.status === 'pending') {
+      tx.set(ref, {
+        ...data,
+        changeRequest: {
+          ...data.changeRequest,
+          status: 'rejected',
+          rejectionReason: reason || '',
+          rejectedBy: adminUid,
+          rejectedAt: FieldValue.serverTimestamp(),
+        },
+      });
+      return { billingEntityKey, status: 'confirmed', changeRequestStatus: 'rejected' };
+    }
+
+    if (!data || data.status !== 'pending') {
       const err = new Error('No pending proposal for this agency — it may already have been approved or rejected.');
       err.status = 409;
       throw err;
     }
-    const data = snap.data();
     tx.set(ref, {
       billingEntityKey,
       billingEntityType: data.billingEntityType,
@@ -315,7 +382,6 @@ export async function rejectBillingContact({ billingEntityKey, reason, adminUid 
         proposedEmail: data.proposedEmail || '',
         proposedBy: data.proposedBy || null,
         proposedAt: data.proposedAt || null,
-        proposedByUids: data.proposedByUids || [],
       },
     });
     return { billingEntityKey, status: 'rejected' };
@@ -323,13 +389,19 @@ export async function rejectBillingContact({ billingEntityKey, reason, adminUid 
 }
 
 /**
- * Read-only status lookup — powers both the agent-facing prompt
- * (which only needs to know unset/pending/confirmed, see
- * /api/agency/billing-contact-status) and the admin "pending
- * proposals" list. Deliberately never returns the confirmed name/
- * email/billingName unless status is actually 'confirmed' — a
- * still-pending proposal's contents are visible to admins through
- * listPendingBillingContacts, not through this agent-facing shape.
+ * Read-only status lookup — powers both the agent-facing prompt/
+ * Account Settings billing section (see /api/agency/billing-contact-
+ * status) and the admin "pending proposals" list. Deliberately never
+ * returns the confirmed name/email/billingName unless status is
+ * actually 'confirmed' — a still-pending INITIAL proposal's contents
+ * are visible to admins through listPendingBillingContacts, not
+ * through this agent-facing shape.
+ *
+ * `changeRequest`, when present, is returned as-is (status pending/
+ * rejected, plus its own proposed* fields and rejectionReason) so the
+ * agent's own Account Settings page can show "a change is pending
+ * review" or "your last change was rejected: ..." ALONGSIDE their
+ * still-fully-active confirmed contact — never instead of it.
  */
 export async function getBillingContactStatus(billingEntityKey) {
   if (!billingEntityKey) return { status: 'unset' };
@@ -349,18 +421,67 @@ export async function getBillingContactStatus(billingEntityKey) {
     name: data.status === 'confirmed' ? data.name || null : null,
     email: data.status === 'confirmed' ? data.email || null : null,
     rejectionReason: data.status === 'rejected' ? data.rejectionReason || null : null,
+    changeRequest: data.status === 'confirmed' && data.changeRequest ? data.changeRequest : null,
   };
 }
 
 /**
- * Admin-dashboard listing — every agency currently awaiting review,
+ * Admin-dashboard listing — every agent currently awaiting review,
  * discoverable even before any invoice run exists (a proposal can
  * arrive the moment an agent first sees the dashboard prompt, long
- * before their agency's first 30-day cycle is even due).
+ * before their own first 30-day cycle is even due). One row per
+ * agent, never grouped.
+ *
+ * Surfaces TWO distinct kinds of pending review, in the one shared
+ * shape BillingContactsPanel.js already expects (billingEntityName/
+ * proposedBillingName/proposedName/proposedEmail) so the existing
+ * admin approve/reject actions work unchanged either way:
+ *
+ *   1. A brand-new, never-confirmed proposal (status 'pending').
+ *   2. An AMENDMENT (changeRequest.status 'pending') on an agent
+ *      whose contact is already confirmed — flagged `isChangeRequest`
+ *      so the admin UI can show it's a change, not a first-time
+ *      submission, alongside the currently-active contact for
+ *      context (current*). Approving/rejecting these goes through
+ *      the exact same setBillingContact/rejectBillingContact actions,
+ *      keyed by the same billingEntityKey — those functions already
+ *      know how to tell the two cases apart.
+ *
+ * Scans every doc rather than a single `where` — needed because an
+ * amendment's "pending" signal lives on a nested field
+ * (changeRequest.status), not the top-level status Firestore would
+ * otherwise let this filter on directly. Fine at this project's scale
+ * (same reasoning as every other admin-only full-collection scan in
+ * this codebase).
  */
 export async function listPendingBillingContacts() {
-  const snap = await adminDb.collection('billingContacts').where('status', '==', 'pending').get();
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const snap = await adminDb.collection('billingContacts').get();
+  const results = [];
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    if (data.status === 'pending') {
+      results.push({ id: doc.id, ...data, isChangeRequest: false });
+      continue;
+    }
+    if (data.status === 'confirmed' && data.changeRequest?.status === 'pending') {
+      results.push({
+        id: doc.id,
+        billingEntityKey: data.billingEntityKey,
+        billingEntityType: data.billingEntityType,
+        billingEntityName: data.billingEntityName,
+        isChangeRequest: true,
+        currentBillingName: data.billingName || null,
+        currentName: data.name || null,
+        currentEmail: data.email || null,
+        proposedBillingName: data.changeRequest.proposedBillingName,
+        proposedName: data.changeRequest.proposedName,
+        proposedEmail: data.changeRequest.proposedEmail,
+        proposedBy: data.changeRequest.proposedBy,
+        proposedAt: data.changeRequest.proposedAt,
+      });
+    }
+  }
+  return results;
 }
 
 /**

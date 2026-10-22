@@ -123,9 +123,21 @@ export default function BillingContactsPanel() {
                 <Clock className="w-4.5 h-4.5 text-amber-600" />
               </div>
               <div>
-                <p className="font-medium text-slate-900 text-sm">{item.billingEntityName}</p>
+                <p className="font-medium text-slate-900 text-sm flex items-center gap-2">
+                  {item.billingEntityName}
+                  {item.isChangeRequest && (
+                    <span className="bg-blue-100 text-blue-700 text-[10px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                      Change request
+                    </span>
+                  )}
+                </p>
+                {item.isChangeRequest && (
+                  <p className="text-xs text-slate-400">
+                    Current: {item.currentBillingName || '—'} · {item.currentName || '—'} · {item.currentEmail || '—'}
+                  </p>
+                )}
                 <p className="text-xs text-slate-500">
-                  Agency: {item.proposedBillingName || '—'} · Accounts contact: {item.proposedName || '—'} · Billing email: {item.proposedEmail}
+                  {item.isChangeRequest ? 'Requested' : 'Agency'}: {item.proposedBillingName || '—'} · Accounts contact: {item.proposedName || '—'} · Billing email: {item.proposedEmail}
                 </p>
               </div>
             </div>

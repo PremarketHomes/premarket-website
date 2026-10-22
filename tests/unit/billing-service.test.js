@@ -826,14 +826,60 @@ describe('proposeBillingContact — the one unified per-agent proposal path', ()
     expect(fakeDb._store.billingContacts['agent:agentA'].proposedEmail).toBe('fixed@example.com');
   });
 
-  it('rejects once the agent\'s own contact is already confirmed — admin-only from that point', async () => {
+  it('once already confirmed, files an amendment (changeRequest) instead — the active contact stays exactly as it is', async () => {
     fakeDb.collection('billingContacts').doc('agent:agentA').set({ status: 'confirmed', email: 'real@example.com' });
     const { proposeBillingContact } = await import('../../src/app/api/services/billingService.js');
-    await expect(proposeBillingContact({
+    const result = await proposeBillingContact({
       billingEntityKey: 'agent:agentA', billingEntityType: 'independent', billingEntityName: 'Jo Lee',
-      proposedEmail: 'attacker@example.com', agentUserId: 'agentA',
-    })).rejects.toThrow(/confirmed/i);
-    expect(fakeDb._store.billingContacts['agent:agentA'].email).toBe('real@example.com'); // untouched
+      proposedEmail: 'updated@example.com', agentUserId: 'agentA',
+    });
+    expect(result).toEqual({ billingEntityKey: 'agent:agentA', status: 'confirmed', changeRequestStatus: 'pending' });
+    expect(fakeDb._store.billingContacts['agent:agentA'].email).toBe('real@example.com'); // untouched — still active
+    expect(fakeDb._store.billingContacts['agent:agentA'].changeRequest.proposedEmail).toBe('updated@example.com');
+  });
+
+  it('a pending amendment can be rejected without ever touching the active confirmed contact, and the agent can resubmit', async () => {
+    const { proposeBillingContact, rejectBillingContact, resolveBillingContact } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('billingContacts').doc('agent:agentA').set({
+      billingEntityKey: 'agent:agentA', status: 'confirmed', billingName: 'Agency A', name: 'Jo', email: 'real@example.com',
+    });
+    await proposeBillingContact({
+      billingEntityKey: 'agent:agentA', billingEntityType: 'independent', billingEntityName: 'Jo Lee',
+      proposedEmail: 'typo@example.con', agentUserId: 'agentA',
+    });
+
+    const result = await rejectBillingContact({ billingEntityKey: 'agent:agentA', reason: 'Bad domain', adminUid: 'admin1' });
+    expect(result).toEqual({ billingEntityKey: 'agent:agentA', status: 'confirmed', changeRequestStatus: 'rejected' });
+
+    // The active contact is completely unaffected by the rejection.
+    expect((await resolveBillingContact('agent:agentA')).email).toBe('real@example.com');
+    expect(fakeDb._store.billingContacts['agent:agentA'].changeRequest.status).toBe('rejected');
+    expect(fakeDb._store.billingContacts['agent:agentA'].changeRequest.rejectionReason).toBe('Bad domain');
+
+    // The agent can submit another amendment afterwards.
+    const retry = await proposeBillingContact({
+      billingEntityKey: 'agent:agentA', billingEntityType: 'independent', billingEntityName: 'Jo Lee',
+      proposedEmail: 'fixed@example.com', agentUserId: 'agentA',
+    });
+    expect(retry.changeRequestStatus).toBe('pending');
+    expect(fakeDb._store.billingContacts['agent:agentA'].changeRequest.proposedEmail).toBe('fixed@example.com');
+  });
+
+  it('approving a pending amendment promotes it to the active contact and clears the changeRequest', async () => {
+    const { proposeBillingContact, setBillingContact, resolveBillingContact } = await import('../../src/app/api/services/billingService.js');
+    fakeDb.collection('billingContacts').doc('agent:agentA').set({
+      billingEntityKey: 'agent:agentA', status: 'confirmed', billingName: 'Agency A', name: 'Jo', email: 'old@example.com',
+    });
+    await proposeBillingContact({
+      billingEntityKey: 'agent:agentA', billingEntityType: 'independent', billingEntityName: 'Jo Lee',
+      proposedBillingName: 'Agency A Pty Ltd', proposedName: 'New Accounts', proposedEmail: 'new@example.com', agentUserId: 'agentA',
+    });
+
+    await setBillingContact({ billingEntityKey: 'agent:agentA', billingName: 'Agency A Pty Ltd', name: 'New Accounts', email: 'new@example.com', adminUid: 'admin1' });
+
+    const contact = await resolveBillingContact('agent:agentA');
+    expect(contact).toEqual({ name: 'New Accounts', email: 'new@example.com', billingName: 'Agency A Pty Ltd' });
+    expect(fakeDb._store.billingContacts['agent:agentA'].changeRequest).toBeUndefined();
   });
 
   it('rejects an invalid or missing email', async () => {

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import ImagePositioner from '../../components/ImagePositioner';
 import { getCroppedImageBlob, blobToFile } from '../../utils/imageCrop';
+import BillingDetailsSection from './BillingDetailsSection';
 
 const TEAM_SMS_NUMBER = process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER || '+61 491 570 006';
 
@@ -464,6 +465,9 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+
+        {/* Billing Details (agents only) */}
+        {(userData?.isAgent || userData?.agent) && <BillingDetailsSection />}
 
         {/* Personal Info */}
         <div className="bg-white rounded-xl border border-slate-200 p-6">
