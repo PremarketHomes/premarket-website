@@ -1093,6 +1093,7 @@ function DashboardPage() {
   const [toggling, setToggling] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [successModal, setSuccessModal] = useState(null); // 'created' | 'updated' | null
+  const [officeJoinedBanner, setOfficeJoinedBanner] = useState(null); // office name, or null
   const [showLogoModal, setShowLogoModal] = useState(false);
   const [brandingNudgeDismissed, setBrandingNudgeDismissed] = useState(true);
   const [teamAgents, setTeamAgents] = useState([]);
@@ -1153,6 +1154,17 @@ function DashboardPage() {
     else if (updated) setSuccessModal('updated');
     // Clean up URL params
     if (created || updated) {
+      window.history.replaceState({}, '', '/dashboard');
+    }
+  }, [searchParams]);
+
+  // Office-invite acceptance (see office-invite/page.js) lands here
+  // with a plain confirmation banner — deliberately NOT the property
+  // success modal above, which is specifically about media
+  // uploading/listing visibility and doesn't apply here.
+  useEffect(() => {
+    if (searchParams.get('officeJoined') === '1') {
+      setOfficeJoinedBanner(searchParams.get('officeName') || 'your office');
       window.history.replaceState({}, '', '/dashboard');
     }
   }, [searchParams]);
@@ -1386,6 +1398,19 @@ function DashboardPage() {
               Add Property
             </Link>
           </div>
+
+          {officeJoinedBanner && (
+            <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+              <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-emerald-800 font-semibold">You've joined {officeJoinedBanner}</p>
+                <p className="text-xs text-emerald-700 mt-0.5">Their branding now applies to your campaigns, unless you set your own.</p>
+              </div>
+              <button onClick={() => setOfficeJoinedBanner(null)} className="text-emerald-600 hover:text-emerald-800 text-xs font-semibold shrink-0">
+                Dismiss
+              </button>
+            </div>
+          )}
 
           {/* Agent Filter */}
           {teamAgents.length > 0 && (

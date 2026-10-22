@@ -198,6 +198,16 @@ describe('GET /api/offices/mine', () => {
     const body = await res.json();
     expect(body.office).toBeNull();
   });
+
+  it('CONTRACT: includes agencyBrandId on the office object for an admin whose office already has a brand — the branding card pre-fills its colours from exactly this field', async () => {
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'], agencyBrandId: 'harcourts-brand' });
+    state.users.admin1 = { officeId: 'office1', isOfficeAdmin: true };
+    setupValidAuth('admin1');
+    const { GET } = await import('../../src/app/api/offices/mine/route');
+    const res = await GET(makeRequest(undefined, 'Bearer valid', 'GET'));
+    const body = await res.json();
+    expect(body.office.agencyBrandId).toBe('harcourts-brand');
+  });
 });
 
 describe('GET/POST /api/offices/[officeId]/agents', () => {
@@ -354,6 +364,17 @@ describe('POST /api/offices/[officeId]/branding', () => {
     expect(res.status).toBe(200);
     expect(state.offices.office1.agencyBrandId).toBe(body.brandId);
     expect(state.users.admin1.agencyBrandId).toBeUndefined();
+  });
+
+  it('CONTRACT: the response includes colors.primary — the office branding UI syncs its colour pickers straight from this after saving, rather than trusting what it locally typed', async () => {
+    seedOffice('office1', { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] });
+    state.users.admin1 = { officeId: 'office1', isOfficeAdmin: true };
+    setupValidAuth('admin1');
+    const { POST } = await import('../../src/app/api/offices/[officeId]/branding/route');
+    const res = await POST(makeRequest({ primary: '#011d47', secondary: '#01a8ec' }, 'Bearer valid'), { params: Promise.resolve({ officeId: 'office1' }) });
+    const body = await res.json();
+    expect(body.colors.primary).toBe('#011d47');
+    expect(body.colors.secondary).toBe('#01a8ec');
   });
 
   it('SECURITY: a non-admin cannot set the office\'s branding', async () => {

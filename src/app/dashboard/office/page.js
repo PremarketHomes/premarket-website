@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useRequireAgent } from '../../hooks/useRequireAgent';
 import { authFetch } from '../../utils/authFetch';
 import { db } from '../../firebase/clientApp';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, doc, getDoc, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import PropertyPageClient from '../../components/PropertyPageClient';
 import { Upload, Loader2, UserPlus, RotateCcw, Trash2, Users, AlertCircle } from 'lucide-react';
 
@@ -42,8 +42,16 @@ export default function OfficeManagementPage() {
   const [stats, setStats] = useState({ total: 0, active: 0, invited: 0, pendingAcceptance: 0 });
   const [error, setError] = useState('');
 
-  const loadAll = useCallback(async () => {
-    setLoading(true);
+  // `silent` (true for every refresh AFTER the first) skips the
+  // top-level loading flag — without this, every action on this page
+  // (add agent, resend, CSV import, AND saving office branding) briefly
+  // unmounted this entire page down to a spinner and back, which reset
+  // every child card's own local state to its initial defaults in the
+  // process. That's the actual root cause behind "Save Office Branding
+  // resets the primary colour to Premarket orange" — OfficeBrandingCard
+  // was getting fully remounted by its own save succeeding.
+  const loadAll = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const officeRes = await authFetch('/api/offices/mine');
@@ -61,9 +69,11 @@ export default function OfficeManagementPage() {
     } catch (err) {
       setError('Failed to load office details');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
+
+  const refresh = useCallback(() => loadAll(true), [loadAll]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -100,10 +110,10 @@ export default function OfficeManagementPage() {
         {error && <p className="text-red-600 text-sm">{error}</p>}
 
         <StatsRow stats={stats} />
-        <OfficeBrandingCard officeId={office.id} hasBrand={!!office.agencyBrandId} onSaved={loadAll} />
-        <AddAgentCard officeId={office.id} onAdded={loadAll} />
-        <CsvImportCard officeId={office.id} onImported={loadAll} />
-        <RosterTable officeId={office.id} agents={agents} onChanged={loadAll} />
+        <OfficeBrandingCard officeId={office.id} agencyBrandId={office.agencyBrandId} onSaved={refresh} />
+        <AddAgentCard officeId={office.id} onAdded={refresh} />
+        <CsvImportCard officeId={office.id} onImported={refresh} />
+        <RosterTable officeId={office.id} agents={agents} onChanged={refresh} />
       </div>
     </div>
   );
@@ -221,8 +231,9 @@ function StatsRow({ stats }) {
  * Nothing is persisted until "Save Office Branding" is clicked —
  * everything above that is local state / a read-only preview.
  */
-function OfficeBrandingCard({ officeId, hasBrand, onSaved }) {
+function OfficeBrandingCard({ officeId, agencyBrandId, onSaved }) {
   const { user } = useAuth();
+  const hasBrand = !!agencyBrandId;
   const [logoUrl, setLogoUrl] = useState('');
   const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const [primary, setPrimary] = useState('#e48900');
@@ -232,9 +243,37 @@ function OfficeBrandingCard({ officeId, hasBrand, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [loadedBrandOnce, setLoadedBrandOnce] = useState(false);
 
   const [previewProperty, setPreviewProperty] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(true);
+
+  // Pre-fills from whatever is ALREADY persisted (agencyBrands is
+  // public-read, same as PropertyPageClient/the personal branding page
+  // already rely on) — this is the fix for branding not surviving a
+  // refresh/re-login: without it, this card always started from the
+  // hardcoded default colour, never what was actually saved. Runs once
+  // per distinct brand id, not on every render, so it never clobbers
+  // whatever the admin is actively typing.
+  useEffect(() => {
+    if (!agencyBrandId || loadedBrandOnce) return;
+    setLoadedBrandOnce(true);
+    (async () => {
+      try {
+        const brandDoc = await getDoc(doc(db, 'agencyBrands', agencyBrandId));
+        if (brandDoc.exists()) {
+          const brand = brandDoc.data();
+          if (brand.colors?.primary) {
+            setPrimary(brand.colors.primary);
+            setSecondary(brand.colors.secondary || '');
+          }
+          if (brand.logoUrl) setLogoUrl(brand.logoUrl);
+        }
+      } catch (err) {
+        console.error('Failed to load existing office branding:', err);
+      }
+    })();
+  }, [agencyBrandId, loadedBrandOnce]);
 
   // Load one of the office admin's own properties to preview against —
   // read-only, same pattern as the personal branding page.
@@ -307,6 +346,14 @@ function OfficeBrandingCard({ officeId, hasBrand, onSaved }) {
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Failed to save branding');
+      // Sync straight from what the server actually persisted (it may
+      // have joined an existing colliding brand instead of creating a
+      // new one — see createBrand's race handling) rather than just
+      // trusting the locally-typed values are what's now live.
+      if (body.colors?.primary) {
+        setPrimary(body.colors.primary);
+        setSecondary(body.colors.secondary || '');
+      }
       setSaved(true);
       onSaved();
     } catch (err) {

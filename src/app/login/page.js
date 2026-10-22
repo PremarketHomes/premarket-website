@@ -7,6 +7,7 @@ import { auth } from '../firebase/clientApp';
 import { useAuth } from '../context/AuthContext';
 import { defaultDashboardFor } from '../utils/roles';
 import { authFetch } from '../utils/authFetch';
+import { getSafeReturnTo } from '../utils/safeRedirect';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
@@ -31,6 +32,12 @@ function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const justActivated = searchParams.get('activated') === '1';
+  // Validated before ever being used — see safeRedirect.js. An office
+  // invite link to a not-yet-logged-in agent routes through here with
+  // ?returnTo=/office-invite?token=... so they land back on the exact
+  // invitation after signing in, instead of their normal dashboard.
+  // Normal logins (no returnTo) are completely unaffected.
+  const safeReturnTo = getSafeReturnTo(searchParams.get('returnTo'));
   const { user, userData, loading: authLoading } = useAuth();
   const [view, setView] = useState('login'); // 'login' | 'reset'
 
@@ -50,9 +57,9 @@ function LoginPageContent() {
   // Wait for userData so buyers don't briefly land on /dashboard.
   useEffect(() => {
     if (!authLoading && user && userData) {
-      router.push(defaultDashboardFor(userData));
+      router.push(safeReturnTo || defaultDashboardFor(userData));
     }
-  }, [user, userData, authLoading, router]);
+  }, [user, userData, authLoading, router, safeReturnTo]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
