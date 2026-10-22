@@ -954,6 +954,53 @@ function BrandingNudge({ hasLogo, onDismiss }) {
   );
 }
 
+// The exact placeholder avatar every brand-new agent account is seeded
+// with — both join/page.js's own self-signup and officeImportService.js's
+// inviteNewAgent use this identical URL, so checking for it (rather than
+// just "any avatar") correctly distinguishes "never uploaded one" from
+// "uploaded something that happens to look similar."
+const PLACEHOLDER_AVATAR_URL = 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png?20150327203541';
+function isPlaceholderAvatar(avatar) {
+  return !avatar || avatar === PLACEHOLDER_AVATAR_URL;
+}
+
+// --- Profile Photo Prompt (office agents only) ---
+// An office agent's name/phone/office/branding are all already
+// populated the moment their invitation is accepted — this is the one
+// remaining personalisation step, so it's deliberately simple: no logo/
+// colour choices here (that's the office admin's job, via Office
+// Management), just a link to the existing avatar upload already on
+// Account Settings — reused as-is, not rebuilt here.
+function ProfilePhotoPrompt({ onDismiss }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col sm:flex-row sm:items-center gap-4"
+    >
+      <div className="flex-1">
+        <p className="font-semibold text-slate-900 mb-1">Add your profile photo</p>
+        <p className="text-sm text-slate-500">Your office branding is already set up — upload your own photo to finish personalising your profile.</p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={onDismiss}
+          className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm hover:bg-slate-200 transition-colors"
+        >
+          Not now
+        </button>
+        <Link
+          href="/dashboard/settings"
+          className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold text-sm hover:shadow-lg transition-all whitespace-nowrap"
+        >
+          Upload Photo
+        </Link>
+      </div>
+    </motion.div>
+  );
+}
+
 // --- Mobile Number Confirmation Prompt ---
 // Shown once per account until the agent confirms or updates their
 // number (see utils/mobileConfirmation.js for exactly what gates this).
@@ -1438,9 +1485,26 @@ function DashboardPage() {
             </div>
           )}
 
-          {/* Agency Branding Nudge (overview only) */}
-          {activeTab === 'overview' && !brandingNudgeDismissed && userData && !userData.agencyBrandId && (userData.isAgent || userData.agent) && (
-            <BrandingNudge hasLogo={!!userData.logoUrl} onDismiss={dismissBrandingNudge} />
+          {/* Agency Branding Nudge (overview only) — independent agents
+              only. An office agent inherits branding through officeId
+              (see resolveBrandIdForUser) and never has their own
+              agencyBrandId set at all, by design — showing this same
+              "upload YOUR agency logo" nudge to them would be both
+              wrong (they already have branding, via their office) and
+              misleading about what action it would even take (their
+              own /dashboard/branding page only ever lets them set a
+              PERSONAL override there, never the office's shared
+              default). Office agents get ProfilePhotoPrompt instead. */}
+          {activeTab === 'overview' && !brandingNudgeDismissed && userData && (userData.isAgent || userData.agent) && (
+            userData.officeId ? (
+              isPlaceholderAvatar(userData.avatar) && (
+                <ProfilePhotoPrompt onDismiss={dismissBrandingNudge} />
+              )
+            ) : (
+              !userData.agencyBrandId && (
+                <BrandingNudge hasLogo={!!userData.logoUrl} onDismiss={dismissBrandingNudge} />
+              )
+            )
           )}
 
           {/* Mobile Number Confirmation Prompt (overview only) */}

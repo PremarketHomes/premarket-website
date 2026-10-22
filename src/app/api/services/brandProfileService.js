@@ -119,14 +119,23 @@ function isAlreadyExistsError(err) {
  * same real, brand-new office both submitting at the same instant)
  * is NOT an error under the no-approval model: the loser simply joins
  * the brand the winner just created — see the catch block below.
+ *
+ * Independent-agent use only. This used to also accept an optional
+ * `officeId` to link the brand onto `offices/{officeId}.agencyBrandId`
+ * instead of the calling user's own doc, but that made an office's
+ * save collide with (and silently discard its own submission into)
+ * whatever unrelated brand already happened to exist under the same
+ * name — e.g. an individual agent's own, much earlier, completely
+ * unrelated brand. Office branding always goes through saveOfficeBrand
+ * below instead now: a dedicated brand keyed by officeId, never by
+ * name, so it can never collide with this function's name-keyed
+ * brands at all.
  */
-export async function createBrand({ uid, name, logoUrl, primary, secondary, officeId }) {
+export async function createBrand({ uid, name, logoUrl, primary, secondary }) {
   const colors = buildColorSet({ primary, secondary });
   const brandId = slugify(name);
   const brandRef = adminDb.collection(BRANDS_COLLECTION).doc(brandId);
-  const linkTarget = officeId
-    ? adminDb.collection('offices').doc(officeId)
-    : adminDb.collection('users').doc(uid);
+  const linkTarget = adminDb.collection('users').doc(uid);
 
   try {
     await brandRef.create({
@@ -160,6 +169,67 @@ export async function createBrand({ uid, name, logoUrl, primary, secondary, offi
   // never leave a dangling agencyBrandId behind for an account that
   // doesn't actually own a real brand.
   await linkTarget.update({ agencyBrandId: brandId });
+
+  return { brandId, colors };
+}
+
+/**
+ * Creates (the first time) or updates (every time after) the ONE
+ * dedicated brand an office owns — keyed by `office-{officeId}`,
+ * NEVER by name, so it can never collide with — or silently discard
+ * its own submission into — an unrelated individual agent's brand, or
+ * another office's, purely because they happen to share an agency
+ * name. This is the ONLY function that may write
+ * `offices/{officeId}.agencyBrandId`, and it is reached exclusively
+ * through /api/offices/{officeId}/branding, which already verified
+ * the caller administers THIS office (requireOfficeAdmin) before this
+ * is ever called — there is no unauthenticated or cross-office path
+ * to it, and because the id is derived from officeId rather than
+ * attacker-controlled input, there is no name-collision race to guard
+ * against with an atomic .create() the way createBrand needs to.
+ *
+ * Deliberately separate from createBrand: an individual agent's own
+ * brand-establishment flow (createBrand, /api/branding/confirm) is
+ * completely unaffected by this function's existence — two disjoint
+ * id spaces (`office-{officeId}` vs `slugify(name)`) that simply
+ * never intersect.
+ *
+ * Agents' own personal overrides (`users/{uid}.logoUrl`/`.brandColors`)
+ * are untouched either way — this only ever writes the office's own
+ * shared default, which every member without a personal override
+ * inherits automatically via resolveBrandIdForUser/getBrandForUser,
+ * and which the public property page resolves the identical way (see
+ * PropertyPageClient.js) — so a save here propagates to every office
+ * agent's own campaigns without any further action from anyone.
+ */
+export async function saveOfficeBrand({ officeId, officeName, logoUrl, primary, secondary }) {
+  const colors = buildColorSet({ primary, secondary });
+  const brandId = `office-${officeId}`;
+  const brandRef = adminDb.collection(BRANDS_COLLECTION).doc(brandId);
+
+  const existing = await brandRef.get();
+  if (existing.exists) {
+    await brandRef.update({
+      name: officeName.trim(),
+      logoUrl: logoUrl || null,
+      colors,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  } else {
+    await brandRef.set({
+      name: officeName.trim(),
+      logoUrl: logoUrl || null,
+      colors,
+      ownerType: 'office',
+      officeId,
+      createdBy: officeId,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      status: 'active',
+    });
+  }
+
+  await adminDb.collection('offices').doc(officeId).update({ agencyBrandId: brandId });
 
   return { brandId, colors };
 }

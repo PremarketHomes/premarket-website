@@ -38,7 +38,7 @@ import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { BASE_URL } from './emailTemplates';
 import { sendOfficeInviteEmail, sendOfficeJoinInviteEmail } from './resendService';
-import { OfficeError } from './officeService';
+import { OfficeError, claimOfficeContactPhone } from './officeService';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_ROWS_PER_IMPORT = 2000;
@@ -286,6 +286,7 @@ export async function processOneRow({ officeId, officeName, row, actorUid }) {
       targetUid: existingUser.uid,
       targetEmail: email,
       targetName: name,
+      targetPhone: phone,
       targetFirstName: firstName || existingData.firstName || '',
       actorUid,
     });
@@ -392,8 +393,17 @@ function officeInviteDocId(officeId, targetUid) {
  * roster can display it (see listOfficeAgents) — it's never used for
  * anything else, and is never sent in any email beyond the greeting
  * (targetFirstName, derived by the caller).
+ *
+ * `targetPhone`, if given, is seeded into officeAgentContacts for
+ * this uid — the SAME protected, locked-down store inviteNewAgent
+ * already uses for a brand-new account's phone (never the public
+ * users.phone field). acceptOfficeInvite later copies it onto this
+ * agent's own profile, but ONLY once they themselves accept, and
+ * ONLY if they don't already have a phone number on file — this
+ * write here is just making that number available to be claimed,
+ * never exposing it anywhere on its own.
  */
-async function inviteExistingAgentToOffice({ officeId, officeName, targetUid, targetEmail, targetName, targetFirstName, actorUid }) {
+async function inviteExistingAgentToOffice({ officeId, officeName, targetUid, targetEmail, targetName, targetPhone, targetFirstName, actorUid }) {
   const inviteRef = adminDb.collection('officeInvites').doc(officeInviteDocId(officeId, targetUid));
   await inviteRef.set({
     officeId,
@@ -405,6 +415,15 @@ async function inviteExistingAgentToOffice({ officeId, officeName, targetUid, ta
     createdAt: FieldValue.serverTimestamp(),
     createdBy: actorUid,
   });
+
+  if (targetPhone) {
+    await adminDb.collection('officeAgentContacts').doc(targetUid).set({
+      phone: targetPhone,
+      officeId,
+      importedBy: actorUid,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  }
 
   const token = officeInviteDocId(officeId, targetUid);
   const link = `${BASE_URL}/office-invite?token=${token}`;
@@ -469,7 +488,14 @@ export async function acceptOfficeInvite({ token, acceptingUid }) {
     throw new OfficeError('This invitation has expired — ask your office administrator to resend it', 410);
   }
 
-  await adminDb.collection('users').doc(acceptingUid).update({ officeId: invite.officeId });
+  const patch = { officeId: invite.officeId };
+  const claimedPhone = await claimOfficeContactPhone(acceptingUid);
+  if (claimedPhone) {
+    patch.phone = claimedPhone;
+    patch.mobileConfirmedAt = FieldValue.serverTimestamp();
+  }
+
+  await adminDb.collection('users').doc(acceptingUid).update(patch);
   await inviteRef.update({ status: 'accepted', acceptedAt: FieldValue.serverTimestamp() });
 
   return { officeId: invite.officeId, officeName: invite.officeName, alreadyAccepted: false };

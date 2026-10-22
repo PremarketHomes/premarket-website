@@ -377,6 +377,48 @@ describe('POST /api/offices/[officeId]/branding', () => {
     expect(body.colors.secondary).toBe('#01a8ec');
   });
 
+  it('BUG FIX: never silently joins an unrelated pre-existing brand of the same name — the admin\'s own submitted colours are always the ones that persist', async () => {
+    // An individual agent independently established "Harcourts Property
+    // Hub" branding long before this office existed — this is exactly
+    // the real production scenario that triggered the original bug.
+    state.agencyBrands['harcourts-property-hub'] = {
+      name: 'Harcourts Property Hub', colors: { primary: '#000000' }, createdBy: 'some-other-agent',
+    };
+    seedOffice('office1', { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] });
+    state.users.admin1 = { officeId: 'office1', isOfficeAdmin: true };
+    setupValidAuth('admin1');
+
+    const { POST } = await import('../../src/app/api/offices/[officeId]/branding/route');
+    const res = await POST(
+      makeRequest({ logoUrl: 'https://x/new-logo.png', primary: '#011d47' }, 'Bearer valid'),
+      { params: Promise.resolve({ officeId: 'office1' }) }
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.brandId).not.toBe('harcourts-property-hub'); // a dedicated, office-owned brand instead
+    expect(body.colors.primary).toBe('#011d47'); // the admin's OWN submission, not discarded
+    expect(state.offices.office1.agencyBrandId).toBe(body.brandId);
+    expect(state.agencyBrands['harcourts-property-hub'].colors.primary).toBe('#000000'); // completely untouched
+  });
+
+  it('a second save updates the SAME office-owned brand rather than creating a duplicate', async () => {
+    seedOffice('office1', { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] });
+    state.users.admin1 = { officeId: 'office1', isOfficeAdmin: true };
+    setupValidAuth('admin1');
+    const { POST } = await import('../../src/app/api/offices/[officeId]/branding/route');
+
+    const first = await POST(makeRequest({ primary: '#011d47' }, 'Bearer valid'), { params: Promise.resolve({ officeId: 'office1' }) });
+    const firstBody = await first.json();
+
+    const second = await POST(makeRequest({ primary: '#ff0000' }, 'Bearer valid'), { params: Promise.resolve({ officeId: 'office1' }) });
+    const secondBody = await second.json();
+
+    expect(secondBody.brandId).toBe(firstBody.brandId);
+    expect(Object.keys(state.agencyBrands)).toHaveLength(1);
+    expect(state.agencyBrands[firstBody.brandId].colors.primary).toBe('#ff0000');
+  });
+
   it('SECURITY: a non-admin cannot set the office\'s branding', async () => {
     seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
     setupValidAuth('intruder');
