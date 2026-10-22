@@ -5,8 +5,7 @@ import { motion } from 'framer-motion';
 import { db } from '../firebase/clientApp';
 import { authFetch } from '../utils/authFetch';
 import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { Camera, X, Loader2, User, MessageCircle } from 'lucide-react';
-import { normalizeE164 } from '../utils/phone';
+import { Camera, X, Loader2, User } from 'lucide-react';
 import ImagePositioner from './ImagePositioner';
 import { getCroppedImageBlob, blobToFile } from '../utils/imageCrop';
 
@@ -15,9 +14,6 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
   const [name, setName] = useState(agent?.name || '');
   const [preview, setPreview] = useState(agent?.avatar || '');
   const [file, setFile] = useState(null);
-  const [smsPhoneInput, setSmsPhoneInput] = useState(agent?.smsPhone || '');
-  const [smsEnabled, setSmsEnabled] = useState(!!agent?.smsEnabled);
-  const [phoneError, setPhoneError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
@@ -73,18 +69,6 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
   const handleSave = async () => {
     if (!name.trim()) return;
 
-    // Validate phone if provided
-    let normalizedPhone = null;
-    const trimmedPhone = smsPhoneInput.trim();
-    if (trimmedPhone) {
-      normalizedPhone = normalizeE164(trimmedPhone);
-      if (!normalizedPhone) {
-        setPhoneError('Enter a valid mobile, e.g. 0412 345 678');
-        return;
-      }
-    }
-    setPhoneError('');
-
     setSaving(true);
     setSaveError('');
     try {
@@ -106,24 +90,17 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
         avatarUrl = url;
       }
 
-      const smsPhoneValue = normalizedPhone || null;
-      const smsEnabledValue = !!smsEnabled && !!normalizedPhone;
-
       if (agent?.id) {
         // Edit existing
         await updateDoc(doc(db, 'agents', agent.id), {
           name: name.trim(),
           avatar: avatarUrl,
-          smsPhone: smsPhoneValue,
-          smsEnabled: smsEnabledValue,
         });
         onSave({
           id: agent.id,
           name: name.trim(),
           avatar: avatarUrl,
           userId,
-          smsPhone: smsPhoneValue,
-          smsEnabled: smsEnabledValue,
         });
       } else {
         // Create new
@@ -131,8 +108,6 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
           name: name.trim(),
           avatar: avatarUrl,
           userId,
-          smsPhone: smsPhoneValue,
-          smsEnabled: smsEnabledValue,
           createdAt: serverTimestamp(),
         });
         onSave({
@@ -140,8 +115,6 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
           name: name.trim(),
           avatar: avatarUrl,
           userId,
-          smsPhone: smsPhoneValue,
-          smsEnabled: smsEnabledValue,
         });
       }
       onClose();
@@ -224,38 +197,6 @@ export default function AgentModal({ show, onClose, onSave, agent = null, userId
               placeholder="e.g. John Smith"
             />
           </div>
-
-          <div className="mt-4">
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-              Mobile number
-              <span className="text-slate-400 font-normal ml-1">(for SMS shortcuts)</span>
-            </label>
-            <input
-              type="tel"
-              value={smsPhoneInput}
-              onChange={(e) => { setSmsPhoneInput(e.target.value); if (phoneError) setPhoneError(''); }}
-              className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400 transition-all ${phoneError ? 'border-red-300' : 'border-slate-200'}`}
-              placeholder="0412 345 678"
-            />
-            {phoneError && (
-              <p className="mt-1 text-xs text-red-600">{phoneError}</p>
-            )}
-          </div>
-
-          <label className={`mt-3 flex items-center gap-3 p-3 rounded-xl border transition-colors cursor-pointer ${smsEnabled ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200'} ${!smsPhoneInput.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}>
-            <MessageCircle className={`w-4 h-4 ${smsEnabled ? 'text-orange-600' : 'text-slate-400'}`} />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-slate-900">Enable SMS shortcuts</div>
-              <div className="text-xs text-slate-500">Let this team member text the Premarket number to add listings + pull reports.</div>
-            </div>
-            <input
-              type="checkbox"
-              checked={smsEnabled}
-              onChange={(e) => setSmsEnabled(e.target.checked)}
-              disabled={!smsPhoneInput.trim()}
-              className="w-4 h-4 accent-orange-600"
-            />
-          </label>
         </div>
 
         {saveError && (

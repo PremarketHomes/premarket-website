@@ -1,6 +1,6 @@
 /**
- * Phone helpers shared between client (AgentModal, settings forms) and
- * server (Twilio webhook, user lookup, admin SMS enrolment).
+ * Phone helpers shared between client (dashboard mobile-confirmation
+ * flow, admin user management) and server (admin routes).
  *
  * Keeping these pure and dep-free so they can be imported anywhere
  * without pulling in Node-only crypto modules.
@@ -31,17 +31,6 @@ export function normalizeE164(input) {
   if (/^614\d{8}$/.test(s)) return '+' + s;
   if (/^4\d{8}$/.test(s)) return '+61' + s;
   return null;
-}
-
-/**
- * Convert an E.164 phone into a Firestore-safe key (digits only, no '+').
- * Used as a doc ID for conversation history so the same phone always
- * maps to the same bucket regardless of minor formatting differences.
- */
-export function phoneKey(e164) {
-  const n = normalizeE164(e164);
-  if (!n) return null;
-  return n.replace(/^\+/, '');
 }
 
 /**

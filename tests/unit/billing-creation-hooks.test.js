@@ -27,16 +27,6 @@ describe('property-creation paths all record a charge exactly once', () => {
     expect(callIdx).toBeGreaterThan(addDocIdx);
   });
 
-  it('propertyScrapeService.js (SMS-created listings) creates the property and its charge atomically', () => {
-    const source = read('../../src/app/api/services/propertyScrapeService.js');
-    expect(source).toContain("from './billingService'");
-    expect(source).toContain('createPropertyAndChargeAtomically(propertyData)');
-    // Not the old two-step add() + recordPropertyCharge() — this path
-    // is fully server-side, so it gets the stronger transactional
-    // guarantee instead.
-    expect(source).not.toContain("adminDb.collection('properties').add(propertyData)");
-  });
-
   it('AgentBox import creates the property atomically but never its charge — not an agent-facing feature, no billing disclosure has ever been shown for it', () => {
     const source = read('../../src/app/api/integrations/agentbox/import/route.js');
     expect(source).toContain('createPropertyAndChargeAtomically(propertyData, { skipCharge: true })');

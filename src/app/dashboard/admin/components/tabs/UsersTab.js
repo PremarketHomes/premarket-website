@@ -2,12 +2,11 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, Search, ChevronRight, Trash2, Loader2, MessageCircle, X } from 'lucide-react';
+import { Users, Search, ChevronRight, Trash2, Loader2 } from 'lucide-react';
 import { formatDate } from '../../utils/formatters';
 import { useToast } from '../ToastProvider';
 import useConfirm from '../../hooks/useConfirm';
 import { authFetch } from '../../../../utils/authFetch';
-import { formatDisplayPhone, normalizeE164 } from '../../../../utils/phone';
 
 export default function UsersTab({ user }) {
   const router = useRouter();
@@ -18,7 +17,6 @@ export default function UsersTab({ user }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [deletingId, setDeletingId] = useState(null);
-  const [smsEditUser, setSmsEditUser] = useState(null);
 
   useEffect(() => {
     async function fetchUsers() {
@@ -94,40 +92,6 @@ export default function UsersTab({ user }) {
       toast.error('Failed to delete user');
     } finally {
       setDeletingId(null);
-    }
-  };
-
-  const handleSaveSms = async (targetUid, nextPhone, nextEnabled) => {
-    try {
-      const res = await authFetch('/api/admin/users', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetUid,
-          updates: {
-            smsPhone: nextPhone || null,
-            smsEnabled: nextEnabled && !!nextPhone,
-          },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || 'Failed to save SMS settings');
-        return false;
-      }
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === targetUid
-            ? { ...u, smsPhone: nextPhone || null, smsEnabled: !!nextEnabled && !!nextPhone }
-            : u
-        )
-      );
-      toast.success('SMS settings updated');
-      return true;
-    } catch (err) {
-      console.error('SMS update error:', err);
-      toast.error('Failed to save SMS settings');
-      return false;
     }
   };
 
@@ -220,22 +184,6 @@ export default function UsersTab({ user }) {
                 <div className="hidden sm:block text-xs text-slate-400 w-20 text-right">
                   {u.propertyCount} props
                 </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setSmsEditUser(u); }}
-                  className={`hidden md:flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors w-32 justify-start ${
-                    u.smsEnabled
-                      ? 'bg-orange-50 text-orange-700 hover:bg-orange-100'
-                      : u.smsPhone
-                      ? 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                      : 'bg-white border border-dashed border-slate-200 text-slate-400 hover:border-slate-300'
-                  }`}
-                  title={u.smsPhone ? 'Edit SMS settings' : 'Add SMS phone'}
-                >
-                  <MessageCircle className="w-3 h-3 flex-shrink-0" />
-                  <span className="truncate">
-                    {u.smsPhone ? formatDisplayPhone(u.smsPhone) : 'Add SMS'}
-                  </span>
-                </button>
                 <div className="hidden sm:block text-xs text-slate-500 w-28 text-right">
                   {formatDate(u.createdAt)}
                 </div>
@@ -258,136 +206,6 @@ export default function UsersTab({ user }) {
             ))}
           </div>
         )}
-      </div>
-
-      {smsEditUser && (
-        <SmsEditModal
-          user={smsEditUser}
-          onClose={() => setSmsEditUser(null)}
-          onSave={handleSaveSms}
-        />
-      )}
-    </div>
-  );
-}
-
-function SmsEditModal({ user, onClose, onSave }) {
-  const [phone, setPhone] = useState(user.smsPhone || '');
-  const [enabled, setEnabled] = useState(!!user.smsEnabled);
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = async () => {
-    setError('');
-    let normalized = null;
-    const trimmed = phone.trim();
-    if (trimmed) {
-      normalized = normalizeE164(trimmed);
-      if (!normalized) {
-        setError('Enter a valid mobile, e.g. 0412 345 678');
-        return;
-      }
-    }
-    setSaving(true);
-    const ok = await onSave(user.id, normalized, enabled);
-    setSaving(false);
-    if (ok) onClose();
-  };
-
-  const handleClear = async () => {
-    setSaving(true);
-    const ok = await onSave(user.id, null, false);
-    setSaving(false);
-    if (ok) onClose();
-  };
-
-  const displayName =
-    [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-6 pt-6 pb-4">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-slate-900">SMS Shortcuts</h2>
-            <button
-              onClick={onClose}
-              className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              <X className="w-5 h-5 text-slate-400" />
-            </button>
-          </div>
-
-          <p className="text-sm text-slate-500 mb-4">
-            Editing SMS settings for <span className="font-semibold text-slate-700">{displayName}</span>.
-          </p>
-
-          <div className="mb-4">
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-              Mobile number
-            </label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => { setPhone(e.target.value); if (error) setError(''); }}
-              className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400 transition-all ${error ? 'border-red-300' : 'border-slate-200'}`}
-              placeholder="0412 345 678"
-            />
-            {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-          </div>
-
-          <label
-            className={`flex items-center gap-3 p-3 rounded-xl border transition-colors cursor-pointer ${
-              enabled ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200'
-            } ${!phone.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <MessageCircle className={`w-4 h-4 ${enabled ? 'text-orange-600' : 'text-slate-400'}`} />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-slate-900">Enable SMS shortcuts</div>
-              <div className="text-xs text-slate-500">
-                Let this user text the Premarket number to add listings + pull reports.
-              </div>
-            </div>
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-              disabled={!phone.trim()}
-              className="w-4 h-4 accent-orange-600"
-            />
-          </label>
-        </div>
-
-        <div className="px-6 pb-6 flex gap-3">
-          {user.smsPhone && (
-            <button
-              onClick={handleClear}
-              disabled={saving}
-              className="px-4 py-2.5 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors disabled:opacity-50"
-            >
-              Clear
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            className="flex-1 py-2.5 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-[#e48900] to-[#c64500] rounded-xl shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</> : 'Save'}
-          </button>
-        </div>
       </div>
     </div>
   );

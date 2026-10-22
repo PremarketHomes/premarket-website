@@ -3,8 +3,8 @@
 // One `propertyCharges/{propertyId}` document is ever created per
 // property, the moment that property is successfully created (its
 // private buyer link is live from that same instant — see
-// dashboard/add/page.js, propertyScrapeService.js, and the AgentBox/Rex
-// import routes, the three places a NEW property document is created).
+// dashboard/add/page.js and the AgentBox/Rex import routes, the three
+// places a NEW property document is created).
 // The doc ID is the property ID itself, so recording a charge is
 // idempotent by construction: recordPropertyCharge() always checks for
 // an existing doc first, and uses Firestore's `create()` (which fails
@@ -733,11 +733,10 @@ function isAlreadyExistsError(err) {
  * access to propertyCharges at all per firestore.rules) because both
  * writes happen server-side, in the same call.
  *
- * Used by the two fully server-side creation paths:
- * propertyScrapeService.js (SMS-created listings) and the AgentBox/Rex
- * import routes. Pass `skipCharge: true` for a demo-mode import (sample
- * data, never billable) — the property is still created normally,
- * just with no charge attached, same as any excluded agent.
+ * Used by the fully server-side AgentBox/Rex import routes. Pass
+ * `skipCharge: true` for a demo-mode import (sample data, never
+ * billable) — the property is still created normally, just with no
+ * charge attached, same as any excluded agent.
  *
  * The agent/settings/brand lookups that decide the charge's contents
  * happen BEFORE the transaction (plain reads, not `tx.get()`) — a tiny
