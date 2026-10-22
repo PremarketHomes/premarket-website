@@ -5,7 +5,7 @@ vi.mock('firebase-admin/auth', () => ({
   getAuth: () => ({ verifyIdToken: mockVerifyIdToken }),
 }));
 
-const state = { users: {}, agencyBrands: {}, agencyMemberships: {} };
+const state = { users: {}, agencyBrands: {} };
 
 vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: {
@@ -17,15 +17,19 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
               state.users[id] ? { exists: true, data: () => state.users[id] } : { exists: false }
             )),
             update: vi.fn().mockImplementation(async (patch) => {
-              state.users[id] = { ...(state.users[id] || {}), ...patch };
+              state.users[id] = { ...(state.users[id] || {}) };
+              for (const [key, value] of Object.entries(patch)) {
+                if (value === 'DELETE_SENTINEL') delete state.users[id][key];
+                else state.users[id][key] = value;
+              }
             }),
-          }),
-          where: (field, op, value) => ({
-            get: vi.fn().mockImplementation(async () => {
-              const docs = Object.entries(state.users)
-                .filter(([, data]) => (op === '!=' ? data[field] !== value && data[field] !== undefined : data[field] === value))
-                .map(([id, data]) => ({ id, data: () => data }));
-              return { docs };
+            where: (field, op, value) => ({
+              get: vi.fn().mockImplementation(async () => {
+                const docs = Object.entries(state.users)
+                  .filter(([, data]) => (op === '!=' ? data[field] !== value && data[field] !== undefined : data[field] === value))
+                  .map(([id, data]) => ({ id, data: () => data }));
+                return { docs };
+              }),
             }),
           }),
         };
@@ -56,34 +60,13 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
           })),
         };
       }
-      if (name === 'agencyMemberships') {
-        return {
-          doc: (id) => ({
-            get: vi.fn().mockImplementation(async () => (
-              state.agencyMemberships[id] ? { exists: true, data: () => state.agencyMemberships[id] } : { exists: false }
-            )),
-            set: vi.fn().mockImplementation(async (data) => { state.agencyMemberships[id] = data; }),
-          }),
-          where: (field, op, value) => ({
-            get: vi.fn().mockImplementation(async () => {
-              const docs = Object.entries(state.agencyMemberships)
-                .filter(([, data]) => data[field] === value)
-                .map(([id, data]) => ({ id, data: () => data }));
-              return { docs };
-            }),
-          }),
-          get: vi.fn().mockImplementation(async () => ({
-            docs: Object.entries(state.agencyMemberships).map(([id, data]) => ({ id, data: () => data })),
-          })),
-        };
-      }
       throw new Error(`Unexpected collection: ${name}`);
     },
   },
 }));
 
 vi.mock('firebase-admin/firestore', () => ({
-  FieldValue: { serverTimestamp: () => 'TIMESTAMP' },
+  FieldValue: { serverTimestamp: () => 'TIMESTAMP', delete: () => 'DELETE_SENTINEL' },
 }));
 
 function makeRequest(body, authHeader, method = 'POST') {
@@ -99,7 +82,6 @@ function setupValidAuth(uid = 'agent1') {
 function resetState() {
   state.users = {};
   state.agencyBrands = {};
-  state.agencyMemberships = {};
 }
 
 describe('POST /api/branding/extract-colors', () => {
@@ -152,7 +134,7 @@ describe('POST /api/branding/confirm', () => {
     expect(res.status).toBe(401);
   });
 
-  it('creates a new brand and links only the confirming agent', async () => {
+  it('CORE RULE: with no existing brand, this ESTABLISHES a new shared brand and links only the confirming agent', async () => {
     setupValidAuth('agent1');
     const { POST } = await import('../../src/app/api/branding/confirm/route');
     const res = await POST(makeRequest({ name: 'Harcourts Property Hub', logoUrl: 'https://x/logo.png', primary: '#011d47', secondary: '#01a8ec' }, 'Bearer valid'));
@@ -160,7 +142,20 @@ describe('POST /api/branding/confirm', () => {
 
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
+    expect(body.personalOverride).toBe(false);
     expect(state.users.agent1.agencyBrandId).toBe(body.brandId);
+    expect(state.agencyBrands[body.brandId].createdBy).toBe('agent1');
+  });
+
+  it('establishing requires a name and a primary colour', async () => {
+    setupValidAuth('agent1');
+    const { POST } = await import('../../src/app/api/branding/confirm/route');
+
+    const noName = await POST(makeRequest({ primary: '#011d47' }, 'Bearer valid'));
+    expect(noName.status).toBe(400);
+
+    const noColour = await POST(makeRequest({ name: 'Harcourts Property Hub' }, 'Bearer valid'));
+    expect(noColour.status).toBe(400);
   });
 
   it('rejects an invalid primary colour rather than saving broken branding', async () => {
@@ -171,35 +166,87 @@ describe('POST /api/branding/confirm', () => {
     expect(state.users.agent1).toBeUndefined();
   });
 
-  it('requesting to join an existing brand applies branding immediately but leaves trust pending — never an instant grant', async () => {
+  it('CORE RULE: once the caller already has a shared brand linked, confirm is ALWAYS a personal override — never touches the shared brand', async () => {
     setupValidAuth('agent1');
     const { POST } = await import('../../src/app/api/branding/confirm/route');
-    const createRes = await POST(makeRequest({ name: 'Harcourts Property Hub', primary: '#011d47' }, 'Bearer valid'));
+    const createRes = await POST(makeRequest({ name: 'Harcourts Property Hub', logoUrl: 'https://shared.example.com/logo.png', primary: '#011d47' }, 'Bearer valid'));
     const { brandId } = await createRes.json();
+    const sharedBrandBefore = { ...state.agencyBrands[brandId] };
 
-    state.users.agent2 = { companyName: 'Harcourts Property Hub' };
+    // agent2 is already linked to the SAME brand (simulating automatic
+    // inheritance via autoEstablishBrandForUser) and now personalizes
+    // their own logo/colours.
+    state.users.agent2 = { companyName: 'Harcourts Property Hub', agencyBrandId: brandId };
     setupValidAuth('agent2');
-    const joinRes = await POST(makeRequest({ brandId }, 'Bearer valid'));
-    const joinBody = await joinRes.json();
+    const overrideRes = await POST(makeRequest({ logoUrl: 'https://mine.example.com/logo.png', primary: '#ff0000' }, 'Bearer valid'));
+    const overrideBody = await overrideRes.json();
 
-    expect(joinRes.status).toBe(200);
-    expect(joinBody.membershipStatus).toBe('pending');
-    expect(state.users.agent2.agencyBrandId).toBe(brandId); // branding display preserved immediately
-    expect(state.agencyMemberships.agent2.status).toBe('pending'); // NOT verified — a superAdmin must still approve this
-    expect(state.users.agent1.agencyBrandId).toBe(brandId); // unaffected by agent2's request
+    expect(overrideRes.status).toBe(200);
+    expect(overrideBody.personalOverride).toBe(true);
+    expect(state.users.agent2.logoUrl).toBe('https://mine.example.com/logo.png');
+    expect(state.users.agent2.brandColors.primary).toBe('#ff0000');
+    // The shared brand itself, and agent1's own account, are completely untouched.
+    expect(state.agencyBrands[brandId]).toEqual(sharedBrandBefore);
+    expect(state.users.agent1.logoUrl).toBeUndefined();
   });
 
-  it('rejects joining a brand whose name does not match the caller\'s own companyName (no self-assigning another agency\'s brand)', async () => {
+  it('a personal override can change just the logo, leaving colours untouched, once already linked to a shared brand', async () => {
     setupValidAuth('agent1');
     const { POST } = await import('../../src/app/api/branding/confirm/route');
     const createRes = await POST(makeRequest({ name: 'Harcourts Property Hub', primary: '#011d47' }, 'Bearer valid'));
     const { brandId } = await createRes.json();
 
-    state.users.agent2 = { companyName: 'Some Rival Agency' };
+    const overrideRes = await POST(makeRequest({ logoUrl: 'https://mine.example.com/logo.png' }, 'Bearer valid'));
+    expect(overrideRes.status).toBe(200);
+    expect(state.users.agent1.logoUrl).toBe('https://mine.example.com/logo.png');
+    expect(state.users.agent1.brandColors).toBeUndefined();
+  });
+});
+
+describe('POST /api/branding/reset', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetState();
+  });
+
+  it('returns 401 without auth', async () => {
+    const { POST } = await import('../../src/app/api/branding/reset/route');
+    const res = await POST(makeRequest(undefined, undefined));
+    expect(res.status).toBe(401);
+  });
+
+  it('"Reset to Agency Branding": clears the caller\'s personal override, leaves agencyBrandId and other fields untouched', async () => {
+    setupValidAuth('agent1');
+    state.users.agent1 = {
+      firstName: 'Jo',
+      agencyBrandId: 'harcourts-property-hub',
+      logoUrl: 'https://mine.example.com/logo.png',
+      brandColors: { primary: '#ff0000' },
+    };
+    const { POST } = await import('../../src/app/api/branding/reset/route');
+    const res = await POST(makeRequest(undefined, 'Bearer valid'));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(state.users.agent1.logoUrl).toBeUndefined();
+    expect(state.users.agent1.brandColors).toBeUndefined();
+    expect(state.users.agent1.agencyBrandId).toBe('harcourts-property-hub');
+    expect(state.users.agent1.firstName).toBe('Jo');
+  });
+
+  it('never affects another agent\'s account or the shared brand', async () => {
     setupValidAuth('agent2');
-    const joinRes = await POST(makeRequest({ brandId }, 'Bearer valid'));
-    expect(joinRes.status).toBe(500);
-    expect(state.users.agent2.agencyBrandId).toBeUndefined();
+    state.agencyBrands['shared-agency'] = { name: 'Shared Agency', colors: { primary: '#011d47' }, logoUrl: 'https://shared.example.com/logo.png' };
+    state.users.agent1 = { agencyBrandId: 'shared-agency', logoUrl: 'https://agent1.example.com/logo.png' };
+    state.users.agent2 = { agencyBrandId: 'shared-agency', logoUrl: 'https://agent2.example.com/logo.png', brandColors: { primary: '#ff0000' } };
+
+    const { POST } = await import('../../src/app/api/branding/reset/route');
+    await POST(makeRequest(undefined, 'Bearer valid'));
+
+    expect(state.users.agent2.logoUrl).toBeUndefined();
+    expect(state.users.agent1.logoUrl).toBe('https://agent1.example.com/logo.png'); // untouched
+    expect(state.agencyBrands['shared-agency'].logoUrl).toBe('https://shared.example.com/logo.png'); // untouched
   });
 });
 
@@ -215,17 +262,17 @@ describe('GET /api/branding/mine', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns brand: null, suggestion: null for a plain existing agent with no company name and no brand (unaffected by this feature)', async () => {
+  it('returns brand: null and an empty personalOverride for a plain existing agent with no company name and no brand (unaffected by this feature)', async () => {
     setupValidAuth('agent1');
     state.users.agent1 = { firstName: 'Existing', roles: ['agent'] };
     const { GET } = await import('../../src/app/api/branding/mine/route');
     const res = await GET(makeRequest(undefined, 'Bearer valid', 'GET'));
     const body = await res.json();
     expect(body.brand).toBeNull();
-    expect(body.suggestion).toBeNull();
+    expect(body.personalOverride).toEqual({ logoUrl: null, colors: null });
   });
 
-  it('SECURITY: no longer auto-joins an existing brand on a companyName match — surfaces a suggestion instead, requiring an explicit agent action', async () => {
+  it('CORE RULE: automatically JOINS an existing brand on a companyName match — no click, no review, no "suggestion" step', async () => {
     state.agencyBrands['harcourts-property-hub'] = { name: 'Harcourts Property Hub', colors: { primary: '#011d47' }, createdBy: 'agent1' };
     state.users.agent2 = { companyName: 'Harcourts Property Hub' };
 
@@ -234,14 +281,24 @@ describe('GET /api/branding/mine', () => {
     const res = await GET(makeRequest(undefined, 'Bearer valid', 'GET'));
     const body = await res.json();
 
-    // This used to auto-join (and auto-trust for billing) just by
-    // loading the dashboard — exactly the unverified escalation path
-    // that was fixed. Now it's only ever a suggestion the agent must
-    // explicitly act on (POST /api/branding/confirm with brandId).
-    expect(body.brand).toBeNull();
-    expect(body.suggestion?.name).toBe('Harcourts Property Hub');
-    expect(state.users.agent2.agencyBrandId).toBeUndefined();
-    expect(state.agencyMemberships.agent2).toBeUndefined();
+    expect(body.brand?.name).toBe('Harcourts Property Hub');
+    expect(state.users.agent2.agencyBrandId).toBe('harcourts-property-hub'); // automatically linked, no agent action required
+  });
+
+  it('returns the caller\'s own personal override alongside the shared brand', async () => {
+    state.agencyBrands['shared-agency'] = { name: 'Shared Agency', colors: { primary: '#011d47' }, logoUrl: 'https://shared.example.com/logo.png' };
+    state.users.agent1 = {
+      agencyBrandId: 'shared-agency',
+      logoUrl: 'https://mine.example.com/logo.png',
+      brandColors: { primary: '#ff0000' },
+    };
+    setupValidAuth('agent1');
+    const { GET } = await import('../../src/app/api/branding/mine/route');
+    const res = await GET(makeRequest(undefined, 'Bearer valid', 'GET'));
+    const body = await res.json();
+
+    expect(body.brand.name).toBe('Shared Agency');
+    expect(body.personalOverride).toEqual({ logoUrl: 'https://mine.example.com/logo.png', colors: { primary: '#ff0000' } });
   });
 
   it('automatically creates a brand from an agent\'s own logo when no existing brand matches their company', async () => {
@@ -270,7 +327,7 @@ describe('GET /api/branding/mine', () => {
     const body = await res.json();
 
     expect(body.brand).toBeNull();
-    expect(body.suggestion).toBeNull();
+    expect(body.personalOverride).toEqual({ logoUrl: null, colors: null });
     expect(state.users.agent1.agencyBrandId).toBeUndefined();
   });
 

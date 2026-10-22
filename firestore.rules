@@ -69,9 +69,18 @@ service cloud.firestore {
       // (confirmed by reading every client-side updateDoc(doc(db,'users',...))
       // call site in the app — dashboard/settings, dashboard home, and the
       // SMS-verification flow). Everything else — superAdmin, pro,
-      // agencyBrandId, isAgent/isBuyer, and any privileged field added in
-      // the future — is denied by default, rather than relying on anyone
-      // remembering to add it to a denylist. agencyBrandId's own exclusion
+      // agencyBrandId, brandColors, isAgent/isBuyer, and any privileged
+      // field added in the future — is denied by default, rather than
+      // relying on anyone remembering to add it to a denylist.
+      // `logoUrl` IS client-writable directly (Account Settings' own
+      // upload flow) and, under the shared-default + personal-override
+      // branding model, that same field doubles as an agent's personal
+      // logo override — no server route needed for logo-only changes.
+      // `brandColors` (the colour half of that same override) is NOT
+      // client-writable — it must only ever be set via
+      // /api/branding/confirm (setPersonalBrandOverride), since colour
+      // validation/contrast (buildColorSet) has to happen server-side.
+      // agencyBrandId's own exclusion
       // (see the original comment this replaced) is preserved by simply
       // never appearing in this list: it must only ever be set by the
       // server (see /api/branding/confirm, Admin SDK) after validating the

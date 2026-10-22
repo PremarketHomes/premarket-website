@@ -150,6 +150,19 @@ export default function AgentSignup() {
         console.error('Signup billing-details submission failed (non-blocking):', billingErr);
       }
 
+      // Auto-establish/inherit agency branding now that companyName is
+      // written — if another agent already established branding under
+      // this exact agency name, this agent is automatically linked to
+      // it with zero review (see autoEstablishBrandForUser). Exactly
+      // like the billing-details call above: never blocks reaching the
+      // dashboard, and can also complete later just by visiting the
+      // dashboard or the branding page if it fails here.
+      try {
+        await authFetch('/api/branding/mine');
+      } catch (brandingErr) {
+        console.error('Signup branding auto-establish failed (non-blocking):', brandingErr);
+      }
+
       // Redirect to dashboard
       router.push('/dashboard');
     } catch (err) {

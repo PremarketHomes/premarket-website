@@ -108,6 +108,29 @@ describe('users collection', () => {
     await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob' }));
   });
 
+  // --- brandColors (personal branding override) ---
+  // Same reasoning as agencyBrandId above: colour validation/contrast
+  // (buildColorSet) must always happen server-side, via
+  // /api/branding/confirm — never a direct client write, even by the
+  // account owner, which could otherwise bypass that validation.
+  it('denies the owner setting their own brandColors directly', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { brandColors: { primary: '#ff0000' } }));
+  });
+
+  it('denies changing brandColors even alongside an otherwise-valid field', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob', brandColors: { primary: '#ff0000' } }));
+  });
+
+  it('still allows updating unrelated fields when brandColors is untouched', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice', brandColors: { primary: '#ff0000' } });
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob' }));
+  });
+
   // --- privilege escalation (P0 fix) ---
   // The vulnerability: the update rule used to denylist only
   // agencyBrandId, leaving every other field — including superAdmin —

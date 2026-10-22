@@ -10,7 +10,7 @@ import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { usePropertyEngagement } from '../hooks/usePropertyEngagement';
 import PriceOpinionSlider, { roundToStep } from './PriceOpinionSlider';
-import { computeBrandStyle, computeDisplayLogoUrl } from '../utils/brandStyle';
+import { computeBrandStyle, computeDisplayLogoUrl, computeEffectiveColors } from '../utils/brandStyle';
 import { getMarketStatusCopy } from '../utils/marketStatusCopy';
 import { isPreviewDeployment } from '../utils/previewEnvironment';
 import { getSwipeDirection } from '../utils/swipeGesture';
@@ -285,6 +285,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
             companyName: userData.companyName,
             avatar: userData.avatar,
             logoUrl: userData.logoUrl,
+            brandColors: userData.brandColors,
             phone: userData.phone,
           };
 
@@ -932,15 +933,19 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
   );
 
   // Agency branding CSS variables — undefined (no inline style at all)
-  // when there's no linked brand, so every var(--brand-x, <default>)
-  // reference throughout this component and PriceOpinionSlider.js falls
-  // through to the exact existing Premarket colours unchanged.
-  // previewBrand (dashboard-only) lets the branding setup page render this
-  // exact same component with proposed, not-yet-saved colours, so agents
-  // see precisely what buyers will see before confirming anything.
-  const effectiveBrand = previewBrand || brand;
-  const brandStyle = computeBrandStyle(effectiveBrand);
-  const displayLogoUrl = computeDisplayLogoUrl({ brand: effectiveBrand, agentData });
+  // when there's neither a personal override nor a linked shared brand,
+  // so every var(--brand-x, <default>) reference throughout this
+  // component and PriceOpinionSlider.js falls through to the exact
+  // existing Premarket colours unchanged. The agent's own personal
+  // logo/colour override (agentData.logoUrl / .brandColors) always wins
+  // over the shared brand — see brandStyle.js's own comment for why.
+  // previewBrand (dashboard-only) lets the branding setup page render
+  // this exact same component with proposed, not-yet-saved colours, so
+  // agents see precisely what buyers will see before confirming
+  // anything — it takes absolute precedence over both when present.
+  const effectiveColors = computeEffectiveColors({ brand, agentData, previewBrand });
+  const brandStyle = computeBrandStyle(effectiveColors);
+  const displayLogoUrl = computeDisplayLogoUrl({ brand, agentData, previewBrand });
 
   // ═══════════════════════════════════════════════════════════════
   // iPad Open Home Mode - Fullscreen price opinion kiosk

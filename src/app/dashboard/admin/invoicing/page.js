@@ -3,7 +3,7 @@
 import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { BarChart3, FileText, Settings, Plug, ChevronRight, Receipt, Building2, Users } from 'lucide-react';
+import { BarChart3, FileText, Settings, Plug, ChevronRight, Receipt, Building2 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { authFetch } from '../../../utils/authFetch';
 import InvoicingOverview from './components/InvoicingOverview';
@@ -11,14 +11,12 @@ import InvoiceRunsPanel from './components/InvoiceRunsPanel';
 import InvoicingSettings from './components/InvoicingSettings';
 import ChargesPanel from './components/ChargesPanel';
 import BillingContactsPanel from './components/BillingContactsPanel';
-import AgencyMembershipsPanel from './components/AgencyMembershipsPanel';
 
 const TABS = [
   { key: 'overview', label: 'Overview', icon: BarChart3 },
   { key: 'charges', label: 'Charges', icon: Receipt },
   { key: 'runs', label: 'Invoice Runs', icon: FileText },
   { key: 'billing-contacts', label: 'Billing Contacts', icon: Building2 },
-  { key: 'agency-memberships', label: 'Agency Memberships', icon: Users },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -32,7 +30,6 @@ function InvoicingPageContent() {
   const [pricePerListing, setPricePerListing] = useState(null);
   const [xeroError, setXeroError] = useState(null);
   const [pendingContactsCount, setPendingContactsCount] = useState(0);
-  const [pendingMembershipsCount, setPendingMembershipsCount] = useState(0);
 
   useEffect(() => {
     async function checkPendingContacts() {
@@ -46,20 +43,6 @@ function InvoicingPageContent() {
       }
     }
     checkPendingContacts();
-  }, [user, activeTab]);
-
-  useEffect(() => {
-    async function checkPendingMemberships() {
-      if (!user) return;
-      try {
-        const res = await authFetch('/api/admin/agency-memberships');
-        const data = await res.json();
-        setPendingMembershipsCount((data.pending || []).length);
-      } catch {
-        // ignore — the tab itself still loads and shows its own error state
-      }
-    }
-    checkPendingMemberships();
   }, [user, activeTab]);
 
   // Check Xero connection status + current wholesale price — fetched
@@ -144,11 +127,6 @@ function InvoicingPageContent() {
                     {pendingContactsCount}
                   </span>
                 )}
-                {tab.key === 'agency-memberships' && pendingMembershipsCount > 0 && (
-                  <span className="bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5 rounded-full">
-                    {pendingMembershipsCount}
-                  </span>
-                )}
               </button>
             );
           })}
@@ -160,7 +138,6 @@ function InvoicingPageContent() {
       {activeTab === 'charges' && <ChargesPanel />}
       {activeTab === 'runs' && <InvoiceRunsPanel user={user} pricePerListing={pricePerListing} />}
       {activeTab === 'billing-contacts' && <BillingContactsPanel />}
-      {activeTab === 'agency-memberships' && <AgencyMembershipsPanel />}
       {activeTab === 'settings' && (
         <InvoicingSettings
           user={user}
