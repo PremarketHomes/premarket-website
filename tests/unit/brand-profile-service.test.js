@@ -500,18 +500,64 @@ describe('office integration — end-to-end branding resolution (confirms office
     expect(brand.name).toBe('Harcourts Property Hub');
   });
 
-  it('createBrand with an officeId targets the OFFICE doc, and every member immediately resolves it via getBrandForUser', async () => {
-    const { createBrand, getBrandForUser } = await import('../../src/app/api/services/brandProfileService');
+  it('saveOfficeBrand targets the OFFICE doc (never an admin\'s own), and every member immediately resolves it via getBrandForUser', async () => {
+    const { saveOfficeBrand, getBrandForUser } = await import('../../src/app/api/services/brandProfileService');
     state.offices.office1 = { agencyBrandId: null };
     state.users.member1 = { officeId: 'office1' };
     state.users.member2 = { officeId: 'office1' };
 
-    const { brandId } = await createBrand({ uid: 'admin1', name: 'Harcourts Property Hub', primary: '#011d47', officeId: 'office1' });
+    const { brandId } = await saveOfficeBrand({ officeId: 'office1', officeName: 'Harcourts Property Hub', primary: '#011d47' });
 
+    expect(brandId).toBe('office-office1'); // keyed by officeId, never by name
     expect(state.offices.office1.agencyBrandId).toBe(brandId);
-    expect(state.users.admin1).toBeUndefined(); // the admin's OWN doc was never touched
+    expect(state.users.admin1).toBeUndefined(); // no admin uid is ever touched — this function doesn't even take one
     expect((await getBrandForUser('member1')).name).toBe('Harcourts Property Hub');
     expect((await getBrandForUser('member2')).name).toBe('Harcourts Property Hub');
+  });
+
+  it('SECURITY/BUG FIX: saveOfficeBrand never collides with an UNRELATED brand that happens to share the office\'s name — createBrand\'s name-keyed id and saveOfficeBrand\'s officeId-keyed id never intersect', async () => {
+    const { createBrand, saveOfficeBrand } = await import('../../src/app/api/services/brandProfileService');
+    state.users.independentAgent1 = {};
+    state.offices.office1 = { agencyBrandId: null };
+
+    // An unrelated individual agent independently established a brand
+    // under the exact same name, long before this office existed.
+    const independent = await createBrand({ uid: 'independentAgent1', name: 'Harcourts Property Hub', primary: '#000000' });
+
+    // The office's own save must NOT silently join that brand and
+    // discard its own submitted colours — the original bug.
+    const officeResult = await saveOfficeBrand({ officeId: 'office1', officeName: 'Harcourts Property Hub', primary: '#011d47', secondary: '#01a8ec' });
+
+    expect(officeResult.brandId).not.toBe(independent.brandId);
+    expect(officeResult.colors.primary).toBe('#011d47'); // the office's OWN submitted colour, not discarded
+    expect(state.agencyBrands[independent.brandId].colors.primary).toBe('#000000'); // completely untouched
+    expect(state.users.independentAgent1.agencyBrandId).toBe(independent.brandId); // unaffected
+  });
+
+  it('a second save to the SAME office UPDATES its one dedicated brand, never creating a duplicate', async () => {
+    const { saveOfficeBrand } = await import('../../src/app/api/services/brandProfileService');
+    state.offices.office1 = { agencyBrandId: null };
+
+    const first = await saveOfficeBrand({ officeId: 'office1', officeName: 'Harcourts Property Hub', logoUrl: 'https://x/old.png', primary: '#011d47' });
+    const second = await saveOfficeBrand({ officeId: 'office1', officeName: 'Harcourts Property Hub', logoUrl: 'https://x/new.png', primary: '#ff0000' });
+
+    expect(second.brandId).toBe(first.brandId); // the SAME doc, not a new one
+    expect(Object.keys(state.agencyBrands)).toHaveLength(1);
+    expect(state.agencyBrands[first.brandId].logoUrl).toBe('https://x/new.png');
+    expect(state.agencyBrands[first.brandId].colors.primary).toBe('#ff0000');
+  });
+
+  it('never requires an atomic create — two offices saving branding under coincidentally-identical office names still get two independent brands (keyed by officeId, not name)', async () => {
+    const { saveOfficeBrand } = await import('../../src/app/api/services/brandProfileService');
+    state.offices.office1 = { agencyBrandId: null };
+    state.offices.office2 = { agencyBrandId: null };
+
+    const r1 = await saveOfficeBrand({ officeId: 'office1', officeName: 'Ray White', primary: '#011d47' });
+    const r2 = await saveOfficeBrand({ officeId: 'office2', officeName: 'Ray White', primary: '#ff0000' });
+
+    expect(r1.brandId).not.toBe(r2.brandId);
+    expect(state.agencyBrands[r1.brandId].colors.primary).toBe('#011d47');
+    expect(state.agencyBrands[r2.brandId].colors.primary).toBe('#ff0000');
   });
 
   it('removing an agent from their office (officeId cleared) instantly drops the office branding — falls back to Premarket default with nothing to clean up', async () => {

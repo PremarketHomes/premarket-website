@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const state = { users: {}, offices: {}, officeAdminInfo: {}, officeInvites: {}, officeJoinRequests: [] };
+const state = { users: {}, offices: {}, officeAdminInfo: {}, officeInvites: {}, officeJoinRequests: [], officeAgentContacts: {} };
 
 function makeQuery(name, filters) {
   return {
@@ -72,7 +72,7 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: {
     collection: (name) => {
       if (name === 'offices') return makeOfficesCollection();
-      if (!['users', 'officeAdminInfo', 'officeJoinRequests', 'officeInvites'].includes(name)) {
+      if (!['users', 'officeAdminInfo', 'officeJoinRequests', 'officeInvites', 'officeAgentContacts'].includes(name)) {
         throw new Error(`Unexpected collection in test: ${name}`);
       }
       return makeCollection(name);
@@ -103,6 +103,7 @@ function resetState() {
   state.officeAdminInfo = {};
   state.officeInvites = {};
   state.officeJoinRequests = [];
+  state.officeAgentContacts = {};
   autoIdCounter = 0;
   updateUserMock.mockClear();
 }
@@ -332,6 +333,58 @@ describe('markOfficeAccountActivated', () => {
     const result = await markOfficeAccountActivated('agent1');
     expect(result.activated).toBe(false);
     expect(state.users.agent1.activatedAt).toBe('OLD'); // untouched, never re-stamped
+  });
+
+  it('PREPOPULATE: claims the office-submitted phone number at the exact moment of activation', async () => {
+    const { markOfficeAccountActivated } = await import('../../src/app/api/services/officeService');
+    state.users.agent1 = { accountStatus: 'invited' };
+    state.officeAgentContacts.agent1 = { phone: '0412345678', officeId: 'office1' };
+
+    await markOfficeAccountActivated('agent1');
+
+    expect(state.users.agent1.phone).toBe('0412345678');
+    expect(state.users.agent1.mobileConfirmedAt).toBe('TIMESTAMP');
+  });
+
+  it('never overwrites a phone number already on file (defensive — not realistic for a genuinely brand-new account, but kept consistent with acceptOfficeInvite\'s identical guard)', async () => {
+    const { markOfficeAccountActivated } = await import('../../src/app/api/services/officeService');
+    state.users.agent1 = { accountStatus: 'invited', phone: '+61400000000' };
+    state.officeAgentContacts.agent1 = { phone: '0412345678', officeId: 'office1' };
+
+    await markOfficeAccountActivated('agent1');
+
+    expect(state.users.agent1.phone).toBe('+61400000000');
+  });
+});
+
+describe('claimOfficeContactPhone', () => {
+  beforeEach(() => { vi.clearAllMocks(); resetState(); });
+
+  it('returns the stored phone number when the agent has none of their own', async () => {
+    const { claimOfficeContactPhone } = await import('../../src/app/api/services/officeService');
+    state.users.agent1 = {};
+    state.officeAgentContacts.agent1 = { phone: '0412345678' };
+    expect(await claimOfficeContactPhone('agent1')).toBe('0412345678');
+  });
+
+  it('PRIVACY: returns null when the agent already has a phone number — never overwrites a self-entered number', async () => {
+    const { claimOfficeContactPhone } = await import('../../src/app/api/services/officeService');
+    state.users.agent1 = { phone: '+61400000000' };
+    state.officeAgentContacts.agent1 = { phone: '0412345678' };
+    expect(await claimOfficeContactPhone('agent1')).toBeNull();
+  });
+
+  it('returns null when no office ever submitted a contact record for this uid', async () => {
+    const { claimOfficeContactPhone } = await import('../../src/app/api/services/officeService');
+    state.users.agent1 = {};
+    expect(await claimOfficeContactPhone('agent1')).toBeNull();
+  });
+
+  it('SECURITY: only ever reads the contact record for the EXACT uid passed in — never a different agent\'s', async () => {
+    const { claimOfficeContactPhone } = await import('../../src/app/api/services/officeService');
+    state.users.agent1 = {};
+    state.officeAgentContacts.agent2 = { phone: '0412345678' }; // a DIFFERENT agent's number
+    expect(await claimOfficeContactPhone('agent1')).toBeNull();
   });
 });
 

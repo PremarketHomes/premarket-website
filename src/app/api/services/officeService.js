@@ -203,6 +203,30 @@ export async function getOfficeForUser(uid) {
 }
 
 /**
+ * The office-submitted phone number waiting to be claimed by this
+ * uid, or null if there's nothing to claim — either because they
+ * already have a phone number of their own on file (NEVER overwrites
+ * a self-entered number) or because no office ever submitted one for
+ * them. Reads officeAgentContacts for this EXACT uid only, and is
+ * never returned to a client directly; every caller folds the result
+ * straight into a users/{uid} update on this SAME uid, never anyone
+ * else's — this is what makes "only the verified invited account can
+ * receive its matching phone number" true: there is no path that
+ * lets one uid claim a DIFFERENT uid's stored contact. Used by both
+ * markOfficeAccountActivated below (brand-new accounts) and
+ * acceptOfficeInvite (existing accounts) — the two moments a phone
+ * number submitted at import time is finally allowed to surface onto
+ * the actual agent's own profile.
+ */
+export async function claimOfficeContactPhone(uid) {
+  const userDoc = await adminDb.collection('users').doc(uid).get();
+  if (userDoc.exists && userDoc.data().phone) return null;
+  const contactDoc = await adminDb.collection('officeAgentContacts').doc(uid).get();
+  if (!contactDoc.exists || !contactDoc.data().phone) return null;
+  return contactDoc.data().phone;
+}
+
+/**
  * Marks an office-invited agent's account as activated — the ONLY
  * thing that ever moves accountStatus from 'invited' to 'active'.
  * Called from the login success path (see login/page.js), after the
@@ -210,16 +234,35 @@ export async function getOfficeForUser(uid) {
  * import/resend/retry path, none of which can grant access on their
  * own. A safe no-op for every account that isn't an `'invited'`
  * office account (i.e. every ordinary individual-agent login).
+ *
+ * This is also the moment the office-submitted phone number (see
+ * claimOfficeContactPhone) is finally allowed onto the agent's own
+ * profile — gated on the SAME genuine-authentication check as
+ * activation itself, and never overwriting a number already there
+ * (never applicable for a genuinely brand-new account, but kept
+ * consistent with acceptOfficeInvite's identical guard regardless).
+ * `mobileConfirmedAt` is set alongside it — the same treatment any
+ * self-signup's own self-typed number already gets — so this is
+ * genuinely the last step: the agent lands in their dashboard with
+ * nothing left to confirm except their own profile photo.
  */
 export async function markOfficeAccountActivated(uid) {
   const userDoc = await adminDb.collection('users').doc(uid).get();
   if (!userDoc.exists || userDoc.data().accountStatus !== 'invited') {
     return { activated: false };
   }
-  await adminDb.collection('users').doc(uid).update({
+
+  const patch = {
     accountStatus: 'active',
     activatedAt: FieldValue.serverTimestamp(),
-  });
+  };
+  const claimedPhone = await claimOfficeContactPhone(uid);
+  if (claimedPhone) {
+    patch.phone = claimedPhone;
+    patch.mobileConfirmedAt = FieldValue.serverTimestamp();
+  }
+
+  await adminDb.collection('users').doc(uid).update(patch);
   return { activated: true };
 }
 

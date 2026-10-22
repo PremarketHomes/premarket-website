@@ -315,6 +315,21 @@ describe('processOneRow — existing Premarket account (never silently transferr
     expect(sentEmails[0].type).toBe('join-invite');
   });
 
+  it('BUG FIX: the submitted phone number is stored in officeAgentContacts for an existing-account invite too — it used to be silently discarded entirely', async () => {
+    authState.users.set('existing@x.com', { uid: 'uid-existing', email: 'existing@x.com' });
+    state.users['uid-existing'] = { officeId: null };
+
+    const { processOneRow } = await import('../../src/app/api/services/officeImportService');
+    await processOneRow({
+      officeId: 'office1', officeName: 'Harcourts Property Hub',
+      row: { name: 'Bob Jones', email: 'existing@x.com', phone: '0412345678' },
+      actorUid: 'admin1',
+    });
+
+    expect(state.officeAgentContacts['uid-existing'].phone).toBe('0412345678');
+    expect(state.users['uid-existing'].phone).toBeUndefined(); // never on the public profile yet — only after THEY accept
+  });
+
   it('an agent already a member of a DIFFERENT office is also never auto-transferred', async () => {
     authState.users.set('elsewhere@x.com', { uid: 'uid-elsewhere', email: 'elsewhere@x.com' });
     state.users['uid-elsewhere'] = { officeId: 'some-other-office' };
@@ -458,6 +473,46 @@ describe('acceptOfficeInvite', () => {
     expect(result.officeId).toBe('office1');
     expect(state.users.agentX.officeId).toBe('office1');
     expect(state.officeInvites['office1_agentX'].status).toBe('accepted');
+  });
+
+  it('PREPOPULATE: claims the office-submitted phone number onto the agent\'s own profile when they have none yet', async () => {
+    state.officeInvites['office1_agentX'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com', status: 'pending',
+    };
+    state.users.agentX = {}; // no phone on file
+    state.officeAgentContacts.agentX = { phone: '0412345678', officeId: 'office1' };
+
+    const { acceptOfficeInvite } = await import('../../src/app/api/services/officeImportService');
+    await acceptOfficeInvite({ token: 'office1_agentX', acceptingUid: 'agentX' });
+
+    expect(state.users.agentX.phone).toBe('0412345678');
+    expect(state.users.agentX.mobileConfirmedAt).toBe('TIMESTAMP');
+  });
+
+  it('PRIVACY/REQUIREMENT: never overwrites a phone number the agent already has on file (the real Phil scenario — an established agent with their own number)', async () => {
+    state.officeInvites['office1_agentX'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com', status: 'pending',
+    };
+    state.users.agentX = { phone: '+61400000000' }; // their own, already on file
+    state.officeAgentContacts.agentX = { phone: '0412345678', officeId: 'office1' }; // what the office admin typed
+
+    const { acceptOfficeInvite } = await import('../../src/app/api/services/officeImportService');
+    await acceptOfficeInvite({ token: 'office1_agentX', acceptingUid: 'agentX' });
+
+    expect(state.users.agentX.phone).toBe('+61400000000'); // unchanged
+    expect(state.users.agentX.mobileConfirmedAt).toBeUndefined(); // not touched either — nothing to confirm
+  });
+
+  it('is a safe no-op when no office ever submitted a phone number for this agent', async () => {
+    state.officeInvites['office1_agentX'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com', status: 'pending',
+    };
+    state.users.agentX = {};
+
+    const { acceptOfficeInvite } = await import('../../src/app/api/services/officeImportService');
+    await acceptOfficeInvite({ token: 'office1_agentX', acceptingUid: 'agentX' });
+
+    expect(state.users.agentX.phone).toBeUndefined();
   });
 
   it('SECURITY: rejects acceptance from a different uid than the invite targets', async () => {
