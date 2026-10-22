@@ -26,7 +26,7 @@ export async function GET(request) {
 
 /**
  * POST /api/admin/invoicing/billing-contacts
- * Body: { billingEntityKey, billingName, name, email }
+ * Body: { billingEntityKey, billingName, name, email, expectedVersion }
  *
  * Designates who an agency's invoice gets emailed to (name/email) and
  * what organisation name its Xero contact is created under
@@ -34,6 +34,11 @@ export async function GET(request) {
  * or setting it fresh with no proposal at all. Always wins over
  * whatever was proposed; this is the one and only way
  * billingContacts.status ever becomes 'confirmed'.
+ *
+ * `expectedVersion` is the version the admin UI loaded when it opened
+ * this item for review (see listPendingBillingContacts) — passed
+ * straight through so setBillingContact can refuse (409) a stale
+ * approval if the agent has edited their request again since.
  *
  * The key is passed in the body (not a URL segment) because
  * billingEntityKey values (e.g. "agency:harcourts property hub")
@@ -46,15 +51,15 @@ export async function POST(request) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
-    const { billingEntityKey, billingName, name, email } = await request.json();
-    const result = await setBillingContact({ billingEntityKey, billingName, name, email, adminUid: auth.uid });
+    const { billingEntityKey, billingName, name, email, expectedVersion } = await request.json();
+    const result = await setBillingContact({ billingEntityKey, billingName, name, email, expectedVersion, adminUid: auth.uid });
 
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     console.error('Set billing contact error:', err);
-    // Every error setBillingContact itself throws is a validation
-    // failure (missing key, malformed email) — a client error, not a
-    // server fault.
-    return NextResponse.json({ error: err.message || 'Failed to set billing contact' }, { status: 400 });
+    // Every error setBillingContact itself throws is either a
+    // validation failure (missing key, malformed email) or a stale-
+    // version conflict (409) — both client errors, never a server fault.
+    return NextResponse.json({ error: err.message || 'Failed to set billing contact' }, { status: err.status || 400 });
   }
 }

@@ -23,6 +23,11 @@ export default function BillingContactsPanel() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // billingEntityKey currently expanded for review
   const [form, setForm] = useState({ billingName: '', name: '', email: '' });
+  // The version this item had when Review was opened — sent back as
+  // expectedVersion so approve/reject can refuse (409) if the agent
+  // edited their request again in the meantime, rather than silently
+  // acting on what's now a stale, superseded submission.
+  const [editingVersion, setEditingVersion] = useState(null);
   const [actioning, setActioning] = useState(null);
   const [error, setError] = useState(null);
 
@@ -43,12 +48,23 @@ export default function BillingContactsPanel() {
 
   function startReview(item) {
     setEditing(item.billingEntityKey);
+    setEditingVersion(item.version ?? null);
     setError(null);
     setForm({
       billingName: item.proposedBillingName || item.billingEntityName || '',
       name: item.proposedName || '',
       email: item.proposedEmail || '',
     });
+  }
+
+  // A 409 here means the agent edited/resubmitted their request after
+  // this row was loaded — the admin was about to act on a now-stale
+  // version. Refresh the list so they see (and can review) what's
+  // actually current, rather than silently losing the newer request.
+  async function handleStaleConflict() {
+    setError('This request was updated by the agent since you opened it — showing the latest version.');
+    setEditing(null);
+    await fetchPending();
   }
 
   async function handleApprove(billingEntityKey) {
@@ -64,9 +80,11 @@ export default function BillingContactsPanel() {
           billingName: form.billingName.trim(),
           name: form.name.trim(),
           email: form.email.trim(),
+          expectedVersion: editingVersion,
         }),
       });
       const data = await res.json();
+      if (res.status === 409) { await handleStaleConflict(); return; }
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to approve');
       setEditing(null);
       await fetchPending();
@@ -86,9 +104,10 @@ export default function BillingContactsPanel() {
       const res = await authFetch('/api/admin/invoicing/billing-contacts/reject', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ billingEntityKey, reason }),
+        body: JSON.stringify({ billingEntityKey, reason, expectedVersion: editingVersion }),
       });
       const data = await res.json();
+      if (res.status === 409) { await handleStaleConflict(); return; }
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to reject');
       setEditing(null);
       await fetchPending();
@@ -106,15 +125,19 @@ export default function BillingContactsPanel() {
 
   if (pending.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
-        <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-        <p className="text-sm text-slate-500">No billing-contact proposals awaiting review.</p>
+      <div className="space-y-3">
+        {error && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+          <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+          <p className="text-sm text-slate-500">No billing-contact proposals awaiting review.</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
+      {error && !editing && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
       {pending.map((item) => (
         <div key={item.billingEntityKey} className="bg-white rounded-xl border border-slate-200 p-4">
           <div className="flex items-center justify-between gap-4">
@@ -123,9 +146,21 @@ export default function BillingContactsPanel() {
                 <Clock className="w-4.5 h-4.5 text-amber-600" />
               </div>
               <div>
-                <p className="font-medium text-slate-900 text-sm">{item.billingEntityName}</p>
+                <p className="font-medium text-slate-900 text-sm flex items-center gap-2">
+                  {item.billingEntityName}
+                  {item.isChangeRequest && (
+                    <span className="bg-blue-100 text-blue-700 text-[10px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                      Change request
+                    </span>
+                  )}
+                </p>
+                {item.isChangeRequest && (
+                  <p className="text-xs text-slate-400">
+                    Current: {item.currentBillingName || '—'} · {item.currentName || '—'} · {item.currentEmail || '—'}
+                  </p>
+                )}
                 <p className="text-xs text-slate-500">
-                  Agency: {item.proposedBillingName || '—'} · Accounts contact: {item.proposedName || '—'} · Billing email: {item.proposedEmail}
+                  {item.isChangeRequest ? 'Requested' : 'Agency'}: {item.proposedBillingName || '—'} · Accounts contact: {item.proposedName || '—'} · Billing email: {item.proposedEmail}
                 </p>
               </div>
             </div>

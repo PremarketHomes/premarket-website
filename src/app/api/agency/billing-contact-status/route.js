@@ -16,6 +16,13 @@ import { resolveBillingEntityForAgent, getBillingContactStatus } from '../../ser
  * until their OWN billing contact is confirmed — never shared with,
  * or satisfied by, any other agent's confirmation, even one at the
  * same agency.
+ *
+ * Also the one read this agent's Account Settings "Billing Details"
+ * section uses (see dashboard/settings/page.js) — so the full
+ * confirmed billingName/name/email are included once status is
+ * 'confirmed', plus `changeRequest` (pending/rejected amendment, if
+ * any) so that page can show a pending/rejected edit ALONGSIDE the
+ * still-fully-active confirmed contact, never in place of it.
  */
 export async function GET(request) {
   try {
@@ -30,7 +37,14 @@ export async function GET(request) {
       applicable: true,
       billingEntityName: entity.billingEntityName,
       status: statusInfo.status,
+      billingName: statusInfo.billingName,
+      name: statusInfo.name,
+      email: statusInfo.email,
+      proposedBillingName: statusInfo.proposedBillingName,
+      proposedName: statusInfo.proposedName,
+      proposedEmail: statusInfo.proposedEmail,
       rejectionReason: statusInfo.rejectionReason || null,
+      changeRequest: statusInfo.changeRequest || null,
     });
   } catch (err) {
     console.error('Billing contact status error:', err);
