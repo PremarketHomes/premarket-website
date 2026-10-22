@@ -1,11 +1,18 @@
 import { NextResponse } from 'next/server';
 import { verifyAuth } from '../../middleware/auth';
 import { extractBrandColors } from '../../services/brandColorExtractor';
+import { safeFetchExternalImage, UnsafeUrlError } from '../../services/safeExternalFetch';
 
 /**
- * Suggests a colour palette from an already-uploaded logo. Read-only —
- * never writes anything. The agent always confirms (or manually adjusts)
- * before anything is saved via /api/branding/confirm.
+ * Suggests a colour palette from a logo URL — reused by both the
+ * personal branding page and the office branding card (see
+ * dashboard/office/page.js), so there is exactly one place that
+ * fetches a user-supplied URL server-side, and exactly one place
+ * hardened against SSRF (safeFetchExternalImage) rather than each
+ * caller growing its own. Read-only — never writes anything. The
+ * agent/office admin always confirms (or manually adjusts) before
+ * anything is saved via /api/branding/confirm or
+ * /api/offices/{officeId}/branding.
  */
 export async function POST(request) {
   try {
@@ -19,17 +26,16 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Missing logoUrl' }, { status: 400 });
     }
 
-    let imageResponse;
+    let buffer;
     try {
-      imageResponse = await fetch(logoUrl);
+      buffer = await safeFetchExternalImage(logoUrl);
     } catch (err) {
-      console.error('Branding: failed to fetch logo', err);
-      return NextResponse.json({ error: 'Could not load the logo image. Please try again.' }, { status: 502 });
+      if (err instanceof UnsafeUrlError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
+      console.error('Branding: failed to fetch logo -', err.message);
+      return NextResponse.json({ error: 'Could not load the logo image. Please check the URL and try again.' }, { status: 502 });
     }
-    if (!imageResponse.ok) {
-      return NextResponse.json({ error: 'Could not load the logo image. Please try again.' }, { status: 502 });
-    }
-    const buffer = Buffer.from(await imageResponse.arrayBuffer());
 
     const result = await extractBrandColors(buffer);
     if (!result.usable) {

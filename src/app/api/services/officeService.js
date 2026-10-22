@@ -259,7 +259,7 @@ export async function listOfficeAgents(officeId) {
     const inv = d.data();
     return {
       uid: inv.targetUid,
-      name: null,
+      name: inv.targetName || null,
       email: inv.targetEmail || null,
       status: 'pending-acceptance',
       isOfficeAdmin: false,

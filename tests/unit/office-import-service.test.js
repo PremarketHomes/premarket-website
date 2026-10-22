@@ -361,6 +361,86 @@ describe('processOneRow — existing Premarket account (never silently transferr
     expect(sentEmails).toHaveLength(1);
     expect(sentEmails[0].type).toBe('activation');
   });
+
+  it('BUG FIX: stores the submitted name on the invite record so the roster can display it', async () => {
+    authState.users.set('bob@x.com', { uid: 'uid-bob', email: 'bob@x.com' });
+    state.users['uid-bob'] = { officeId: null };
+
+    const { processOneRow } = await import('../../src/app/api/services/officeImportService');
+    await processOneRow({
+      officeId: 'office1', officeName: 'X',
+      row: { name: 'Phil Smith', email: 'bob@x.com', phone: '0412345678' },
+      actorUid: 'admin1',
+    });
+
+    expect(state.officeInvites['office1_uid-bob'].targetName).toBe('Phil Smith');
+  });
+
+  it('EMAIL OUTCOME: when the join-invite email fails to send, the invite record is still created and this is reported distinctly, not thrown', async () => {
+    const { sendOfficeJoinInviteEmail } = await import('../../src/app/api/services/resendService');
+    sendOfficeJoinInviteEmail.mockRejectedValueOnce(new Error('Resend rejected the email'));
+    authState.users.set('bob@x.com', { uid: 'uid-bob', email: 'bob@x.com' });
+    state.users['uid-bob'] = { officeId: null };
+
+    const { processOneRow } = await import('../../src/app/api/services/officeImportService');
+    const result = await processOneRow({
+      officeId: 'office1', officeName: 'X',
+      row: { name: 'Phil Smith', email: 'bob@x.com', phone: '0412345678' },
+      actorUid: 'admin1',
+    });
+
+    // The operation did NOT fail — the invite record genuinely exists.
+    expect(result.outcome).toBe('invited-existing');
+    expect(result.emailSent).toBe(false);
+    expect(result.emailError).toContain('Resend rejected');
+    expect(state.officeInvites['office1_uid-bob'].status).toBe('pending');
+    expect(state.officeInvites['office1_uid-bob'].targetName).toBe('Phil Smith');
+  });
+
+  it('EMAIL OUTCOME: when the join-invite email succeeds, emailSent is true', async () => {
+    authState.users.set('bob@x.com', { uid: 'uid-bob', email: 'bob@x.com' });
+    state.users['uid-bob'] = { officeId: null };
+
+    const { processOneRow } = await import('../../src/app/api/services/officeImportService');
+    const result = await processOneRow({
+      officeId: 'office1', officeName: 'X',
+      row: { name: 'Phil Smith', email: 'bob@x.com', phone: '0412345678' },
+      actorUid: 'admin1',
+    });
+
+    expect(result.emailSent).toBe(true);
+    expect(result.emailError).toBeUndefined();
+  });
+});
+
+describe('processOneRow — email-send failures never abort the brand-new account path either', () => {
+  beforeEach(() => { vi.clearAllMocks(); resetAll(); });
+
+  it('a brand-new account is still created even if the activation email fails to send', async () => {
+    generatePasswordResetLinkMock.mockRejectedValueOnce(new Error('Resend misconfigured'));
+    const { processOneRow } = await import('../../src/app/api/services/officeImportService');
+    const result = await processOneRow({
+      officeId: 'office1', officeName: 'X',
+      row: { name: 'Jane Smith', email: 'jane@x.com', phone: '0412345678' },
+      actorUid: 'admin1',
+    });
+
+    expect(result.outcome).toBe('created'); // the account genuinely exists
+    expect(createUserMock).toHaveBeenCalledTimes(1);
+    expect(result.emailSent).toBe(false);
+    expect(result.emailError).toContain('Resend misconfigured');
+  });
+
+  it('a genuine account-creation failure (Auth itself) is still reported as failed, not created', async () => {
+    createUserMock.mockRejectedValueOnce(new Error('Auth is down'));
+    const { processOneRow } = await import('../../src/app/api/services/officeImportService');
+    const result = await processOneRow({
+      officeId: 'office1', officeName: 'X',
+      row: { name: 'Jane Smith', email: 'jane@x.com', phone: '0412345678' },
+      actorUid: 'admin1',
+    });
+    expect(result.outcome).toBe('failed');
+  });
 });
 
 describe('acceptOfficeInvite', () => {
@@ -583,6 +663,25 @@ describe('commitImportBatch — retry safety', () => {
     expect(result.summary.skipped).toBe(2);
     expect(createUserMock).not.toHaveBeenCalled();
   });
+
+  it('BUG FIX: a row whose account was created but whose email failed is counted in summary.emailFailed, and the batch is marked completed-with-errors', async () => {
+    generatePasswordResetLinkMock.mockRejectedValueOnce(new Error('Resend down'));
+    const { createImportBatch, commitImportBatch, getImportBatch } = await import('../../src/app/api/services/officeImportService');
+    state.officeAdminInfo.office1 = { name: 'X' };
+    const importId = await createImportBatch({
+      officeId: 'office1', uploadedBy: 'admin1',
+      rows: [{ rowIndex: 0, name: 'Jane Smith', email: 'jane@x.com', phone: '0412345678', previewStatus: 'new' }],
+    });
+
+    const result = await commitImportBatch({ importId, officeId: 'office1', actorUid: 'admin1' });
+
+    expect(result.summary.created).toBe(1); // the account genuinely exists
+    expect(result.summary.emailFailed).toBe(1);
+    expect(result.rows[0].emailSent).toBe(false);
+
+    const batch = await getImportBatch(importId);
+    expect(batch.status).toBe('completed-with-errors');
+  });
 });
 
 describe('resendInvitation', () => {
@@ -615,5 +714,37 @@ describe('resendInvitation', () => {
   it('throws 404 when there is nothing to resend', async () => {
     const { resendInvitation } = await import('../../src/app/api/services/officeImportService');
     await expect(resendInvitation({ officeId: 'office1', targetUid: 'nobody' })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('BUG FIX: resending a join-invite greets the agent by their stored name, not blank', async () => {
+    state.officeInvites['office1_agent2'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agent2', targetEmail: 'b@x.com',
+      targetName: 'Phil Smith', status: 'pending', createdBy: 'admin1',
+    };
+    const { resendInvitation } = await import('../../src/app/api/services/officeImportService');
+    await resendInvitation({ officeId: 'office1', targetUid: 'agent2' });
+    expect(sentEmails[sentEmails.length - 1].firstName).toBe('Phil');
+  });
+
+  it('reports emailSent/emailError for an activation resend', async () => {
+    generatePasswordResetLinkMock.mockRejectedValueOnce(new Error('down'));
+    state.officeAdminInfo.office1 = { name: 'X' };
+    state.users.agent1 = { officeId: 'office1', accountStatus: 'invited', email: 'a@x.com', firstName: 'Jo' };
+    const { resendInvitation } = await import('../../src/app/api/services/officeImportService');
+    const result = await resendInvitation({ officeId: 'office1', targetUid: 'agent1' });
+    expect(result.emailSent).toBe(false);
+    expect(result.emailError).toContain('down');
+  });
+
+  it('reports emailSent/emailError for a join-invite resend', async () => {
+    const { sendOfficeJoinInviteEmail } = await import('../../src/app/api/services/resendService');
+    sendOfficeJoinInviteEmail.mockRejectedValueOnce(new Error('down'));
+    state.officeInvites['office1_agent2'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agent2', targetEmail: 'b@x.com', status: 'pending', createdBy: 'admin1',
+    };
+    const { resendInvitation } = await import('../../src/app/api/services/officeImportService');
+    const result = await resendInvitation({ officeId: 'office1', targetUid: 'agent2' });
+    expect(result.emailSent).toBe(false);
+    expect(result.emailError).toContain('down');
   });
 });
