@@ -1,23 +1,23 @@
 import { NextResponse } from 'next/server';
 import { verifyAuth } from '../../middleware/auth';
 import { adminDb } from '../../../firebase/adminApp';
-import { getBrandForUser, findBrandByExactName, autoEstablishBrandForUser } from '../../services/brandProfileService';
+import { getBrandForUser, autoEstablishBrandForUser } from '../../services/brandProfileService';
 
 /**
- * Returns the caller's current brand (if any).
+ * Returns the caller's current branding: their inherited/established
+ * shared brand (if any) and their own personal logo/colour override
+ * (if any) — the client layers these with the exact same precedence
+ * computeEffectiveColors/computeDisplayLogoUrl (brandStyle.js) use for
+ * the real public property page, so the dashboard's branding page
+ * always shows the truth.
  *
- * If they don't have one yet but already have a logo + company name on
- * file, this first tries to automatically establish (or join) their
- * agency brand — see autoEstablishBrandForUser for exactly what that
- * does and doesn't do. This is what makes branding apply for existing
- * accounts without a separate login/approval step: simply loading the
- * dashboard (which calls this route) is enough.
- *
- * Only when auto-establishing wasn't possible (no logo, or extraction
- * wasn't confident) does this fall back to the older manual-suggestion
- * behaviour: a suggested existing brand based on an EXACT (not fuzzy)
- * match against their companyName, which the dashboard still offers
- * with an explicit "Apply Branding" / "Not Now" choice.
+ * If the caller doesn't have a shared brand yet, this first tries to
+ * automatically establish or join one — see autoEstablishBrandForUser
+ * for exactly what that does (join on an exact company-name match, or
+ * create one from their own already-uploaded logo when extraction is
+ * confident). This is what makes branding apply with zero setup: simply
+ * loading the dashboard (or signing up — see join/page.js's own
+ * non-blocking call to this route) is enough.
  */
 export async function GET(request) {
   try {
@@ -29,25 +29,22 @@ export async function GET(request) {
     let brand = await getBrandForUser(auth.uid);
 
     if (!brand) {
-      // 'created' is the only outcome that needs a re-fetch — this no
-      // longer auto-joins an existing brand ('existing-match-found'
-      // instead just falls through to the suggestion lookup below,
-      // same as it would with no companyName match at all).
       const autoResult = await autoEstablishBrandForUser(auth.uid);
-      if (autoResult.status === 'created') {
+      if (autoResult.status === 'created' || autoResult.status === 'joined') {
         brand = await getBrandForUser(auth.uid);
       }
     }
 
-    if (brand) {
-      return NextResponse.json({ brand, suggestion: null });
-    }
-
     const userDoc = await adminDb.collection('users').doc(auth.uid).get();
-    const companyName = userDoc.exists ? userDoc.data()?.companyName : null;
-    const suggestion = companyName ? await findBrandByExactName(companyName) : null;
+    const userData = userDoc.exists ? userDoc.data() : {};
 
-    return NextResponse.json({ brand: null, suggestion });
+    return NextResponse.json({
+      brand,
+      personalOverride: {
+        logoUrl: userData.logoUrl || null,
+        colors: userData.brandColors || null,
+      },
+    });
   } catch (err) {
     console.error('Branding lookup error:', err);
     return NextResponse.json({ error: 'Failed to load branding' }, { status: 500 });

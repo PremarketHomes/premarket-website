@@ -60,24 +60,59 @@ service cloud.firestore {
       // both trust completely, with no secondary check. Without this,
       // any signed-in user could self-promote at signup by including
       // superAdmin: true in their own initial account-creation write.
-      // No legitimate signup/join/kiosk flow ever sets it (confirmed by
-      // reading signup/page.js, join/page.js, tv/[id]/page.js).
+      //
+      // SECURITY: every other server-only field (agencyBrandId,
+      // brandColors, officeId, isOfficeAdmin, accountStatus, invitedAt,
+      // activatedAt, invitedBy) must be excluded here too, not just on
+      // `update` below — `create` had NO allowlist at all until this
+      // fix, so a self-signup client write could set any of these on
+      // its OWN initial account-creation call (e.g. self-assigning an
+      // officeId/agencyBrandId it was never invited into). None of the
+      // three legitimate signup/join/kiosk flows ever set any of these
+      // at creation (confirmed by reading signup/page.js, join/page.js,
+      // tv/[id]/page.js) — officeId/accountStatus/etc. are only ever
+      // written by the Admin SDK (which bypasses these rules entirely),
+      // via /api/offices and /api/branding/confirm.
       allow create: if isUser(userId)
-        && !request.resource.data.keys().hasAny(['superAdmin']);
+        && !request.resource.data.keys().hasAny([
+             'superAdmin', 'agencyBrandId', 'brandColors',
+             'officeId', 'isOfficeAdmin', 'accountStatus',
+             'invitedAt', 'activatedAt', 'invitedBy'
+           ]);
       // Allowlist, not a denylist: only fields an agent/buyer's own
       // dashboard or settings page actually writes to their own account
       // (confirmed by reading every client-side updateDoc(doc(db,'users',...))
       // call site in the app — dashboard/settings, dashboard home, and the
       // SMS-verification flow). Everything else — superAdmin, pro,
-      // agencyBrandId, isAgent/isBuyer, and any privileged field added in
-      // the future — is denied by default, rather than relying on anyone
-      // remembering to add it to a denylist. agencyBrandId's own exclusion
+      // agencyBrandId, brandColors, isAgent/isBuyer, and any privileged
+      // field added in the future — is denied by default, rather than
+      // relying on anyone remembering to add it to a denylist.
+      // `logoUrl` IS client-writable directly (Account Settings' own
+      // upload flow) and, under the shared-default + personal-override
+      // branding model, that same field doubles as an agent's personal
+      // logo override — no server route needed for logo-only changes.
+      // `brandColors` (the colour half of that same override) is NOT
+      // client-writable — it must only ever be set via
+      // /api/branding/confirm (setPersonalBrandOverride), since colour
+      // validation/contrast (buildColorSet) has to happen server-side.
+      // agencyBrandId's own exclusion
       // (see the original comment this replaced) is preserved by simply
       // never appearing in this list: it must only ever be set by the
       // server (see /api/branding/confirm, Admin SDK) after validating the
       // requester actually owns/created that brand — never client-writable,
       // or an agent could self-assign someone else's brand (e.g. a
       // competing agency's colours/logo) directly.
+      // `officeId`/`isOfficeAdmin`/`accountStatus`/`invitedAt`/
+      // `activatedAt`/`invitedBy` are likewise never in this list —
+      // office membership must only ever be set by the server (Admin
+      // SDK, via /api/offices and /api/office-invites) after a genuine
+      // invite was accepted or an office was created through the
+      // validated signup path. Without this, an agent could write
+      // officeId: '<any-office-id>' directly onto their own account and
+      // instantly inherit that office's branding — or worse, an office
+      // admin could add themselves to officeAdminUids on a DIFFERENT
+      // office's doc, except that field lives on `offices/{officeId}`
+      // (write: false, see below), never on this document at all.
       allow update: if isUser(userId)
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['firstName', 'lastName', 'roles', 'avatar', 'logoUrl', 'companyName', 'phone', 'mobileConfirmedAt']);
@@ -302,6 +337,102 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false;
     }
+
+    // ═══════════════════════════════════════════════════════════
+    // OFFICES
+    // Public read, but holds ONLY `agencyBrandId` — deliberately split
+    //   from everything administrative/operational (see
+    //   officeAdminInfo below). The public property page resolves an
+    //   office member's branding by reading THIS doc's agencyBrandId
+    //   (see PropertyPageClient.js), with no auth, exactly like it
+    //   already reads an independent agent's own agencyBrandId — that
+    //   is the ONLY reason this collection is public-read at all, and
+    //   the ONLY field on it. Everything else that used to live here
+    //   (name, officeAdminUids, status, createdBy, timestamps) was
+    //   moved to officeAdminInfo specifically because none of it has
+    //   any legitimate public-read use case, and officeAdminUids in
+    //   particular would otherwise let anyone cross-reference it
+    //   against the also-public `users` doc to learn exactly which
+    //   agent administers a given office.
+    // Write: server-managed only (see /api/offices, Admin SDK).
+    // ═══════════════════════════════════════════════════════════
+    match /offices/{officeId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // OFFICE ADMIN INFO
+    // Server-only. Holds an office's name, officeAdminUids, status,
+    //   createdBy and timestamps — the administrative/operational half
+    //   split out of `offices` above specifically so none of it is
+    //   publicly readable. The roster (agent names/emails/invite
+    //   status) is NEVER stored here either — it only ever exists on
+    //   `users` docs (officeId-filtered) and `officeInvites`, served
+    //   exclusively through the authorized
+    //   /api/offices/{officeId}/agents route, never a raw client read.
+    //   An office admin must never be able to add themselves to
+    //   another office's officeAdminUids, or point their own office's
+    //   agencyBrandId at a brand they don't control — this doc's
+    //   write:false, same as officeImports/officeInvites below, makes
+    //   that structurally impossible rather than relying on a rule
+    //   that has to get every field's write-condition exactly right.
+    // ═══════════════════════════════════════════════════════════
+    match /officeAdminInfo/{officeId} { allow read, write: if false; }
+
+    // ═══════════════════════════════════════════════════════════
+    // OFFICE IMPORTS (CSV bulk-onboarding batches)
+    // Server-only, exactly like `docLinks`/`billingContacts` below —
+    //   every row includes the CSV-submitted phone number, which must
+    //   never be client-readable (see officeAgentContacts for the
+    //   same reasoning on the durable per-agent copy). All access goes
+    //   through /api/offices/{officeId}/import/* (Admin SDK), which
+    //   does its own officeId-scoped authorization check per request —
+    //   this rule intentionally grants the client nothing at all.
+    // ═══════════════════════════════════════════════════════════
+    match /officeImports/{importId} { allow read, write: if false; }
+
+    // ═══════════════════════════════════════════════════════════
+    // OFFICE AGENT CONTACTS (protected phone-number storage)
+    // Server-only. The CSV-submitted phone number for an office-
+    //   imported agent is deliberately NEVER written onto the
+    //   publicly-readable `users/{uid}.phone` field — seeded here
+    //   instead, in its own locked-down document, same pattern as
+    //   `integrationCredentials` below. An agent who later enters their
+    //   own phone number via Account Settings writes to the public
+    //   `users.phone` field themselves (existing, unrelated, self-
+    //   service behaviour) — that remains a deliberate choice they make
+    //   about their own data, not something this import ever does for
+    //   them.
+    // ═══════════════════════════════════════════════════════════
+    match /officeAgentContacts/{uid} { allow read, write: if false; }
+
+    // ═══════════════════════════════════════════════════════════
+    // OFFICE INVITES (existing-account "join this office" confirmations)
+    // Server-only. An existing Premarket agent who's CSV-imported or
+    //   individually added into an office is never silently linked —
+    //   see officeImportService.js — they must click their own emailed
+    //   link and explicitly accept (POST /api/office-invites/{token}),
+    //   which is the only path that ever sets officeId for this case.
+    //   No client read: the accept page fetches invite details through
+    //   the authorized GET /api/office-invites/{token} route instead,
+    //   which can safely return just the office name, not this
+    //   document's other fields.
+    // ═══════════════════════════════════════════════════════════
+    match /officeInvites/{inviteId} { allow read, write: if false; }
+
+    // ═══════════════════════════════════════════════════════════
+    // OFFICE JOIN REQUESTS
+    // Server-only. Filed automatically when someone tries to register
+    //   a NEW office whose name exactly matches one that already
+    //   exists (see officeService.js's createOffice) — this never
+    //   silently creates a duplicate office or grants membership;
+    //   it's a record for that existing office's own admins (or
+    //   Premarket) to action manually. The person who triggered this
+    //   still ends up with a completely normal, working individual
+    //   agent account in the meantime — never a broken or dangling one.
+    // ═══════════════════════════════════════════════════════════
+    match /officeJoinRequests/{requestId} { allow read, write: if false; }
 
     // ═══════════════════════════════════════════════════════════
     // SETTINGS (App configuration)

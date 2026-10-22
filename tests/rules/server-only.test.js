@@ -27,6 +27,11 @@ const SERVER_ONLY_COLLECTIONS = [
   'docSessions',
   'phiVerifications',
   'integrationCredentials',
+  'officeImports',
+  'officeAgentContacts',
+  'officeInvites',
+  'officeJoinRequests',
+  'officeAdminInfo',
 ];
 
 describe.each(

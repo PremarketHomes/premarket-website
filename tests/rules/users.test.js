@@ -103,8 +103,66 @@ describe('users collection', () => {
   });
 
   it('still allows updating unrelated fields when agencyBrandId is untouched', async () => {
+    // Seeded via seedDoc (bypasses rules, like the server's Admin SDK
+    // would) — a client setDoc with agencyBrandId included would now
+    // correctly fail the hardened create rule itself; this test is
+    // about the UPDATE rule leaving an already-set agencyBrandId alone,
+    // not about how it got there.
+    await seedDoc('users/user1', { firstName: 'Alice', agencyBrandId: 'existing-brand' });
     const db = getAuthedDb('user1');
-    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice', agencyBrandId: 'existing-brand' });
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob' }));
+  });
+
+  // --- brandColors (personal branding override) ---
+  // Same reasoning as agencyBrandId above: colour validation/contrast
+  // (buildColorSet) must always happen server-side, via
+  // /api/branding/confirm — never a direct client write, even by the
+  // account owner, which could otherwise bypass that validation.
+  it('denies the owner setting their own brandColors directly', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { brandColors: { primary: '#ff0000' } }));
+  });
+
+  it('denies changing brandColors even alongside an otherwise-valid field', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob', brandColors: { primary: '#ff0000' } }));
+  });
+
+  it('still allows updating unrelated fields when brandColors is untouched', async () => {
+    await seedDoc('users/user1', { firstName: 'Alice', brandColors: { primary: '#ff0000' } });
+    const db = getAuthedDb('user1');
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob' }));
+  });
+
+  // --- officeId / isOfficeAdmin (office membership) ---
+  // Only the server (Admin SDK, via /api/offices and /api/office-invites)
+  // may set these — never the client directly, or an agent could
+  // self-assign membership of any office (and its branding) just by
+  // writing officeId onto their own account, or grant themselves
+  // administrator rights over an office with isOfficeAdmin.
+  it('denies the owner setting their own officeId directly', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { officeId: 'harcourts-property-hub' }));
+  });
+
+  it('denies the owner granting themselves isOfficeAdmin directly', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { isOfficeAdmin: true }));
+  });
+
+  it('denies changing officeId even alongside an otherwise-valid field', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob', officeId: 'some-office' }));
+  });
+
+  it('still allows updating unrelated fields when officeId is untouched', async () => {
+    await seedDoc('users/user1', { firstName: 'Alice', officeId: 'existing-office' });
+    const db = getAuthedDb('user1');
     await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob' }));
   });
 
@@ -142,6 +200,45 @@ describe('users collection', () => {
     const db = getAuthedDb('user1');
     await assertSucceeds(setDoc(doc(db, 'users', 'user1'), {
       firstName: 'Alice', pro: true, agent: true, roles: ['agent'],
+    }));
+  });
+
+  // --- create-time self-escalation (officeId and friends) ---
+  // The `create` rule used to allowlist NOTHING except blocking
+  // superAdmin — every other privileged field (agencyBrandId,
+  // brandColors, and now officeId/isOfficeAdmin/accountStatus/
+  // invitedAt/activatedAt/invitedBy) was technically settable by a
+  // self-signup client write at account CREATION, even though the
+  // `update` rule already correctly denied all of them afterwards.
+  // These prove the same self-escalation window is closed at create
+  // time too — found and fixed while adding officeId.
+  it.each([
+    ['agencyBrandId', 'some-brand'],
+    ['brandColors', { primary: '#ff0000' }],
+    ['officeId', 'some-office'],
+    ['isOfficeAdmin', true],
+    ['accountStatus', 'active'],
+    ['invitedAt', 'fake-timestamp'],
+    ['activatedAt', 'fake-timestamp'],
+    ['invitedBy', 'self'],
+  ])('SECURITY: denies self-assigning %s at account creation', async (field, value) => {
+    const db = getAuthedDb('user1');
+    await assertFails(setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice', [field]: value }));
+  });
+
+  it('SECURITY: denies self-assigning officeId at creation even bundled with otherwise-legitimate fields', async () => {
+    const db = getAuthedDb('user1');
+    await assertFails(setDoc(doc(db, 'users', 'user1'), {
+      firstName: 'Alice', agent: true, pro: true, roles: ['agent'], officeId: 'harcourts-property-hub',
+    }));
+  });
+
+  it('account creation with none of the server-only fields still succeeds — the fix does not break any real signup flow', async () => {
+    const db = getAuthedDb('user1');
+    await assertSucceeds(setDoc(doc(db, 'users', 'user1'), {
+      firstName: 'Alice', lastName: 'Lee', email: 'alice@example.com',
+      phone: '+61412345678', companyName: 'Harcourts Property Hub',
+      pro: true, agent: true, active: true, roles: ['agent'],
     }));
   });
 

@@ -78,6 +78,9 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     { id: 'user-manual', label: 'User Manual', icon: BookOpen, href: '/dashboard/user-manual' },
     { id: 'agents', label: 'Team', icon: Users, href: '/dashboard/agents' },
     { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/settings' },
+    ...(userData?.isOfficeAdmin === true
+      ? [{ id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' }]
+      : []),
     ...(userData?.superAdmin === true
       ? [{ id: 'admin', label: 'Admin', icon: Shield, href: '/dashboard/admin' }]
       : []),

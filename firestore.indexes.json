@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "officeInvites",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "officeId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

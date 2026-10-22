@@ -1,29 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { computeBrandStyle, computeDisplayLogoUrl } from '../../src/app/utils/brandStyle';
+import { computeBrandStyle, computeDisplayLogoUrl, computeEffectiveColors } from '../../src/app/utils/brandStyle';
 
 // These tests exist specifically to guarantee: an agent with no agency
-// branding gets exactly today's Premarket appearance, with zero visual
-// change. PropertyPageClient.js and PriceOpinionSlider.js only ever
-// reference brand colours via var(--brand-x, <existing-default-hex>) —
-// so as long as computeBrandStyle returns `undefined` for "no brand",
-// no inline style is applied at all and every one of those CSS
-// variables resolves to its fallback, unchanged.
+// branding AND no personal override gets exactly today's Premarket
+// appearance, with zero visual change. PropertyPageClient.js and
+// PriceOpinionSlider.js only ever reference brand colours via
+// var(--brand-x, <existing-default-hex>) — so as long as
+// computeBrandStyle returns `undefined` for "nothing to apply", no
+// inline style is applied at all and every one of those CSS variables
+// resolves to its fallback, unchanged.
 
 describe('computeBrandStyle — no-branding default guarantee', () => {
-  it('returns undefined (no inline style at all) when there is no brand', () => {
+  it('returns undefined (no inline style at all) when there are no colours', () => {
     expect(computeBrandStyle(null)).toBeUndefined();
     expect(computeBrandStyle(undefined)).toBeUndefined();
   });
 
-  it('returns undefined for a malformed/incomplete brand (missing colors)', () => {
-    expect(computeBrandStyle({ name: 'Harcourts' })).toBeUndefined();
-    expect(computeBrandStyle({ colors: {} })).toBeUndefined();
+  it('returns undefined for a malformed/incomplete colours object', () => {
+    expect(computeBrandStyle({})).toBeUndefined();
+    expect(computeBrandStyle({ primaryDark: '#000' })).toBeUndefined();
   });
 
-  it('returns the correct CSS custom properties for a real brand', () => {
-    const style = computeBrandStyle({
-      colors: { primary: '#011d47', primaryDark: '#010f2c', secondary: '#01a8ec', primaryText: '#ffffff' },
-    });
+  it('returns the correct CSS custom properties for a real colour set', () => {
+    const style = computeBrandStyle({ primary: '#011d47', primaryDark: '#010f2c', secondary: '#01a8ec', primaryText: '#ffffff' });
     expect(style).toEqual({
       '--brand-primary': '#011d47',
       '--brand-primary-dark': '#010f2c',
@@ -32,30 +31,79 @@ describe('computeBrandStyle — no-branding default guarantee', () => {
     });
   });
 
-  it('omits --brand-secondary when the brand has no secondary colour', () => {
-    const style = computeBrandStyle({
-      colors: { primary: '#011d47', primaryDark: '#010f2c', primaryText: '#ffffff' },
-    });
+  it('omits --brand-secondary when there is no secondary colour', () => {
+    const style = computeBrandStyle({ primary: '#011d47', primaryDark: '#010f2c', primaryText: '#ffffff' });
     expect(style).not.toHaveProperty('--brand-secondary');
   });
 });
 
-describe('computeDisplayLogoUrl', () => {
-  it('falls back to the agent\'s personal logoUrl when there is no brand (existing behaviour)', () => {
+describe('computeEffectiveColors — personal override wins over the shared agency default', () => {
+  it('falls back to the shared brand\'s colours when the agent has no personal override', () => {
+    expect(computeEffectiveColors({
+      brand: { colors: { primary: '#011d47' } },
+      agentData: {},
+    })).toEqual({ primary: '#011d47' });
+  });
+
+  it('SECURITY/CORE RULE: the agent\'s own personal colour override always wins over the shared brand', () => {
+    expect(computeEffectiveColors({
+      brand: { colors: { primary: '#011d47' } },
+      agentData: { brandColors: { primary: '#ff0000' } },
+    })).toEqual({ primary: '#ff0000' });
+  });
+
+  it('a personal override works even with no shared brand at all (independent agent)', () => {
+    expect(computeEffectiveColors({
+      brand: null,
+      agentData: { brandColors: { primary: '#ff0000' } },
+    })).toEqual({ primary: '#ff0000' });
+  });
+
+  it('returns null when neither exists', () => {
+    expect(computeEffectiveColors({ brand: null, agentData: null })).toBeNull();
+    expect(computeEffectiveColors({ brand: null, agentData: {} })).toBeNull();
+  });
+
+  it('previewBrand (dashboard-only) takes absolute precedence over both, for the live "about to save" preview', () => {
+    expect(computeEffectiveColors({
+      brand: { colors: { primary: '#011d47' } },
+      agentData: { brandColors: { primary: '#ff0000' } },
+      previewBrand: { colors: { primary: '#00ff00' } },
+    })).toEqual({ primary: '#00ff00' });
+  });
+});
+
+describe('computeDisplayLogoUrl — personal override wins over the shared agency default', () => {
+  it('falls back to the agent\'s personal logoUrl when there is no shared brand (independent agent)', () => {
     expect(computeDisplayLogoUrl({ brand: null, agentData: { logoUrl: 'https://example.com/me.png' } }))
       .toBe('https://example.com/me.png');
   });
 
-  it('prefers the agency brand logo over the agent\'s personal logo when both exist', () => {
+  it('CORE RULE: the agent\'s own personal logo always wins over the shared brand\'s logo', () => {
     expect(computeDisplayLogoUrl({
       brand: { logoUrl: 'https://example.com/harcourts.png' },
       agentData: { logoUrl: 'https://example.com/me.png' },
+    })).toBe('https://example.com/me.png');
+  });
+
+  it('falls back to the shared brand\'s logo when the agent has no personal override', () => {
+    expect(computeDisplayLogoUrl({
+      brand: { logoUrl: 'https://example.com/harcourts.png' },
+      agentData: {},
     })).toBe('https://example.com/harcourts.png');
   });
 
   it('returns null when neither exists, never undefined/empty-string surprises', () => {
     expect(computeDisplayLogoUrl({ brand: null, agentData: null })).toBeNull();
     expect(computeDisplayLogoUrl({ brand: null, agentData: {} })).toBeNull();
+  });
+
+  it('previewBrand (dashboard-only) takes absolute precedence over both', () => {
+    expect(computeDisplayLogoUrl({
+      brand: { logoUrl: 'https://example.com/harcourts.png' },
+      agentData: { logoUrl: 'https://example.com/me.png' },
+      previewBrand: { logoUrl: 'https://example.com/proposed.png' },
+    })).toBe('https://example.com/proposed.png');
   });
 });
 

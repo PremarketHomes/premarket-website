@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase/clientApp';
 import { useAuth } from '../context/AuthContext';
 import { defaultDashboardFor } from '../utils/roles';
-import { useRouter } from 'next/navigation';
+import { authFetch } from '../utils/authFetch';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import AuthShell from '../components/public-site/AuthShell';
@@ -19,7 +20,17 @@ import {
 } from '../components/public-site/authFieldStyles';
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageContent />
+    </Suspense>
+  );
+}
+
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const justActivated = searchParams.get('activated') === '1';
   const { user, userData, loading: authLoading } = useAuth();
   const [view, setView] = useState('login'); // 'login' | 'reset'
 
@@ -52,6 +63,18 @@ export default function LoginPage() {
       await signInWithEmailAndPassword(auth, email, password);
       // Don't push here — the useEffect above waits for userData
       // and routes buyers to /buyer-dashboard, agents to /dashboard.
+
+      // Finalizes activation for an office-invited agent's FIRST real
+      // sign-in (see markOfficeAccountActivated) — a safe no-op for
+      // every other login (ordinary individual agents never have
+      // accountStatus: 'invited' in the first place). Non-blocking:
+      // never holds up reaching the dashboard, same pattern already
+      // used for the billing-contact/branding calls at signup.
+      try {
+        await authFetch('/api/offices/activate', { method: 'POST' });
+      } catch (activateErr) {
+        console.error('Office activation finalize failed (non-blocking):', activateErr);
+      }
     } catch (err) {
       console.error('Login error:', err);
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
@@ -60,6 +83,8 @@ export default function LoginPage() {
         setError('Please enter a valid email address');
       } else if (err.code === 'auth/too-many-requests') {
         setError('Too many attempts. Please try again later.');
+      } else if (err.code === 'auth/user-disabled') {
+        setError('This account has been disabled. If you believe this is a mistake, contact your office administrator.');
       } else {
         setError('Something went wrong. Please try again.');
       }
@@ -149,6 +174,11 @@ export default function LoginPage() {
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.3 }}
           >
+            {justActivated && (
+              <div className="mb-5 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-sm">
+                Your account is ready — sign in with the password you just set.
+              </div>
+            )}
             <form onSubmit={handleLogin} className="space-y-5">
               <div>
                 <label className={AUTH_LABEL_CLASS}>Email Address</label>
