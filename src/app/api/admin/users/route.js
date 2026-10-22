@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { verifyAdmin } from '../../middleware/auth';
 import { adminDb } from '../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
-import { normalizeE164 } from '../../../utils/phone';
 
 /**
  * GET /api/admin/users
@@ -57,8 +56,6 @@ export async function GET(request) {
         createdAtMs,
         apiAccess: data.apiAccess || null,
         unsubscribed: data.unsubscribed || false,
-        smsPhone: data.smsPhone || null,
-        smsEnabled: !!data.smsEnabled,
       };
     });
 
@@ -101,8 +98,6 @@ export async function PATCH(request) {
       'isBuyer',
       'marketReportOptIn',
       'unsubscribed',
-      'smsPhone',
-      'smsEnabled',
     ];
     const safeUpdates = {};
     for (const key of allowedFields) {
@@ -121,60 +116,6 @@ export async function PATCH(request) {
         safeUpdates.unsubscribedAt = new Date();
       } else {
         safeUpdates.unsubscribedAt = FieldValue.delete();
-      }
-    }
-
-    // Normalize SMS phone + enforce uniqueness across users and agents.
-    if ('smsPhone' in safeUpdates) {
-      const raw = safeUpdates.smsPhone;
-      if (!raw) {
-        safeUpdates.smsPhone = null;
-        // If the phone is removed, SMS must also be disabled
-        if (safeUpdates.smsEnabled !== false) safeUpdates.smsEnabled = false;
-      } else {
-        const normalized = normalizeE164(raw);
-        if (!normalized) {
-          return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 });
-        }
-        safeUpdates.smsPhone = normalized;
-
-        // Check uniqueness (other users)
-        const userDupe = await adminDb
-          .collection('users')
-          .where('smsPhone', '==', normalized)
-          .limit(2)
-          .get();
-        const conflict = userDupe.docs.find((d) => d.id !== targetUid);
-        if (conflict) {
-          return NextResponse.json(
-            { error: 'That number is already assigned to another user.' },
-            { status: 409 }
-          );
-        }
-
-        // Check uniqueness (agent sub-profiles)
-        const agentDupe = await adminDb
-          .collection('agents')
-          .where('smsPhone', '==', normalized)
-          .limit(1)
-          .get();
-        if (!agentDupe.empty) {
-          return NextResponse.json(
-            { error: 'That number is already assigned to a team member.' },
-            { status: 409 }
-          );
-        }
-      }
-    }
-
-    // Don't allow smsEnabled=true without a phone
-    if (safeUpdates.smsEnabled === true && !safeUpdates.smsPhone) {
-      const existing = await adminDb.collection('users').doc(targetUid).get();
-      if (!existing.exists || !existing.data()?.smsPhone) {
-        return NextResponse.json(
-          { error: 'Cannot enable SMS without a phone number.' },
-          { status: 400 }
-        );
       }
     }
 

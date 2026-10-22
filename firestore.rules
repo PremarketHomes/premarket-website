@@ -38,6 +38,20 @@ service cloud.firestore {
     // Public read: listings page fetches agent profiles (name,
     //   avatar, company) for property cards without auth.
     // Write: own document only.
+    //
+    // SECURITY: this document is read by ANYONE, with no auth and no
+    // field-level restriction — Firestore rules cannot hide individual
+    // fields on an otherwise-readable document. The since-removed SMS
+    // Shortcuts feature briefly stored each enrolled agent's personal
+    // mobile number here (`smsPhone`/`smsEnabled`, written server-side
+    // via the Admin SDK, which bypasses the update allowlist below) —
+    // a real, live PII exposure the moment anyone enabled it, entirely
+    // independent of whether the app's own UI ever rendered it. Never
+    // add a phone number, or any other field not meant for public
+    // consumption, directly onto this document again. If a feature
+    // needs to store something sensitive per-agent, give it its own
+    // locked-down document instead (see `integrationCredentials` below
+    // for the existing pattern) — never merge it into `users`/`agents`.
     // ═══════════════════════════════════════════════════════════
     match /users/{userId} {
       allow read: if true;
@@ -174,7 +188,19 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════
     // AGENTS (Sub-profiles / team members)
     // Public read: property pages + listings display assigned
-    //   agent name/avatar. Docs only contain name + avatar.
+    //   agent name/avatar.
+    //
+    // SECURITY: same exposure as `users` above, and worse here — this
+    // collection's `update` rule has no field allowlist at all, so the
+    // owning account can write ANY field to their own sub-profile doc.
+    // The since-removed SMS Shortcuts feature used this to store a
+    // team member's personal mobile number (`smsPhone`/`smsEnabled`)
+    // directly on this publicly-readable document via the CLIENT SDK
+    // (AgentModal.js) — a real PII leak, readable by anyone with the
+    // Firebase JS SDK, independent of this app's own UI. Never store a
+    // phone number or other sensitive field here again; give it its
+    // own locked-down document if a future feature genuinely needs one
+    // (see `integrationCredentials` below for the existing pattern).
     // Write: own agents only (userId match).
     // ═══════════════════════════════════════════════════════════
     match /agents/{agentId} {
