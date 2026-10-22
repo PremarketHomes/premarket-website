@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AuthShell from '../components/public-site/AuthShell';
 import { authFetch } from '../utils/authFetch';
+import { useAuth } from '../context/AuthContext';
 import {
   AUTH_LABEL_CLASS,
   AUTH_INPUT_CLASS,
@@ -21,6 +22,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function AgentSignup() {
   const router = useRouter();
+  const { refreshUserData } = useAuth();
   // Option A (default): the existing individual-agent flow, completely
   // unchanged below. Option B: a real estate OFFICE registers once —
   // the person submitting becomes that office's initial administrator
@@ -171,6 +173,10 @@ export default function AgentSignup() {
           return;
         }
 
+        // Pull the server-set officeId/isOfficeAdmin into the auth
+        // context BEFORE navigating, or the sidebar's Office link
+        // stays hidden until a reload.
+        await refreshUserData();
         router.push('/dashboard/office');
       } catch (officeErr) {
         console.error('Office creation failed after the account was already created (recoverable):', officeErr);

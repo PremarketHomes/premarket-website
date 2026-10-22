@@ -131,6 +131,7 @@ export default function OfficeManagementPage() {
  * not a requirement, and is cleared once the call succeeds.
  */
 function CreateOfficeCard({ onCreated }) {
+  const { refreshUserData } = useAuth();
   const [name, setName] = useState('');
   const [recovering, setRecovering] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -163,6 +164,7 @@ function CreateOfficeCard({ onCreated }) {
         setError(`An office named "${body.officeName}" already exists. We've filed a request for that office's administrators to review.`);
         return;
       }
+      await refreshUserData();
       onCreated();
     } catch (err) {
       setError(err.message);

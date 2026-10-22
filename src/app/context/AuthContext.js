@@ -3,9 +3,9 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
 import * as Sentry from '@sentry/nextjs';
-import { auth, db } from '../firebase/clientApp';
+import { auth } from '../firebase/clientApp';
+import { fetchUserData } from './fetchUserData';
 
 const AuthContext = createContext();
 
@@ -20,10 +20,8 @@ export function AuthProvider({ children }) {
         setUser(firebaseUser);
         Sentry.setUser({ id: firebaseUser.uid, email: firebaseUser.email });
         try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          if (userDoc.exists()) {
-            setUserData({ id: userDoc.id, ...userDoc.data() });
-          }
+          const data = await fetchUserData(firebaseUser.uid);
+          if (data) setUserData(data);
         } catch (err) {
           console.error('Error fetching user data:', err);
         }
@@ -51,8 +49,24 @@ export function AuthProvider({ children }) {
     }
   }, [router]);
 
+  // userData is otherwise only read once at sign-in, so fields a
+  // server route sets mid-session (e.g. officeId/isOfficeAdmin from
+  // POST /api/offices) stay stale — and the sidebar's Office link
+  // missing — until the next reload. Callers await this before
+  // navigating. Never throws; on failure the existing userData stays.
+  const refreshUserData = useCallback(async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    try {
+      const data = await fetchUserData(uid);
+      if (data) setUserData(data);
+    } catch (err) {
+      console.error('Error refreshing user data:', err);
+    }
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, userData, setUserData, loading, signOut }}>
+    <AuthContext.Provider value={{ user, userData, setUserData, refreshUserData, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   );
