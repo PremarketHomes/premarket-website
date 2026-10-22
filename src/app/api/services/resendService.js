@@ -517,7 +517,7 @@ export async function sendOfficeInviteEmail(email, firstName, officeName, activa
     ${greeting(firstName)}
     ${p(`<strong>${escapeHtml(officeName)}</strong> has set up your Premarket account — the platform they use to run premarket campaigns and track buyer interest ahead of going to market.`)}
     ${p('Click the button below to set your own password and get straight into your dashboard. Your account is already connected to your office, with its branding applied automatically.')}
-    ${ctaButton('Activate Your Account', activationLink)}
+    ${ctaButton('Activate Your Account', activationLink, { fallback: true })}
     ${infoBox(`
       <p style="margin:0; font-size:13px; color:#64748b; line-height:1.5;">
         This link is personal to you and will expire after a short time. If it's expired, ask your office administrator to resend your invitation.
@@ -551,7 +551,7 @@ export async function sendOfficeJoinInviteEmail(email, firstName, officeName, ac
   const bodyHTML = `
     ${greeting(firstName)}
     ${p(`<strong>${escapeHtml(officeName)}</strong> has added you to their Premarket office account. You already have a Premarket login, so nothing changes until you confirm — click below to join and have ${escapeHtml(officeName)}'s branding applied to your campaigns.`)}
-    ${ctaButton('Join ' + officeName, acceptLink)}
+    ${ctaButton('Join ' + officeName, acceptLink, { fallback: true })}
     ${infoBox(`
       <p style="margin:0; font-size:13px; color:#64748b; line-height:1.5;">
         If you weren't expecting this, you can safely ignore this email — nothing about your account will change unless you click the button above.
