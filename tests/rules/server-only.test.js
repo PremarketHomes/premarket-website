@@ -31,6 +31,7 @@ const SERVER_ONLY_COLLECTIONS = [
   'officeAgentContacts',
   'officeInvites',
   'officeJoinRequests',
+  'officeAdminInfo',
 ];
 
 describe.each(

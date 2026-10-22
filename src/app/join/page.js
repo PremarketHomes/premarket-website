@@ -145,24 +145,38 @@ export default function AgentSignup() {
         updatedAt: Timestamp.now(),
       });
 
-      const res = await authFetch('/api/offices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: officeFormData.officeName.trim() }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || 'Failed to register office');
+      // From this point on, the account genuinely exists and works —
+      // a failure in the office-creation call below must never strand
+      // the person on this form with a dead end: retrying the whole
+      // form would just fail with auth/email-already-in-use. Instead,
+      // send them straight to Office Management, which offers this
+      // exact same /api/offices call as a one-click retry — see its
+      // "Set Up Your Office" card, shown whenever a signed-in agent
+      // has no office yet, prefilled from the name stashed below.
+      try {
+        const res = await authFetch('/api/offices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: officeFormData.officeName.trim() }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Failed to register office');
 
-      if (body.status === 'exists') {
-        // An office with this exact name already exists — never
-        // silently duplicated or joined. The account above is still a
-        // completely normal, working individual agent account; a
-        // join request has been filed for manual follow-up.
-        router.push('/dashboard?officeRequestPending=1');
-        return;
+        if (body.status === 'exists') {
+          // An office with this exact name already exists — never
+          // silently duplicated or joined. The account above is still
+          // a completely normal, working individual agent account; a
+          // join request has been filed for manual follow-up.
+          router.push('/dashboard?officeRequestPending=1');
+          return;
+        }
+
+        router.push('/dashboard/office');
+      } catch (officeErr) {
+        console.error('Office creation failed after the account was already created (recoverable):', officeErr);
+        try { sessionStorage.setItem('pendingOfficeName', officeFormData.officeName.trim()); } catch { /* ignore */ }
+        router.push('/dashboard/office?setupFailed=1');
       }
-
-      router.push('/dashboard/office');
     } catch (err) {
       console.error('Office signup error:', err);
       if (err.code === 'auth/email-already-in-use') {

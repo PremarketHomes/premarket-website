@@ -43,6 +43,22 @@ import { OfficeError } from './officeService';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_ROWS_PER_IMPORT = 2000;
 const AUTH_LOOKUP_CHUNK_SIZE = 100; // Firebase Admin SDK's own getUsers() limit
+const OFFICE_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, same createdAt-based pattern as docLinks
+
+function toMillis(value) {
+  if (!value) return null;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value.toDate === 'function') return value.toDate().getTime();
+  if (value instanceof Date) return value.getTime();
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
+function isInviteExpired(invite) {
+  const createdMs = toMillis(invite.createdAt);
+  if (createdMs == null) return false; // can't tell -> never treat as expired
+  return Date.now() - createdMs > OFFICE_INVITE_EXPIRY_MS;
+}
 
 function splitName(fullName) {
   const trimmed = String(fullName || '').trim().replace(/\s+/g, ' ');
@@ -323,10 +339,16 @@ async function inviteNewAgent({ officeId, officeName, firstName, lastName, email
 }
 
 /** Generates a fresh Firebase activation link and emails it — used
- * both for the first invite and any later "resend." Firebase
- * invalidates the previous link automatically when a new one is
- * generated, so there's never more than one valid link outstanding
- * and nothing extra to track or expire ourselves. */
+ * both for the first invite and any later "resend." A successfully-
+ * used oobCode is guaranteed single-use by Firebase itself, and
+ * expiry of an unused one is Firebase's own, already-battle-tested
+ * behaviour — neither needs anything built here. Whether generating a
+ * NEW link also invalidates a still-outstanding older one isn't
+ * something this codebase asserts either way; it doesn't need to,
+ * since removeAgentFromOffice gives a guarantee that doesn't depend
+ * on it at all — a never-activated agent's Firebase Auth account is
+ * disabled on removal, which blocks sign-in regardless of whether any
+ * particular link is technically still "valid." */
 export async function resendNewAgentActivation({ uid, email, firstName, officeName }) {
   const link = await getAuth().generatePasswordResetLink(email, { url: `${BASE_URL}/login?activated=1` });
   await sendOfficeInviteEmail(email, firstName, officeName, link);
@@ -359,14 +381,21 @@ async function inviteExistingAgentToOffice({ officeId, officeName, targetUid, ta
   return { token };
 }
 
-/** Looks up a pending/accepted invite by its token for the public
- * accept page — returns only what that page needs to render (office
- * name + who it's for), never the full document. */
+/** Looks up a pending/accepted/revoked invite by its token for the
+ * public accept page — returns only what that page needs to render
+ * (office name + who it's for + status + whether it's expired), never
+ * the full document. `expired` is computed fresh on every read rather
+ * than written back, so there's nothing to keep in sync. */
 export async function getOfficeInviteByToken(token) {
   const doc = await adminDb.collection('officeInvites').doc(token).get();
   if (!doc.exists) return null;
   const data = doc.data();
-  return { officeName: data.officeName, targetEmail: data.targetEmail, status: data.status };
+  return {
+    officeName: data.officeName,
+    targetEmail: data.targetEmail,
+    status: data.status,
+    expired: data.status === 'pending' && isInviteExpired(data),
+  };
 }
 
 /**
@@ -374,7 +403,11 @@ export async function getOfficeInviteByToken(token) {
  * had a Premarket account before this office invited them — and only
  * after THEY, authenticated as themselves, explicitly accept. Verifies
  * `acceptingUid` matches the invite's own targetUid so one person can
- * never accept an invite addressed to someone else.
+ * never accept an invite addressed to someone else, and refuses an
+ * invite the office has since revoked (see removeAgentFromOffice) or
+ * one that's simply too old — "resend" always re-upserts `createdAt`
+ * (see inviteExistingAgentToOffice), so an admin re-sending is exactly
+ * what un-expires it, with nothing else to reset.
  */
 export async function acceptOfficeInvite({ token, acceptingUid }) {
   const inviteRef = adminDb.collection('officeInvites').doc(token);
@@ -390,6 +423,14 @@ export async function acceptOfficeInvite({ token, acceptingUid }) {
 
   if (invite.status === 'accepted') {
     return { officeId: invite.officeId, officeName: invite.officeName, alreadyAccepted: true };
+  }
+
+  if (invite.status === 'revoked') {
+    throw new OfficeError('This invitation has been revoked', 410);
+  }
+
+  if (isInviteExpired(invite)) {
+    throw new OfficeError('This invitation has expired — ask your office administrator to resend it', 410);
   }
 
   await adminDb.collection('users').doc(acceptingUid).update({ officeId: invite.officeId });
@@ -414,12 +455,15 @@ export async function resendInvitation({ officeId, targetUid }) {
     if (u.accountStatus === 'active') {
       throw new OfficeError('This agent has already activated their account', 400);
     }
-    const office = await adminDb.collection('offices').doc(officeId).get();
+    // Office `name` lives on the server-only officeAdminInfo doc, not
+    // the minimal public `offices` doc (see officeService.js) — never
+    // the public one, which holds only agencyBrandId.
+    const officeAdminInfo = await adminDb.collection('officeAdminInfo').doc(officeId).get();
     await resendNewAgentActivation({
       uid: targetUid,
       email: u.email,
       firstName: u.firstName,
-      officeName: office.exists ? office.data().name : 'Your office',
+      officeName: officeAdminInfo.exists ? officeAdminInfo.data().name : 'Your office',
     });
     return { resent: true, type: 'activation' };
   }
@@ -454,8 +498,11 @@ export async function commitImportBatch({ importId, officeId, actorUid }) {
   if (!batch) throw new OfficeError('Import batch not found', 404);
   if (batch.officeId !== officeId) throw new OfficeError('Import batch does not belong to this office', 403);
 
-  const office = await adminDb.collection('offices').doc(officeId).get();
-  const officeName = office.exists ? office.data().name : 'Your office';
+  // Office `name` lives on the server-only officeAdminInfo doc, not
+  // the minimal public `offices` doc (see officeService.js) — never
+  // the public one, which holds only agencyBrandId.
+  const officeAdminInfo = await adminDb.collection('officeAdminInfo').doc(officeId).get();
+  const officeName = officeAdminInfo.exists ? officeAdminInfo.data().name : 'Your office';
 
   const CONCURRENCY = 10;
   const rows = [...batch.rows];

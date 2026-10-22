@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockVerifyIdToken = vi.fn();
-const state = { users: {}, offices: {}, officeImports: {}, officeAgentContacts: {}, officeInvites: {}, officeJoinRequests: [] };
+const state = { users: {}, offices: {}, officeAdminInfo: {}, officeImports: {}, officeAgentContacts: {}, officeInvites: {}, officeJoinRequests: [] };
 const authState = { users: new Map() };
 let autoIdCounter = 0;
 
@@ -58,7 +58,7 @@ function makeCollection(name) {
 vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: {
     collection: (name) => {
-      if (!['users', 'offices', 'officeImports', 'officeAgentContacts', 'officeInvites', 'officeJoinRequests', 'agencyBrands'].includes(name)) {
+      if (!['users', 'offices', 'officeAdminInfo', 'officeImports', 'officeAgentContacts', 'officeInvites', 'officeJoinRequests', 'agencyBrands'].includes(name)) {
         throw new Error(`Unexpected collection in test: ${name}`);
       }
       if (!state[name] && name === 'agencyBrands') state.agencyBrands = {};
@@ -85,6 +85,7 @@ const createUserMock = vi.fn();
 const getUserByEmailMock = vi.fn();
 const getUsersMock = vi.fn();
 const generatePasswordResetLinkMock = vi.fn();
+const updateUserMock = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('firebase-admin/auth', () => ({
   getAuth: () => ({
@@ -93,8 +94,18 @@ vi.mock('firebase-admin/auth', () => ({
     getUserByEmail: getUserByEmailMock,
     getUsers: getUsersMock,
     generatePasswordResetLink: generatePasswordResetLinkMock,
+    updateUser: updateUserMock,
   }),
 }));
+
+/** Seeds an office split across its two real documents — see
+ * officeService.js's own split between the public `offices` doc
+ * (agencyBrandId only) and the server-only `officeAdminInfo` doc
+ * (name/officeAdminUids/status/etc). */
+function seedOffice(id, { name, officeAdminUids, agencyBrandId = null, status = 'active' }) {
+  state.offices[id] = { agencyBrandId };
+  state.officeAdminInfo[id] = { name, officeAdminUids, status, createdBy: officeAdminUids[0] };
+}
 
 function makeRequest(body, authHeader, method = 'POST') {
   const headers = new Headers({ 'Content-Type': 'application/json' });
@@ -193,7 +204,7 @@ describe('GET/POST /api/offices/[officeId]/agents', () => {
   beforeEach(() => { vi.clearAllMocks(); resetAll(); });
 
   it('SECURITY: a non-administrator cannot list this office\'s agents', async () => {
-    state.offices.office1 = { name: 'X', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
     setupValidAuth('rando');
     const { GET } = await import('../../src/app/api/offices/[officeId]/agents/route');
     const res = await GET(makeRequest(undefined, 'Bearer valid', 'GET'), { params: Promise.resolve({ officeId: 'office1' }) });
@@ -201,8 +212,8 @@ describe('GET/POST /api/offices/[officeId]/agents', () => {
   });
 
   it('SECURITY: an admin of a DIFFERENT office cannot list this one\'s agents', async () => {
-    state.offices.office1 = { name: 'X', officeAdminUids: ['admin1'] };
-    state.offices.office2 = { name: 'Y', officeAdminUids: ['admin2'] };
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
+    seedOffice('office2', { name: 'Y', officeAdminUids: ['admin2'] });
     setupValidAuth('admin2');
     const { GET } = await import('../../src/app/api/offices/[officeId]/agents/route');
     const res = await GET(makeRequest(undefined, 'Bearer valid', 'GET'), { params: Promise.resolve({ officeId: 'office1' }) });
@@ -210,7 +221,7 @@ describe('GET/POST /api/offices/[officeId]/agents', () => {
   });
 
   it('an administrator can list their own office\'s agents with counts', async () => {
-    state.offices.office1 = { name: 'X', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
     state.users.admin1 = { officeId: 'office1', accountStatus: 'active', isOfficeAdmin: true };
     state.users.agent2 = { officeId: 'office1', accountStatus: 'invited' };
     setupValidAuth('admin1');
@@ -222,7 +233,7 @@ describe('GET/POST /api/offices/[officeId]/agents', () => {
   });
 
   it('adds a single new agent — creates an Auth user with no password', async () => {
-    state.offices.office1 = { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] });
     setupValidAuth('admin1');
     const { POST } = await import('../../src/app/api/offices/[officeId]/agents/route');
     const res = await POST(
@@ -236,7 +247,7 @@ describe('GET/POST /api/offices/[officeId]/agents', () => {
   });
 
   it('SECURITY: a non-admin cannot add an agent', async () => {
-    state.offices.office1 = { name: 'X', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
     setupValidAuth('intruder');
     const { POST } = await import('../../src/app/api/offices/[officeId]/agents/route');
     const res = await POST(
@@ -251,7 +262,7 @@ describe('DELETE /api/offices/[officeId]/agents/[uid]', () => {
   beforeEach(() => { vi.clearAllMocks(); resetAll(); });
 
   it('removes an agent without touching unrelated fields', async () => {
-    state.offices.office1 = { name: 'X', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
     state.users.agent1 = { officeId: 'office1', companyName: 'X' };
     setupValidAuth('admin1');
     const { DELETE } = await import('../../src/app/api/offices/[officeId]/agents/[uid]/route');
@@ -262,8 +273,8 @@ describe('DELETE /api/offices/[officeId]/agents/[uid]', () => {
   });
 
   it('SECURITY: cross-office removal is refused', async () => {
-    state.offices.office1 = { name: 'X', officeAdminUids: ['admin1'] };
-    state.offices.office2 = { name: 'Y', officeAdminUids: ['admin2'] };
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
+    seedOffice('office2', { name: 'Y', officeAdminUids: ['admin2'] });
     state.users.agent1 = { officeId: 'office2' };
     setupValidAuth('admin1');
     const { DELETE } = await import('../../src/app/api/offices/[officeId]/agents/[uid]/route');
@@ -277,7 +288,7 @@ describe('POST /api/offices/[officeId]/agents/[uid]/resend', () => {
   beforeEach(() => { vi.clearAllMocks(); resetAll(); });
 
   it('SECURITY: a non-admin cannot trigger a resend', async () => {
-    state.offices.office1 = { name: 'X', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
     setupValidAuth('intruder');
     const { POST } = await import('../../src/app/api/offices/[officeId]/agents/[uid]/resend/route');
     const res = await POST(makeRequest(undefined, 'Bearer valid'), { params: Promise.resolve({ officeId: 'office1', uid: 'agent1' }) });
@@ -285,7 +296,7 @@ describe('POST /api/offices/[officeId]/agents/[uid]/resend', () => {
   });
 
   it('resends an activation link for an invited agent', async () => {
-    state.offices.office1 = { name: 'X', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
     state.users.agent1 = { officeId: 'office1', accountStatus: 'invited', email: 'a@x.com', firstName: 'Jo' };
     setupValidAuth('admin1');
     const { POST } = await import('../../src/app/api/offices/[officeId]/agents/[uid]/resend/route');
@@ -299,7 +310,7 @@ describe('POST /api/offices/[officeId]/import/preview + /commit', () => {
   beforeEach(() => { vi.clearAllMocks(); resetAll(); });
 
   it('previews without writing anything, then commits and creates agents', async () => {
-    state.offices.office1 = { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] });
     setupValidAuth('admin1');
 
     const { POST: previewPOST } = await import('../../src/app/api/offices/[officeId]/import/preview/route');
@@ -322,7 +333,7 @@ describe('POST /api/offices/[officeId]/import/preview + /commit', () => {
   });
 
   it('SECURITY: a non-admin cannot preview or commit an import for this office', async () => {
-    state.offices.office1 = { name: 'X', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
     setupValidAuth('intruder');
     const { POST: previewPOST } = await import('../../src/app/api/offices/[officeId]/import/preview/route');
     const res = await previewPOST(makeRequest({ csvText: 'a,b@x.com,0412345678' }, 'Bearer valid'), { params: Promise.resolve({ officeId: 'office1' }) });
@@ -334,7 +345,7 @@ describe('POST /api/offices/[officeId]/branding', () => {
   beforeEach(() => { vi.clearAllMocks(); resetAll(); });
 
   it('sets the OFFICE\'s agencyBrandId, never the admin\'s own', async () => {
-    state.offices.office1 = { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] });
     state.users.admin1 = { officeId: 'office1', isOfficeAdmin: true };
     setupValidAuth('admin1');
     const { POST } = await import('../../src/app/api/offices/[officeId]/branding/route');
@@ -346,7 +357,7 @@ describe('POST /api/offices/[officeId]/branding', () => {
   });
 
   it('SECURITY: a non-admin cannot set the office\'s branding', async () => {
-    state.offices.office1 = { name: 'X', officeAdminUids: ['admin1'] };
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
     setupValidAuth('intruder');
     const { POST } = await import('../../src/app/api/offices/[officeId]/branding/route');
     const res = await POST(makeRequest({ primary: '#011d47' }, 'Bearer valid'), { params: Promise.resolve({ officeId: 'office1' }) });
@@ -383,5 +394,83 @@ describe('GET/POST /api/office-invites/[token]', () => {
     const res = await POST(makeRequest(undefined, 'Bearer valid'), { params: Promise.resolve({ token: 'tok1' }) });
     expect(res.status).toBe(200);
     expect(state.users.agentX.officeId).toBe('office1');
+  });
+
+  it('REVOCATION: rejects acceptance of a revoked invite with 410', async () => {
+    state.officeInvites.tok1 = { officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com', status: 'revoked' };
+    state.users.agentX = {};
+    setupValidAuth('agentX');
+    const { POST } = await import('../../src/app/api/office-invites/[token]/route');
+    const res = await POST(makeRequest(undefined, 'Bearer valid'), { params: Promise.resolve({ token: 'tok1' }) });
+    expect(res.status).toBe(410);
+    expect(state.users.agentX.officeId).toBeUndefined();
+  });
+
+  it('EXPIRY: GET reports an old pending invite as expired', async () => {
+    state.officeInvites.tok1 = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
+      status: 'pending', createdAt: { toMillis: () => Date.now() - 8 * 24 * 60 * 60 * 1000 },
+    };
+    const { GET } = await import('../../src/app/api/office-invites/[token]/route');
+    const res = await GET(makeRequest(undefined, undefined, 'GET'), { params: Promise.resolve({ token: 'tok1' }) });
+    const body = await res.json();
+    expect(body.invite.expired).toBe(true);
+  });
+});
+
+describe('DELETE /api/offices/[officeId]/agents/[uid] — revocation behavior', () => {
+  beforeEach(() => { vi.clearAllMocks(); resetAll(); });
+
+  it('REVOCATION: disables the Firebase Auth account of a never-activated agent on removal', async () => {
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
+    state.users.agent1 = { officeId: 'office1', accountStatus: 'invited' };
+    setupValidAuth('admin1');
+    const { DELETE } = await import('../../src/app/api/offices/[officeId]/agents/[uid]/route');
+    const res = await DELETE(makeRequest(undefined, 'Bearer valid', 'DELETE'), { params: Promise.resolve({ officeId: 'office1', uid: 'agent1' }) });
+    expect(res.status).toBe(200);
+    expect(updateUserMock).toHaveBeenCalledWith('agent1', { disabled: true });
+  });
+
+  it('REVOCATION: revokes a pending existing-account invite via the same DELETE route', async () => {
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
+    state.officeInvites.office1_agent2 = { officeId: 'office1', targetUid: 'agent2', status: 'pending' };
+    setupValidAuth('admin1');
+    const { DELETE } = await import('../../src/app/api/offices/[officeId]/agents/[uid]/route');
+    const res = await DELETE(makeRequest(undefined, 'Bearer valid', 'DELETE'), { params: Promise.resolve({ officeId: 'office1', uid: 'agent2' }) });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.revokedInvite).toBe(true);
+    expect(state.officeInvites.office1_agent2.status).toBe('revoked');
+  });
+});
+
+describe('POST /api/offices/activate', () => {
+  beforeEach(() => { vi.clearAllMocks(); resetAll(); });
+
+  it('returns 401 without auth', async () => {
+    const { POST } = await import('../../src/app/api/offices/activate/route');
+    const res = await POST(makeRequest(undefined, undefined));
+    expect(res.status).toBe(401);
+  });
+
+  it('flips an invited office account to active', async () => {
+    state.users.agent1 = { accountStatus: 'invited' };
+    setupValidAuth('agent1');
+    const { POST } = await import('../../src/app/api/offices/activate/route');
+    const res = await POST(makeRequest(undefined, 'Bearer valid'));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.activated).toBe(true);
+    expect(state.users.agent1.accountStatus).toBe('active');
+  });
+
+  it('is a safe no-op for an ordinary individual agent', async () => {
+    state.users.agent1 = { firstName: 'Jo' };
+    setupValidAuth('agent1');
+    const { POST } = await import('../../src/app/api/offices/activate/route');
+    const res = await POST(makeRequest(undefined, 'Bearer valid'));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.activated).toBe(false);
   });
 });

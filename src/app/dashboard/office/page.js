@@ -62,11 +62,7 @@ export default function OfficeManagementPage() {
   }
 
   if (!office) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
-        <p className="text-slate-500">You're not currently part of an office account.</p>
-      </div>
-    );
+    return <CreateOfficeCard onCreated={loadAll} />;
   }
 
   if (!office.isOfficeAdmin) {
@@ -94,6 +90,90 @@ export default function OfficeManagementPage() {
         <AddAgentCard officeId={office.id} onAdded={loadAll} />
         <CsvImportCard officeId={office.id} onImported={loadAll} />
         <RosterTable officeId={office.id} agents={agents} onChanged={loadAll} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shown to any signed-in agent with no office yet — including, most
+ * importantly, someone whose office signup DID create their Firebase
+ * Auth account + profile but then failed on the actual office-creation
+ * call (see join/page.js's handleOfficeSubmit). That failure redirects
+ * here rather than leaving them stuck on the signup form, and this
+ * card is the one-click retry: same /api/offices call, same
+ * collision handling, safe to submit again. `pendingOfficeName`
+ * (sessionStorage) just saves them re-typing it — it's a convenience,
+ * not a requirement, and is cleared once the call succeeds.
+ */
+function CreateOfficeCard({ onCreated }) {
+  const [name, setName] = useState('');
+  const [recovering, setRecovering] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    try {
+      const pending = sessionStorage.getItem('pendingOfficeName');
+      if (pending) {
+        setName(pending);
+        setRecovering(true);
+      }
+    } catch { /* sessionStorage unavailable — just show the blank form */ }
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await authFetch('/api/offices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Failed to create office');
+      try { sessionStorage.removeItem('pendingOfficeName'); } catch { /* ignore */ }
+      if (body.status === 'exists') {
+        setError(`An office named "${body.officeName}" already exists. We've filed a request for that office's administrators to review.`);
+        return;
+      }
+      onCreated();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-6 max-w-md w-full">
+        {recovering && (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+            Your account was created, but office setup didn't finish. Confirm your office name below to finish setting up.
+          </p>
+        )}
+        <h1 className="font-semibold text-slate-900 mb-1">Set Up Your Office</h1>
+        <p className="text-sm text-slate-500 mb-4">You'll become this office's initial administrator.</p>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Office name"
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400"
+          />
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+          <button
+            type="submit"
+            disabled={submitting || !name.trim()}
+            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold text-sm disabled:opacity-50"
+          >
+            {submitting ? 'Setting up…' : 'Create Office'}
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -400,8 +480,11 @@ function RosterTable({ officeId, agents, onChanged }) {
     }
   };
 
-  const handleRemove = async (uid) => {
-    if (!confirm('Remove this agent from the office? Their account, properties and billing are not affected.')) return;
+  const handleRemove = async (uid, isPending) => {
+    const confirmText = isPending
+      ? 'Revoke this pending invitation? The link in their email will stop working.'
+      : 'Remove this agent from the office? Their account, properties and billing are not affected.';
+    if (!confirm(confirmText)) return;
     setBusyUid(uid);
     setMessage(null);
     try {
@@ -457,15 +540,13 @@ function RosterTable({ officeId, agents, onChanged }) {
                           <RotateCcw className="w-3 h-3" /> Resend
                         </button>
                       )}
-                      {agent.status !== 'pending-acceptance' && (
-                        <button
-                          onClick={() => handleRemove(agent.uid)}
-                          disabled={busyUid === agent.uid}
-                          className="text-xs font-semibold text-red-500 hover:text-red-600 inline-flex items-center gap-1"
-                        >
-                          <Trash2 className="w-3 h-3" /> Remove
-                        </button>
-                      )}
+                      <button
+                        onClick={() => handleRemove(agent.uid, agent.status === 'pending-acceptance')}
+                        disabled={busyUid === agent.uid}
+                        className="text-xs font-semibold text-red-500 hover:text-red-600 inline-flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3 h-3" /> {agent.status === 'pending-acceptance' ? 'Revoke' : 'Remove'}
+                      </button>
                     </td>
                   </tr>
                 );

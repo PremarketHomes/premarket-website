@@ -340,28 +340,45 @@ service cloud.firestore {
 
     // ═══════════════════════════════════════════════════════════
     // OFFICES
-    // Public read: deliberately the same tier as `agencyBrands` and
-    //   `users` — the public property page resolves an office member's
-    //   branding by reading THIS doc's agencyBrandId (see
-    //   PropertyPageClient.js), with no auth, exactly like it already
-    //   reads an independent agent's own agencyBrandId. Nothing
-    //   sensitive lives here: `name` and `agencyBrandId` are the same
-    //   sensitivity as `agencyBrands.createdBy` (already public), and
-    //   `officeAdminUids` is a list of opaque Firebase UIDs — not
-    //   names, emails or phone numbers. The actual roster (agent
-    //   names/emails/invite status) is NEVER stored on this document —
-    //   it only ever exists on `users` docs (officeId-filtered) and is
-    //   served exclusively through the authorized
-    //   /api/offices/{officeId}/agents route, never a raw client read.
-    // Write: server-managed only (see /api/offices, Admin SDK) — an
-    //   office admin must never be able to add themselves to another
-    //   office's officeAdminUids, or point their own office's
-    //   agencyBrandId at a brand they don't control.
+    // Public read, but holds ONLY `agencyBrandId` — deliberately split
+    //   from everything administrative/operational (see
+    //   officeAdminInfo below). The public property page resolves an
+    //   office member's branding by reading THIS doc's agencyBrandId
+    //   (see PropertyPageClient.js), with no auth, exactly like it
+    //   already reads an independent agent's own agencyBrandId — that
+    //   is the ONLY reason this collection is public-read at all, and
+    //   the ONLY field on it. Everything else that used to live here
+    //   (name, officeAdminUids, status, createdBy, timestamps) was
+    //   moved to officeAdminInfo specifically because none of it has
+    //   any legitimate public-read use case, and officeAdminUids in
+    //   particular would otherwise let anyone cross-reference it
+    //   against the also-public `users` doc to learn exactly which
+    //   agent administers a given office.
+    // Write: server-managed only (see /api/offices, Admin SDK).
     // ═══════════════════════════════════════════════════════════
     match /offices/{officeId} {
       allow read: if true;
       allow write: if false;
     }
+
+    // ═══════════════════════════════════════════════════════════
+    // OFFICE ADMIN INFO
+    // Server-only. Holds an office's name, officeAdminUids, status,
+    //   createdBy and timestamps — the administrative/operational half
+    //   split out of `offices` above specifically so none of it is
+    //   publicly readable. The roster (agent names/emails/invite
+    //   status) is NEVER stored here either — it only ever exists on
+    //   `users` docs (officeId-filtered) and `officeInvites`, served
+    //   exclusively through the authorized
+    //   /api/offices/{officeId}/agents route, never a raw client read.
+    //   An office admin must never be able to add themselves to
+    //   another office's officeAdminUids, or point their own office's
+    //   agencyBrandId at a brand they don't control — this doc's
+    //   write:false, same as officeImports/officeInvites below, makes
+    //   that structurally impossible rather than relying on a rule
+    //   that has to get every field's write-condition exactly right.
+    // ═══════════════════════════════════════════════════════════
+    match /officeAdminInfo/{officeId} { allow read, write: if false; }
 
     // ═══════════════════════════════════════════════════════════
     // OFFICE IMPORTS (CSV bulk-onboarding batches)

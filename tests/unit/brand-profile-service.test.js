@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const state = { users: {}, agencyBrands: {} };
+const state = { users: {}, agencyBrands: {}, offices: {} };
 
 function makeCollection(name) {
   return {
@@ -50,7 +50,7 @@ function makeCollection(name) {
 vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: {
     collection: (name) => {
-      if (!['users', 'agencyBrands'].includes(name)) {
+      if (!['users', 'agencyBrands', 'offices'].includes(name)) {
         throw new Error(`Unexpected collection in test: ${name}`);
       }
       return makeCollection(name);
@@ -65,6 +65,7 @@ vi.mock('firebase-admin/firestore', () => ({
 function resetState() {
   state.users = {};
   state.agencyBrands = {};
+  state.offices = {};
 }
 
 describe('buildColorSet', () => {
@@ -480,5 +481,83 @@ describe('resetPersonalBrandOverride — falls back to the shared default, never
     const { resetPersonalBrandOverride } = await import('../../src/app/api/services/brandProfileService');
     state.users.agent1 = { agencyBrandId: 'shared-agency' };
     await expect(resetPersonalBrandOverride({ uid: 'agent1' })).resolves.toEqual({ uid: 'agent1', reset: true });
+  });
+});
+
+describe('office integration — end-to-end branding resolution (confirms officeService + brandProfileService actually work together)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetState();
+  });
+
+  it('an office MEMBER (not just the admin) resolves branding from offices/{officeId}.agencyBrandId, never their own agencyBrandId', async () => {
+    const { getBrandForUser } = await import('../../src/app/api/services/brandProfileService');
+    state.offices.office1 = { agencyBrandId: 'harcourts-brand' };
+    state.agencyBrands['harcourts-brand'] = { name: 'Harcourts Property Hub', colors: { primary: '#011d47' } };
+    state.users.member1 = { officeId: 'office1' }; // never has agencyBrandId set directly
+
+    const brand = await getBrandForUser('member1');
+    expect(brand.name).toBe('Harcourts Property Hub');
+  });
+
+  it('createBrand with an officeId targets the OFFICE doc, and every member immediately resolves it via getBrandForUser', async () => {
+    const { createBrand, getBrandForUser } = await import('../../src/app/api/services/brandProfileService');
+    state.offices.office1 = { agencyBrandId: null };
+    state.users.member1 = { officeId: 'office1' };
+    state.users.member2 = { officeId: 'office1' };
+
+    const { brandId } = await createBrand({ uid: 'admin1', name: 'Harcourts Property Hub', primary: '#011d47', officeId: 'office1' });
+
+    expect(state.offices.office1.agencyBrandId).toBe(brandId);
+    expect(state.users.admin1).toBeUndefined(); // the admin's OWN doc was never touched
+    expect((await getBrandForUser('member1')).name).toBe('Harcourts Property Hub');
+    expect((await getBrandForUser('member2')).name).toBe('Harcourts Property Hub');
+  });
+
+  it('removing an agent from their office (officeId cleared) instantly drops the office branding — falls back to Premarket default with nothing to clean up', async () => {
+    const { getBrandForUser } = await import('../../src/app/api/services/brandProfileService');
+    state.offices.office1 = { agencyBrandId: 'harcourts-brand' };
+    state.agencyBrands['harcourts-brand'] = { name: 'Harcourts Property Hub', colors: { primary: '#011d47' } };
+    state.users.member1 = { officeId: 'office1' };
+
+    expect((await getBrandForUser('member1')).name).toBe('Harcourts Property Hub');
+
+    delete state.users.member1.officeId; // simulates removeAgentFromOffice's own officeId: FieldValue.delete()
+
+    expect(await getBrandForUser('member1')).toBeNull();
+  });
+
+  it('a personal override still wins for an office member, exactly like it does for an independent agent', async () => {
+    const { getBrandForUser } = await import('../../src/app/api/services/brandProfileService');
+    const { computeEffectiveColors } = await import('../../src/app/utils/brandStyle');
+    state.offices.office1 = { agencyBrandId: 'harcourts-brand' };
+    state.agencyBrands['harcourts-brand'] = { name: 'Harcourts Property Hub', colors: { primary: '#011d47' } };
+    state.users.member1 = { officeId: 'office1', brandColors: { primary: '#ff0000' } };
+
+    const brand = await getBrandForUser('member1'); // the shared office brand, unaffected by the override
+    expect(brand.colors.primary).toBe('#011d47');
+
+    // The override only applies at the LAST resolution step, exactly
+    // as it already does for independent agents — brandProfileService
+    // never needs to know about it.
+    const effective = computeEffectiveColors({ brand, agentData: state.users.member1 });
+    expect(effective.primary).toBe('#ff0000');
+  });
+
+  it('autoEstablishBrandForUser (exact-name text matching) never runs for an office member, even if their companyName happens to match an unrelated brand', async () => {
+    const { autoEstablishBrandForUser } = await import('../../src/app/api/services/brandProfileService');
+    state.agencyBrands['coincidence'] = { name: 'Harcourts Property Hub', colors: { primary: '#000000' } };
+    state.users.member1 = { officeId: 'office1', companyName: 'Harcourts Property Hub' };
+
+    const result = await autoEstablishBrandForUser('member1');
+    expect(result).toEqual({ status: 'skipped', reason: 'office-member' });
+    expect(state.users.member1.agencyBrandId).toBeUndefined();
+  });
+
+  it('an office with no agencyBrandId set yet simply resolves to no shared brand — never falls back to text-matching', async () => {
+    const { getBrandForUser } = await import('../../src/app/api/services/brandProfileService');
+    state.offices.office1 = { agencyBrandId: null };
+    state.users.member1 = { officeId: 'office1', companyName: 'Some Agency Name' };
+    expect(await getBrandForUser('member1')).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const state = { users: {}, offices: {}, officeImports: {}, officeAgentContacts: {}, officeInvites: {} };
+const state = { users: {}, offices: {}, officeAdminInfo: {}, officeImports: {}, officeAgentContacts: {}, officeInvites: {} };
 const authState = { users: new Map() }; // email (lowercase) -> { uid, email }
 let uidCounter = 0;
 
@@ -44,7 +44,7 @@ function makeCollection(name) {
 vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: {
     collection: (name) => {
-      if (!['users', 'offices', 'officeImports', 'officeAgentContacts', 'officeInvites'].includes(name)) {
+      if (!['users', 'offices', 'officeAdminInfo', 'officeImports', 'officeAgentContacts', 'officeInvites'].includes(name)) {
         throw new Error(`Unexpected collection in test: ${name}`);
       }
       return makeCollection(name);
@@ -83,6 +83,7 @@ vi.mock('firebase-admin/auth', () => ({
 function resetAll() {
   state.users = {};
   state.offices = {};
+  state.officeAdminInfo = {};
   state.officeImports = {};
   state.officeAgentContacts = {};
   state.officeInvites = {};
@@ -405,6 +406,97 @@ describe('acceptOfficeInvite', () => {
     await expect(acceptOfficeInvite({ token: 'does-not-exist', acceptingUid: 'agentX' }))
       .rejects.toMatchObject({ status: 404 });
   });
+
+  it('REVOCATION: rejects acceptance of a revoked invite', async () => {
+    state.officeInvites['office1_agentX'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com', status: 'revoked',
+    };
+    state.users.agentX = {};
+    const { acceptOfficeInvite } = await import('../../src/app/api/services/officeImportService');
+    await expect(acceptOfficeInvite({ token: 'office1_agentX', acceptingUid: 'agentX' }))
+      .rejects.toMatchObject({ status: 410 });
+    expect(state.users.agentX.officeId).toBeUndefined();
+  });
+
+  it('EXPIRY: rejects acceptance of an invite older than 7 days', async () => {
+    const eightDaysAgo = { toMillis: () => Date.now() - 8 * 24 * 60 * 60 * 1000 };
+    state.officeInvites['office1_agentX'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
+      status: 'pending', createdAt: eightDaysAgo,
+    };
+    state.users.agentX = {};
+    const { acceptOfficeInvite } = await import('../../src/app/api/services/officeImportService');
+    await expect(acceptOfficeInvite({ token: 'office1_agentX', acceptingUid: 'agentX' }))
+      .rejects.toMatchObject({ status: 410 });
+    expect(state.users.agentX.officeId).toBeUndefined();
+  });
+
+  it('EXPIRY: a recent invite (within 7 days) is still accepted normally', async () => {
+    const oneDayAgo = { toMillis: () => Date.now() - 24 * 60 * 60 * 1000 };
+    state.officeInvites['office1_agentX'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
+      status: 'pending', createdAt: oneDayAgo,
+    };
+    state.users.agentX = {};
+    const { acceptOfficeInvite } = await import('../../src/app/api/services/officeImportService');
+    const result = await acceptOfficeInvite({ token: 'office1_agentX', acceptingUid: 'agentX' });
+    expect(result.alreadyAccepted).toBe(false);
+    expect(state.users.agentX.officeId).toBe('office1');
+  });
+
+  it('a resend (fresh createdAt) un-expires a previously-old invite', async () => {
+    const eightDaysAgo = { toMillis: () => Date.now() - 8 * 24 * 60 * 60 * 1000 };
+    state.officeInvites['office1_agentX'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
+      status: 'pending', createdAt: eightDaysAgo, createdBy: 'admin1',
+    };
+    const { resendInvitation, acceptOfficeInvite } = await import('../../src/app/api/services/officeImportService');
+    await resendInvitation({ officeId: 'office1', targetUid: 'agentX' });
+
+    state.users.agentX = {};
+    const result = await acceptOfficeInvite({ token: 'office1_agentX', acceptingUid: 'agentX' });
+    expect(result.alreadyAccepted).toBe(false);
+  });
+});
+
+describe('getOfficeInviteByToken', () => {
+  beforeEach(() => { vi.clearAllMocks(); resetAll(); });
+
+  it('reports expired: true for an old pending invite', async () => {
+    const eightDaysAgo = { toMillis: () => Date.now() - 8 * 24 * 60 * 60 * 1000 };
+    state.officeInvites['office1_agentX'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
+      status: 'pending', createdAt: eightDaysAgo,
+    };
+    const { getOfficeInviteByToken } = await import('../../src/app/api/services/officeImportService');
+    const invite = await getOfficeInviteByToken('office1_agentX');
+    expect(invite.expired).toBe(true);
+  });
+
+  it('reports expired: false for a recent pending invite', async () => {
+    const oneDayAgo = { toMillis: () => Date.now() - 24 * 60 * 60 * 1000 };
+    state.officeInvites['office1_agentX'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
+      status: 'pending', createdAt: oneDayAgo,
+    };
+    const { getOfficeInviteByToken } = await import('../../src/app/api/services/officeImportService');
+    const invite = await getOfficeInviteByToken('office1_agentX');
+    expect(invite.expired).toBe(false);
+  });
+
+  it('never reports expired: true for an already-accepted or revoked invite (status already explains it)', async () => {
+    const eightDaysAgo = { toMillis: () => Date.now() - 8 * 24 * 60 * 60 * 1000 };
+    state.officeInvites['office1_a'] = { officeName: 'X', status: 'accepted', createdAt: eightDaysAgo };
+    state.officeInvites['office1_b'] = { officeName: 'X', status: 'revoked', createdAt: eightDaysAgo };
+    const { getOfficeInviteByToken } = await import('../../src/app/api/services/officeImportService');
+    expect((await getOfficeInviteByToken('office1_a')).expired).toBe(false);
+    expect((await getOfficeInviteByToken('office1_b')).expired).toBe(false);
+  });
+
+  it('returns null for an unknown token', async () => {
+    const { getOfficeInviteByToken } = await import('../../src/app/api/services/officeImportService');
+    expect(await getOfficeInviteByToken('nope')).toBeNull();
+  });
 });
 
 describe('commitImportBatch — retry safety', () => {
@@ -412,7 +504,7 @@ describe('commitImportBatch — retry safety', () => {
 
   it('committing the same batch twice never creates a second Firebase Auth user', async () => {
     const { createImportBatch, commitImportBatch } = await import('../../src/app/api/services/officeImportService');
-    state.offices.office1 = { name: 'Harcourts Property Hub' };
+    state.officeAdminInfo.office1 = { name: 'Harcourts Property Hub' };
 
     const importId = await createImportBatch({
       officeId: 'office1',
@@ -429,10 +521,31 @@ describe('commitImportBatch — retry safety', () => {
     expect(second.summary.created).toBe(1); // row stays recorded as created
   });
 
+  it('ACCESS CONTROL: no amount of retrying/resending ever flips accountStatus to active, and no password is ever set — only a real login (markOfficeAccountActivated) can', async () => {
+    const { createImportBatch, commitImportBatch, resendInvitation } = await import('../../src/app/api/services/officeImportService');
+    state.officeAdminInfo.office1 = { name: 'X' };
+
+    const importId = await createImportBatch({
+      officeId: 'office1', uploadedBy: 'admin1',
+      rows: [{ rowIndex: 0, name: 'Jane Smith', email: 'jane@x.com', phone: '0412345678', previewStatus: 'new' }],
+    });
+
+    await commitImportBatch({ importId, officeId: 'office1', actorUid: 'admin1' });
+    const uid = Object.keys(state.users)[0];
+
+    // Retry the exact same batch, then resend the invitation directly —
+    // neither path ever touches accountStatus.
+    await commitImportBatch({ importId, officeId: 'office1', actorUid: 'admin1' });
+    await resendInvitation({ officeId: 'office1', targetUid: uid });
+
+    expect(state.users[uid].accountStatus).toBe('invited'); // still invited — never auto-activated
+    expect(createUserMock.mock.calls.every((call) => call[0].password === undefined)).toBe(true); // never a password, ever
+  });
+
   it('a row that failed on the first attempt is retried on the second commit', async () => {
     createUserMock.mockRejectedValueOnce(new Error('transient failure'));
     const { createImportBatch, commitImportBatch } = await import('../../src/app/api/services/officeImportService');
-    state.offices.office1 = { name: 'X' };
+    state.officeAdminInfo.office1 = { name: 'X' };
 
     const importId = await createImportBatch({
       officeId: 'office1',
@@ -457,7 +570,7 @@ describe('commitImportBatch — retry safety', () => {
 
   it('rows marked invalid/duplicate-in-csv/already-active-member at preview are skipped, never acted on', async () => {
     const { createImportBatch, commitImportBatch } = await import('../../src/app/api/services/officeImportService');
-    state.offices.office1 = { name: 'X' };
+    state.officeAdminInfo.office1 = { name: 'X' };
     const importId = await createImportBatch({
       officeId: 'office1',
       uploadedBy: 'admin1',
@@ -476,7 +589,7 @@ describe('resendInvitation', () => {
   beforeEach(() => { vi.clearAllMocks(); resetAll(); });
 
   it('resends the Firebase activation link for a not-yet-activated member', async () => {
-    state.offices.office1 = { name: 'X' };
+    state.officeAdminInfo.office1 = { name: 'X' };
     state.users.agent1 = { officeId: 'office1', accountStatus: 'invited', email: 'a@x.com', firstName: 'Jo' };
     const { resendInvitation } = await import('../../src/app/api/services/officeImportService');
     const result = await resendInvitation({ officeId: 'office1', targetUid: 'agent1' });

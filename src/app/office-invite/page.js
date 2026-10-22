@@ -82,6 +82,10 @@ function OfficeInviteContent() {
         <p className="text-slate-500 text-sm">You've joined {invite.officeName}. Taking you to your dashboard…</p>
       </div>
     );
+  } else if (invite.status === 'revoked') {
+    body = <p className="text-slate-500 text-sm">This invitation has been revoked by {invite.officeName}. Contact them if you think this is a mistake.</p>;
+  } else if (invite.expired) {
+    body = <p className="text-slate-500 text-sm">This invitation has expired. Ask {invite.officeName} to resend it.</p>;
   } else if (authLoading) {
     body = <p className="text-slate-400 text-sm">Checking your session…</p>;
   } else if (!user) {

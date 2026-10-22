@@ -6,6 +6,7 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase/clientApp';
 import { useAuth } from '../context/AuthContext';
 import { defaultDashboardFor } from '../utils/roles';
+import { authFetch } from '../utils/authFetch';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
@@ -62,6 +63,18 @@ function LoginPageContent() {
       await signInWithEmailAndPassword(auth, email, password);
       // Don't push here — the useEffect above waits for userData
       // and routes buyers to /buyer-dashboard, agents to /dashboard.
+
+      // Finalizes activation for an office-invited agent's FIRST real
+      // sign-in (see markOfficeAccountActivated) — a safe no-op for
+      // every other login (ordinary individual agents never have
+      // accountStatus: 'invited' in the first place). Non-blocking:
+      // never holds up reaching the dashboard, same pattern already
+      // used for the billing-contact/branding calls at signup.
+      try {
+        await authFetch('/api/offices/activate', { method: 'POST' });
+      } catch (activateErr) {
+        console.error('Office activation finalize failed (non-blocking):', activateErr);
+      }
     } catch (err) {
       console.error('Login error:', err);
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
@@ -70,6 +83,8 @@ function LoginPageContent() {
         setError('Please enter a valid email address');
       } else if (err.code === 'auth/too-many-requests') {
         setError('Too many attempts. Please try again later.');
+      } else if (err.code === 'auth/user-disabled') {
+        setError('This account has been disabled. If you believe this is a mistake, contact your office administrator.');
       } else {
         setError('Something went wrong. Please try again.');
       }
