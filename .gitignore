@@ -45,3 +45,4 @@ next-env.d.ts
 
 # Firestore emulator debug output
 firestore-debug.log
+firebase-debug.log

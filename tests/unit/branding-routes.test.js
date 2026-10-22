@@ -5,6 +5,17 @@ vi.mock('firebase-admin/auth', () => ({
   getAuth: () => ({ verifyIdToken: mockVerifyIdToken }),
 }));
 
+// safeFetchExternalImage (shared by /api/branding/extract-colors) does
+// a real DNS lookup before fetching, specifically to block SSRF — see
+// safeExternalFetch.test.js for the real dedicated coverage of that
+// logic. Here it's just mocked to resolve every test hostname to an
+// ordinary public IP, so these tests exercise the mocked global.fetch
+// exactly as before, without depending on real network access.
+vi.mock('node:dns', () => ({
+  default: { promises: { lookup: vi.fn().mockResolvedValue([{ address: '93.184.216.34', family: 4 }]) } },
+  promises: { lookup: vi.fn().mockResolvedValue([{ address: '93.184.216.34', family: 4 }]) },
+}));
+
 const state = { users: {}, agencyBrands: {} };
 
 vi.mock('../../src/app/firebase/adminApp', () => ({

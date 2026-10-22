@@ -249,8 +249,8 @@ export async function processOneRow({ officeId, officeName, row, actorUid }) {
 
   if (!existingUser) {
     try {
-      const uid = await inviteNewAgent({ officeId, officeName, firstName, lastName, email, phone, actorUid });
-      return { outcome: 'created', uid };
+      const result = await inviteNewAgent({ officeId, officeName, firstName, lastName, email, phone, actorUid });
+      return { outcome: 'created', uid: result.uid, emailSent: result.emailSent, emailError: result.emailError };
     } catch (err) {
       return { outcome: 'failed', error: err.message };
     }
@@ -267,27 +267,29 @@ export async function processOneRow({ officeId, officeName, row, actorUid }) {
     // either a half-finished prior attempt (Auth user + Firestore doc
     // created, email send failed) or a genuine resend. Either way,
     // re-sending the activation link is exactly the right, idempotent
-    // action — never creates anything new.
-    try {
-      await resendNewAgentActivation({ uid: existingUser.uid, email, firstName, officeName });
-      return { outcome: 'created', uid: existingUser.uid };
-    } catch (err) {
-      return { outcome: 'failed', error: err.message };
-    }
+    // action — never creates anything new. resendNewAgentActivation
+    // never throws for an email failure, so this only fails here on a
+    // genuinely unexpected error.
+    const result = await resendNewAgentActivation({ uid: existingUser.uid, email, firstName, officeName });
+    return { outcome: 'created', uid: existingUser.uid, emailSent: result.sent, emailError: result.error };
   }
 
   // Found, but not (yet) a member of this office — never silently
   // transferred/linked. File (or refresh) a join invite instead.
+  // inviteExistingAgentToOffice never throws for an email failure
+  // either — only a genuine Firestore-write failure reaches the catch
+  // below, which really is a total failure (no record was created).
   try {
-    await inviteExistingAgentToOffice({
+    const result = await inviteExistingAgentToOffice({
       officeId,
       officeName,
       targetUid: existingUser.uid,
       targetEmail: email,
+      targetName: name,
       targetFirstName: firstName || existingData.firstName || '',
       actorUid,
     });
-    return { outcome: 'invited-existing', uid: existingUser.uid };
+    return { outcome: 'invited-existing', uid: existingUser.uid, emailSent: result.emailSent, emailError: result.emailError };
   } catch (err) {
     return { outcome: 'failed', error: err.message };
   }
@@ -334,11 +336,12 @@ async function inviteNewAgent({ officeId, officeName, firstName, lastName, email
     });
   }
 
-  await resendNewAgentActivation({ uid, email, firstName, officeName });
-  return uid;
+  const emailResult = await resendNewAgentActivation({ uid, email, firstName, officeName });
+  return { uid, emailSent: emailResult.sent, emailError: emailResult.error };
 }
 
-/** Generates a fresh Firebase activation link and emails it — used
+/**
+ * Generates a fresh Firebase activation link and emails it — used
  * both for the first invite and any later "resend." A successfully-
  * used oobCode is guaranteed single-use by Firebase itself, and
  * expiry of an unused one is Firebase's own, already-battle-tested
@@ -348,11 +351,25 @@ async function inviteNewAgent({ officeId, officeName, firstName, lastName, email
  * since removeAgentFromOffice gives a guarantee that doesn't depend
  * on it at all — a never-activated agent's Firebase Auth account is
  * disabled on removal, which blocks sign-in regardless of whether any
- * particular link is technically still "valid." */
+ * particular link is technically still "valid."
+ *
+ * Deliberately never throws — the account/roster record this backs
+ * (see inviteNewAgent) is a real, separate fact from whether the
+ * email itself made it out. Callers get `{sent, error}` back and
+ * decide what to tell the admin, rather than this function collapsing
+ * "the agent now exists" and "the agent was emailed" into one
+ * all-or-nothing outcome. Logs only the uid and the error message on
+ * failure — never the email address or the generated link.
+ */
 export async function resendNewAgentActivation({ uid, email, firstName, officeName }) {
-  const link = await getAuth().generatePasswordResetLink(email, { url: `${BASE_URL}/login?activated=1` });
-  await sendOfficeInviteEmail(email, firstName, officeName, link);
-  return { uid, sent: true };
+  try {
+    const link = await getAuth().generatePasswordResetLink(email, { url: `${BASE_URL}/login?activated=1` });
+    await sendOfficeInviteEmail(email, firstName, officeName, link);
+    return { uid, sent: true };
+  } catch (err) {
+    console.error('Office activation email failed to send for uid', uid, '-', err.message);
+    return { uid, sent: false, error: err.message };
+  }
 }
 
 /** Deterministic doc id (officeId_targetUid) — re-inviting the same
@@ -363,13 +380,27 @@ function officeInviteDocId(officeId, targetUid) {
   return `${officeId}_${targetUid}`;
 }
 
-async function inviteExistingAgentToOffice({ officeId, officeName, targetUid, targetEmail, targetFirstName, actorUid }) {
+/**
+ * Creates/refreshes the invite record for an existing-account agent,
+ * THEN attempts the email — but a failure in the email step never
+ * throws and never undoes the record. The roster (listOfficeAgents)
+ * shows this row the moment the record exists, regardless of whether
+ * the email made it out, so collapsing both into one throw/success
+ * would make the UI lie about what state things are actually in — see
+ * processOneRow's and the office-admin UI's use of the `emailSent`
+ * flag this returns. `targetName` is stored here specifically so the
+ * roster can display it (see listOfficeAgents) — it's never used for
+ * anything else, and is never sent in any email beyond the greeting
+ * (targetFirstName, derived by the caller).
+ */
+async function inviteExistingAgentToOffice({ officeId, officeName, targetUid, targetEmail, targetName, targetFirstName, actorUid }) {
   const inviteRef = adminDb.collection('officeInvites').doc(officeInviteDocId(officeId, targetUid));
   await inviteRef.set({
     officeId,
     officeName,
     targetUid,
     targetEmail,
+    targetName: targetName || null,
     status: 'pending',
     createdAt: FieldValue.serverTimestamp(),
     createdBy: actorUid,
@@ -377,8 +408,13 @@ async function inviteExistingAgentToOffice({ officeId, officeName, targetUid, ta
 
   const token = officeInviteDocId(officeId, targetUid);
   const link = `${BASE_URL}/office-invite?token=${token}`;
-  await sendOfficeJoinInviteEmail(targetEmail, targetFirstName, officeName, link);
-  return { token };
+  try {
+    await sendOfficeJoinInviteEmail(targetEmail, targetFirstName, officeName, link);
+    return { token, emailSent: true };
+  } catch (err) {
+    console.error('Office join-invite email failed to send for uid', targetUid, '-', err.message);
+    return { token, emailSent: false, emailError: err.message };
+  }
 }
 
 /** Looks up a pending/accepted/revoked invite by its token for the
@@ -459,27 +495,28 @@ export async function resendInvitation({ officeId, targetUid }) {
     // the minimal public `offices` doc (see officeService.js) — never
     // the public one, which holds only agencyBrandId.
     const officeAdminInfo = await adminDb.collection('officeAdminInfo').doc(officeId).get();
-    await resendNewAgentActivation({
+    const result = await resendNewAgentActivation({
       uid: targetUid,
       email: u.email,
       firstName: u.firstName,
       officeName: officeAdminInfo.exists ? officeAdminInfo.data().name : 'Your office',
     });
-    return { resent: true, type: 'activation' };
+    return { resent: true, type: 'activation', emailSent: result.sent, emailError: result.error };
   }
 
   const inviteDoc = await adminDb.collection('officeInvites').doc(officeInviteDocId(officeId, targetUid)).get();
   if (inviteDoc.exists && inviteDoc.data().status === 'pending') {
     const invite = inviteDoc.data();
-    await inviteExistingAgentToOffice({
+    const result = await inviteExistingAgentToOffice({
       officeId,
       officeName: invite.officeName,
       targetUid,
       targetEmail: invite.targetEmail,
-      targetFirstName: '',
+      targetName: invite.targetName || '',
+      targetFirstName: (invite.targetName || '').split(' ')[0] || '',
       actorUid: invite.createdBy,
     });
-    return { resent: true, type: 'join-invite' };
+    return { resent: true, type: 'join-invite', emailSent: result.emailSent, emailError: result.emailError };
   }
 
   throw new OfficeError('No pending invitation found for this agent', 404);
@@ -518,12 +555,22 @@ export async function commitImportBatch({ importId, officeId, actorUid }) {
           return;
         }
         const result = await processOneRow({ officeId, officeName, row, actorUid });
-        rows[idx] = { ...row, commitOutcome: result.outcome, commitError: result.error || null, uid: result.uid || null };
+        rows[idx] = {
+          ...row,
+          commitOutcome: result.outcome,
+          commitError: result.error || null,
+          uid: result.uid || null,
+          emailSent: result.emailSent ?? null,
+          emailError: result.emailError || null,
+        };
       })
     );
   }
 
-  const anyFailed = rows.some((r) => r.commitOutcome === 'failed');
+  // A row whose account/invite record was created but whose email
+  // failed to send is NOT a silent "completed" — the admin needs to
+  // know to resend it, same as a hard failure.
+  const anyFailed = rows.some((r) => r.commitOutcome === 'failed' || r.emailSent === false);
   await adminDb.collection('officeImports').doc(importId).update({
     rows,
     status: anyFailed ? 'completed-with-errors' : 'completed',
@@ -534,6 +581,7 @@ export async function commitImportBatch({ importId, officeId, actorUid }) {
     acc[r.commitOutcome] = (acc[r.commitOutcome] || 0) + 1;
     return acc;
   }, {});
+  summary.emailFailed = rows.filter((r) => r.emailSent === false).length;
 
   return { importId, summary, rows };
 }

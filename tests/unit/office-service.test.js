@@ -377,6 +377,25 @@ describe('getOfficeForUser / listOfficeAgents / computeOfficeStats', () => {
     expect(stats).toEqual({ total: 3, active: 1, invited: 1, pendingAcceptance: 1 });
   });
 
+  it('BUG FIX: a pending existing-account invite displays the name it was given, not "—"/null', async () => {
+    const { listOfficeAgents } = await import('../../src/app/api/services/officeService');
+    state.officeInvites.office1_agent3 = {
+      officeId: 'office1', targetUid: 'agent3', targetEmail: 'phil@x.com',
+      targetName: 'Phil Smith', status: 'pending', createdAt: 'TIMESTAMP',
+    };
+    const agents = await listOfficeAgents('office1');
+    expect(agents.find((a) => a.uid === 'agent3').name).toBe('Phil Smith');
+  });
+
+  it('falls back to null (never a crash) for an older invite with no stored name', async () => {
+    const { listOfficeAgents } = await import('../../src/app/api/services/officeService');
+    state.officeInvites.office1_agent3 = {
+      officeId: 'office1', targetUid: 'agent3', targetEmail: 'phil@x.com', status: 'pending', createdAt: 'TIMESTAMP',
+    };
+    const agents = await listOfficeAgents('office1');
+    expect(agents.find((a) => a.uid === 'agent3').name).toBeNull();
+  });
+
   it('never surfaces a REVOKED invite in the roster (only pending ones)', async () => {
     const { listOfficeAgents } = await import('../../src/app/api/services/officeService');
     state.officeInvites.office1_agent4 = {

@@ -1,15 +1,29 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { useRequireAgent } from '../../hooks/useRequireAgent';
 import { authFetch } from '../../utils/authFetch';
-import { Upload, Loader2, UserPlus, RotateCcw, Trash2, Users } from 'lucide-react';
+import { db } from '../../firebase/clientApp';
+import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import PropertyPageClient from '../../components/PropertyPageClient';
+import { Upload, Loader2, UserPlus, RotateCcw, Trash2, Users, AlertCircle } from 'lucide-react';
 
 const STATUS_LABEL = {
   active: { text: 'Active', className: 'bg-emerald-100 text-emerald-700' },
   invited: { text: 'Invited', className: 'bg-amber-100 text-amber-700' },
   'pending-acceptance': { text: 'Pending acceptance', className: 'bg-slate-100 text-slate-600' },
 };
+
+/** 'warning' is distinct from 'error' on purpose — it means the
+ * underlying record (agent/invite) WAS created, only the email failed
+ * to send, which is a different, less alarming fact than nothing
+ * having happened at all. */
+function messageClassName(type) {
+  if (type === 'error') return 'text-red-600';
+  if (type === 'warning') return 'text-amber-600';
+  return 'text-emerald-600';
+}
 
 /**
  * Office Management — deliberately minimal: office details, roster
@@ -197,13 +211,90 @@ function StatsRow({ stats }) {
   );
 }
 
+/**
+ * Office Branding — pastes-a-URL version of the exact same reusable
+ * extraction/preview pieces the personal branding page
+ * (dashboard/branding/page.js) already uses: the same
+ * /api/branding/extract-colors endpoint (now hardened against SSRF —
+ * see safeExternalFetch.js — since this is a NEW caller of it), and
+ * the same PropertyPageClient + previewBrand live-preview pattern.
+ * Nothing is persisted until "Save Office Branding" is clicked —
+ * everything above that is local state / a read-only preview.
+ */
 function OfficeBrandingCard({ officeId, hasBrand, onSaved }) {
+  const { user } = useAuth();
   const [logoUrl, setLogoUrl] = useState('');
+  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const [primary, setPrimary] = useState('#e48900');
   const [secondary, setSecondary] = useState('');
+  const [extracting, setExtracting] = useState(false);
+  const [extractionMessage, setExtractionMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState(false);
+
+  const [previewProperty, setPreviewProperty] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(true);
+
+  // Load one of the office admin's own properties to preview against —
+  // read-only, same pattern as the personal branding page.
+  useEffect(() => {
+    if (!user) return;
+    const fetchPreviewProperty = async () => {
+      setPreviewLoading(true);
+      try {
+        const q = query(collection(db, 'properties'), where('userId', '==', user.uid), orderBy('createdAt', 'desc'), limit(1));
+        const snap = await getDocs(q);
+        if (!snap.empty) setPreviewProperty({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      } catch (err) {
+        console.error('Failed to load a property to preview against:', err);
+      } finally {
+        setPreviewLoading(false);
+      }
+    };
+    fetchPreviewProperty();
+  }, [user]);
+
+  // Debounced auto-extraction: fires ~600ms after the pasted/typed URL
+  // settles, so a paste doesn't trigger a server call per keystroke.
+  // Reuses /api/branding/extract-colors exactly as-is — no second,
+  // competing extraction path.
+  const extractTimerRef = useRef(null);
+  useEffect(() => {
+    setLogoLoadFailed(false);
+    setExtractionMessage('');
+    if (extractTimerRef.current) clearTimeout(extractTimerRef.current);
+    const trimmed = logoUrl.trim();
+    if (!/^https?:\/\/.+/i.test(trimmed)) return;
+
+    extractTimerRef.current = setTimeout(async () => {
+      setExtracting(true);
+      try {
+        const res = await authFetch('/api/branding/extract-colors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ logoUrl: trimmed }),
+        });
+        const body = await res.json();
+        if (!res.ok) {
+          setExtractionMessage(body.error || 'Could not load this logo — double check the URL.');
+          return;
+        }
+        if (body.usable) {
+          setPrimary(body.primary.hex);
+          setSecondary(body.secondary?.hex || '');
+        } else {
+          setExtractionMessage(body.message || "Couldn't confidently pick colours from this logo — choose them manually below.");
+        }
+      } catch (err) {
+        setExtractionMessage('Something went wrong analysing this logo — you can still pick colours manually.');
+      } finally {
+        setExtracting(false);
+      }
+    }, 600);
+
+    return () => clearTimeout(extractTimerRef.current);
+  }, [logoUrl]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -212,7 +303,7 @@ function OfficeBrandingCard({ officeId, hasBrand, onSaved }) {
       const res = await authFetch(`/api/offices/${officeId}/branding`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ logoUrl: logoUrl || undefined, primary, secondary: secondary || undefined }),
+        body: JSON.stringify({ logoUrl: logoUrl.trim() || undefined, primary, secondary: secondary || undefined }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Failed to save branding');
@@ -225,6 +316,14 @@ function OfficeBrandingCard({ officeId, hasBrand, onSaved }) {
     }
   };
 
+  const trimmedLogoUrl = logoUrl.trim();
+  const proposedBrand = primary
+    ? {
+        logoUrl: trimmedLogoUrl && !logoLoadFailed ? trimmedLogoUrl : null,
+        colors: { primary, primaryDark: primary, secondary: secondary || undefined, primaryText: '#ffffff' },
+      }
+    : null;
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-6">
       <h2 className="font-semibold text-slate-900 mb-1">Office Branding</h2>
@@ -233,41 +332,100 @@ function OfficeBrandingCard({ officeId, hasBrand, onSaved }) {
           ? 'Your office already has a shared brand. Saving here updates it for every member.'
           : "Set this once — every agent in your office inherits it automatically, unless they set their own personal override."}
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="sm:col-span-2">
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Logo URL</label>
-          <input
-            type="text"
-            value={logoUrl}
-            onChange={(e) => setLogoUrl(e.target.value)}
-            placeholder="https://..."
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Primary Colour</label>
-          <div className="flex items-center gap-2">
-            <input type="color" value={primary} onChange={(e) => setPrimary(e.target.value)} className="w-9 h-9 rounded-lg border border-slate-200" />
-            <input type="text" value={primary} onChange={(e) => setPrimary(e.target.value)} className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono text-slate-900" />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Logo URL</label>
+            <input
+              type="text"
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+              placeholder="https://..."
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400"
+            />
+            {trimmedLogoUrl && (
+              <div className="mt-2 flex items-center gap-3">
+                <div className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+                  {logoLoadFailed ? (
+                    <AlertCircle className="w-5 h-5 text-slate-300" />
+                  ) : (
+                    // Plain <img> — browsers render cross-origin images fine for
+                    // display regardless of CORS (CORS only restricts pixel/canvas
+                    // access, which this never needs); onError catches a genuinely
+                    // broken/unreachable URL.
+                    <img
+                      src={trimmedLogoUrl}
+                      alt="Logo preview"
+                      className="w-full h-full object-contain"
+                      onLoad={() => setLogoLoadFailed(false)}
+                      onError={() => setLogoLoadFailed(true)}
+                    />
+                  )}
+                </div>
+                <div className="text-xs">
+                  {extracting ? (
+                    <span className="flex items-center gap-1.5 text-slate-400"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analysing colours…</span>
+                  ) : logoLoadFailed ? (
+                    <span className="text-red-600 flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5" /> Couldn't load this image — check the URL</span>
+                  ) : extractionMessage ? (
+                    <span className="text-amber-600 flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5" /> {extractionMessage}</span>
+                  ) : (
+                    <span className="text-emerald-600">Colours updated below — adjust manually if needed</span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Primary Colour</label>
+              <div className="flex items-center gap-2">
+                <input type="color" value={primary} onChange={(e) => setPrimary(e.target.value)} className="w-9 h-9 rounded-lg border border-slate-200" />
+                <input type="text" value={primary} onChange={(e) => setPrimary(e.target.value)} className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono text-slate-900" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Secondary Colour (optional)</label>
+              <div className="flex items-center gap-2">
+                <input type="color" value={secondary || '#ffffff'} onChange={(e) => setSecondary(e.target.value)} className="w-9 h-9 rounded-lg border border-slate-200" />
+                <input type="text" value={secondary} onChange={(e) => setSecondary(e.target.value)} placeholder="optional" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono text-slate-900 placeholder:text-slate-400" />
+              </div>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-400">This is only a preview. Nothing changes until you save below.</p>
+          {saveError && <p className="text-red-600 text-sm">{saveError}</p>}
+          {saved && <p className="text-emerald-600 text-sm">Office branding saved.</p>}
+          <button
+            onClick={handleSave}
+            disabled={saving || !primary}
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold text-sm disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save Office Branding'}
+          </button>
         </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Secondary Colour (optional)</label>
-          <div className="flex items-center gap-2">
-            <input type="color" value={secondary || '#ffffff'} onChange={(e) => setSecondary(e.target.value)} className="w-9 h-9 rounded-lg border border-slate-200" />
-            <input type="text" value={secondary} onChange={(e) => setSecondary(e.target.value)} placeholder="optional" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono text-slate-900 placeholder:text-slate-400" />
+
+        <div className="border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
+            <p className="text-xs font-semibold text-slate-600">Live preview — exactly what buyers will see</p>
+          </div>
+          <div className="h-[420px] overflow-y-auto">
+            {previewLoading ? (
+              <div className="h-full flex items-center justify-center">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-4 border-orange-500" />
+              </div>
+            ) : previewProperty ? (
+              <PropertyPageClient previewPropertyId={previewProperty.id} previewBrand={proposedBrand} />
+            ) : (
+              <div className="h-full flex items-center justify-center text-center px-6">
+                <p className="text-xs text-slate-400">Add a property to your own account first to see a live preview here.</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
-      {saveError && <p className="text-red-600 text-sm mt-3">{saveError}</p>}
-      {saved && <p className="text-emerald-600 text-sm mt-3">Office branding saved.</p>}
-      <button
-        onClick={handleSave}
-        disabled={saving || !primary}
-        className="mt-4 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold text-sm disabled:opacity-50"
-      >
-        {saving ? 'Saving…' : 'Save Office Branding'}
-      </button>
     </div>
   );
 }
@@ -291,7 +449,19 @@ function AddAgentCard({ officeId, onAdded }) {
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Failed to add agent');
-      setMessage({ type: 'success', text: `Invitation sent to ${email}.` });
+      // The agent record/invite is created the moment the server
+      // responds success — that part never failed. Whether the EMAIL
+      // itself went out is a separate fact (see processOneRow's
+      // emailSent), and must be reported as such rather than folded
+      // into one blanket "sent" message that could be wrong.
+      if (body.emailSent === false) {
+        setMessage({
+          type: 'warning',
+          text: `${name} was added to the roster, but the invitation email failed to send${body.emailError ? `: ${body.emailError}` : ''}. Use Resend below once it's set up correctly.`,
+        });
+      } else {
+        setMessage({ type: 'success', text: `Invitation sent to ${email}.` });
+      }
       setName('');
       setEmail('');
       setPhone('');
@@ -317,7 +487,7 @@ function AddAgentCard({ officeId, onAdded }) {
         </button>
       </form>
       {message && (
-        <p className={`text-sm mt-3 ${message.type === 'error' ? 'text-red-600' : 'text-emerald-600'}`}>{message.text}</p>
+        <p className={`text-sm mt-3 ${messageClassName(message.type)}`}>{message.text}</p>
       )}
     </div>
   );
@@ -447,14 +617,28 @@ function CsvImportCard({ officeId, onImported }) {
 
       {result && (
         <div className="mt-4">
-          <p className="text-emerald-600 text-sm font-semibold mb-2">Import complete.</p>
+          <p className={`text-sm font-semibold mb-2 ${result.emailFailed > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+            Import complete{result.emailFailed > 0 ? ` — ${result.emailFailed} invitation email(s) failed to send` : ''}.
+          </p>
           <div className="flex gap-3 text-xs flex-wrap">
-            {Object.entries(result).map(([outcome, count]) => (
-              <span key={outcome} className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-medium">
-                {outcome}: {count}
-              </span>
-            ))}
+            {Object.entries(result).map(([outcome, count]) => {
+              const isEmailFailed = outcome === 'emailFailed';
+              if (isEmailFailed && count === 0) return null;
+              return (
+                <span
+                  key={outcome}
+                  className={`px-2.5 py-1 rounded-full font-medium ${isEmailFailed ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}
+                >
+                  {outcome}: {count}
+                </span>
+              );
+            })}
           </div>
+          {result.emailFailed > 0 && (
+            <p className="text-xs text-slate-500 mt-2">
+              The affected agents were still added to the roster — use Resend below to retry just the email.
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -472,7 +656,11 @@ function RosterTable({ officeId, agents, onChanged }) {
       const res = await authFetch(`/api/offices/${officeId}/agents/${uid}/resend`, { method: 'POST' });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Failed to resend');
-      setMessage({ type: 'success', text: 'Invitation resent.' });
+      if (body.emailSent === false) {
+        setMessage({ type: 'warning', text: `Resend failed${body.emailError ? `: ${body.emailError}` : ''}.` });
+      } else {
+        setMessage({ type: 'success', text: 'Invitation resent.' });
+      }
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally {
@@ -505,7 +693,7 @@ function RosterTable({ officeId, agents, onChanged }) {
         <Users className="w-4 h-4" /> Agents ({agents.length})
       </h2>
       {message && (
-        <p className={`text-sm mb-3 ${message.type === 'error' ? 'text-red-600' : 'text-emerald-600'}`}>{message.text}</p>
+        <p className={`text-sm mb-3 ${messageClassName(message.type)}`}>{message.text}</p>
       )}
       {agents.length === 0 ? (
         <p className="text-sm text-slate-400">No agents yet — add one above or import a CSV.</p>
