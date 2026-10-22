@@ -35,12 +35,14 @@ function messageClassName(type) {
  */
 export default function OfficeManagementPage() {
   useRequireAgent();
+  const { user, loading: authLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [office, setOffice] = useState(null);
   const [agents, setAgents] = useState([]);
   const [stats, setStats] = useState({ total: 0, active: 0, invited: 0, pendingAcceptance: 0 });
   const [error, setError] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // `silent` (true for every refresh AFTER the first) skips the
   // top-level loading flag — without this, every action on this page
@@ -54,20 +56,39 @@ export default function OfficeManagementPage() {
     if (!silent) setLoading(true);
     setError('');
     try {
-      const officeRes = await authFetch('/api/offices/mine');
-      const officeBody = await officeRes.json();
+      // Only a successful response whose body says `office: null` means
+      // "no office". Any failure (auth not ready, 401/500, network) is
+      // retried once and then surfaced as an error — it must NEVER fall
+      // through to the "Set Up Your Office" form.
+      let officeBody = null;
+      for (let attempt = 0; attempt < 2 && !officeBody; attempt++) {
+        try {
+          const officeRes = await authFetch('/api/offices/mine');
+          if (officeRes.ok) {
+            const body = await officeRes.json();
+            if (body && body.office !== undefined) officeBody = body;
+          }
+        } catch { /* retried below, then reported */ }
+      }
+      if (!officeBody) throw new Error('office-load-failed');
+      setLoadFailed(false);
       setOffice(officeBody.office);
 
       if (officeBody.office?.isOfficeAdmin) {
         const agentsRes = await authFetch(`/api/offices/${officeBody.office.id}/agents`);
-        const agentsBody = await agentsRes.json();
         if (agentsRes.ok) {
+          const agentsBody = await agentsRes.json();
           setAgents(agentsBody.agents);
           setStats(agentsBody.stats);
+        } else {
+          // Keep whatever roster is already showing rather than
+          // presenting a failed load as an empty/shrunken roster.
+          setError('Could not load your agent roster. Showing the last loaded list — please retry.');
         }
       }
     } catch (err) {
-      setError('Failed to load office details');
+      if (silent) setError('Failed to refresh office details');
+      else setLoadFailed(true);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -75,12 +96,29 @@ export default function OfficeManagementPage() {
 
   const refresh = useCallback(() => loadAll(true), [loadAll]);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  // Wait for Firebase Auth to finish initializing: authFetch throws
+  // while auth.currentUser is still null on a hard refresh.
+  const uid = user?.uid;
+  useEffect(() => {
+    if (authLoading || !uid) return;
+    loadAll();
+  }, [authLoading, uid, loadAll]);
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" />
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 text-center">
+        <div>
+          <p className="text-slate-700 mb-4">We couldn't load your office right now. Your office and agents are safe — please try again.</p>
+          <button onClick={() => loadAll()} className="px-5 py-2.5 rounded-lg bg-orange-500 text-white font-semibold">Retry</button>
+        </div>
       </div>
     );
   }
