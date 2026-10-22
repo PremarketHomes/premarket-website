@@ -1,6 +1,6 @@
 import { describe, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import {
-  getTestEnv, getAuthedDb, getUnauthDb, seedDoc,
+  getTestEnv, getAuthedDb, getUnauthDb, getSuperAdminDb, seedDoc,
   cleanup, teardown,
   assertSucceeds, assertFails,
   doc, getDoc, setDoc, updateDoc, deleteDoc,
@@ -10,10 +10,15 @@ beforeAll(async () => { await getTestEnv(); });
 afterAll(async () => { await teardown(); });
 beforeEach(async () => { await cleanup(); });
 
-// notifications and propertyEngagement share the same pattern:
-// auth read/create/update, no delete
+// propertyEngagement: any authenticated user, no ownership check at
+// all. notifications looks similar at a glance but is NOT actually
+// the same pattern — its read/update both require a userId match (or
+// superAdmin for read) — grouping it in here against a payload with
+// no userId field always failed the moment this suite could actually
+// run against a real emulator; see its own dedicated block below,
+// which tests the real (more restrictive) rule instead of loosening
+// it to match a wrong assumption.
 describe.each([
-  { name: 'notifications', col: 'notifications' },
   { name: 'propertyEngagement', col: 'propertyEngagement' },
 ])('$name (auth read/create/update, no delete)', ({ col }) => {
   // --- read ---
@@ -67,6 +72,81 @@ describe.each([
     await setDoc(doc(authedDb, col, 'doc1'), { data: 'test' });
     const db = getUnauthDb();
     await assertFails(deleteDoc(doc(db, col, 'doc1')));
+  });
+});
+
+// notifications: own notifications only (userId match) for read/update,
+// OR superAdmin for read; create is any authenticated user (the server
+// creates these for property events, via the Admin SDK, which bypasses
+// this entirely — the client rule just needs to not be more permissive
+// than that); delete is never allowed.
+describe('notifications (own + superAdmin read, own update, no delete)', () => {
+  // --- read ---
+  it('allows the owner to read their own notification', async () => {
+    await seedDoc('notifications/doc1', { userId: 'user1', data: 'test' });
+    const db = getAuthedDb('user1');
+    await assertSucceeds(getDoc(doc(db, 'notifications', 'doc1')));
+  });
+
+  it('allows superAdmin to read any notification', async () => {
+    await seedDoc('notifications/doc1', { userId: 'user1', data: 'test' });
+    const db = await getSuperAdminDb();
+    await assertSucceeds(getDoc(doc(db, 'notifications', 'doc1')));
+  });
+
+  it('denies a non-owner, non-superAdmin from reading someone else\'s notification', async () => {
+    await seedDoc('notifications/doc1', { userId: 'user1', data: 'test' });
+    const db = getAuthedDb('user2');
+    await assertFails(getDoc(doc(db, 'notifications', 'doc1')));
+  });
+
+  it('denies unauthenticated read', async () => {
+    await seedDoc('notifications/doc1', { userId: 'user1', data: 'test' });
+    const db = getUnauthDb();
+    await assertFails(getDoc(doc(db, 'notifications', 'doc1')));
+  });
+
+  // --- create ---
+  it('allows any authenticated user to create', async () => {
+    const db = getAuthedDb('user1');
+    await assertSucceeds(setDoc(doc(db, 'notifications', 'doc1'), { userId: 'user2', data: 'test' }));
+  });
+
+  it('denies unauthenticated create', async () => {
+    const db = getUnauthDb();
+    await assertFails(setDoc(doc(db, 'notifications', 'doc1'), { userId: 'user1', data: 'test' }));
+  });
+
+  // --- update ---
+  it('allows the owner to update their own notification', async () => {
+    await seedDoc('notifications/doc1', { userId: 'user1', data: 'test' });
+    const db = getAuthedDb('user1');
+    await assertSucceeds(updateDoc(doc(db, 'notifications', 'doc1'), { data: 'updated' }));
+  });
+
+  it('denies a non-owner from updating someone else\'s notification', async () => {
+    await seedDoc('notifications/doc1', { userId: 'user1', data: 'test' });
+    const db = getAuthedDb('user2');
+    await assertFails(updateDoc(doc(db, 'notifications', 'doc1'), { data: 'hacked' }));
+  });
+
+  it('denies unauthenticated update', async () => {
+    await seedDoc('notifications/doc1', { userId: 'user1', data: 'test' });
+    const db = getUnauthDb();
+    await assertFails(updateDoc(doc(db, 'notifications', 'doc1'), { data: 'hacked' }));
+  });
+
+  // --- delete ---
+  it('denies delete even for the owner', async () => {
+    await seedDoc('notifications/doc1', { userId: 'user1', data: 'test' });
+    const db = getAuthedDb('user1');
+    await assertFails(deleteDoc(doc(db, 'notifications', 'doc1')));
+  });
+
+  it('denies unauthenticated delete', async () => {
+    await seedDoc('notifications/doc1', { userId: 'user1', data: 'test' });
+    const db = getUnauthDb();
+    await assertFails(deleteDoc(doc(db, 'notifications', 'doc1')));
   });
 });
 

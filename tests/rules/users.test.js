@@ -103,8 +103,13 @@ describe('users collection', () => {
   });
 
   it('still allows updating unrelated fields when agencyBrandId is untouched', async () => {
+    // Seeded via seedDoc (bypasses rules, like the server's Admin SDK
+    // would) — a client setDoc with agencyBrandId included would now
+    // correctly fail the hardened create rule itself; this test is
+    // about the UPDATE rule leaving an already-set agencyBrandId alone,
+    // not about how it got there.
+    await seedDoc('users/user1', { firstName: 'Alice', agencyBrandId: 'existing-brand' });
     const db = getAuthedDb('user1');
-    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice', agencyBrandId: 'existing-brand' });
     await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob' }));
   });
 
@@ -126,8 +131,8 @@ describe('users collection', () => {
   });
 
   it('still allows updating unrelated fields when brandColors is untouched', async () => {
+    await seedDoc('users/user1', { firstName: 'Alice', brandColors: { primary: '#ff0000' } });
     const db = getAuthedDb('user1');
-    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice', brandColors: { primary: '#ff0000' } });
     await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob' }));
   });
 
@@ -156,8 +161,8 @@ describe('users collection', () => {
   });
 
   it('still allows updating unrelated fields when officeId is untouched', async () => {
+    await seedDoc('users/user1', { firstName: 'Alice', officeId: 'existing-office' });
     const db = getAuthedDb('user1');
-    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice', officeId: 'existing-office' });
     await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob' }));
   });
 
