@@ -7,6 +7,7 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, Timestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase/clientApp';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { getSafeReturnTo } from '../utils/safeRedirect';
 import AuthShell from '../components/public-site/AuthShell';
 import {
   AUTH_LABEL_CLASS,
@@ -19,7 +20,13 @@ import {
 function BuyerSignupInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const returnTo = searchParams.get('returnTo') || '';
+  // SECURITY: validated here (not just at buyer-dashboard/welcome's own
+  // consumption of this same param) so a malformed/malicious value is
+  // never even forwarded in the first place — see safeRedirect.js. This
+  // was previously passed straight through with no check at all: a
+  // crafted `/signup?returnTo=https://evil.example` link would forward
+  // that exact string into the next page's own router.replace() call.
+  const returnTo = getSafeReturnTo(searchParams.get('returnTo')) || '';
 
   const [formData, setFormData] = useState({
     firstName: '',

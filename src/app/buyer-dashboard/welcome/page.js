@@ -18,6 +18,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
 import { authFetch } from '../../utils/authFetch';
 import { db } from '../../firebase/clientApp';
+import { getSafeReturnTo } from '../../utils/safeRedirect';
 import LocationSearch from '../../dashboard/playground/components/LocationSearch';
 
 const BUYER_TYPE_OPTIONS = [
@@ -69,7 +70,12 @@ function WizardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, userData, loading, setUserData } = useAuth();
-  const returnTo = searchParams.get('returnTo') || '';
+  // SECURITY: this is the actual open-redirect SINK — router.replace()
+  // below used to receive this raw value with no validation at all,
+  // reachable either via signup/page.js's own (now also validated)
+  // pass-through, or directly by visiting this page with a crafted
+  // ?returnTo= param. See safeRedirect.js.
+  const returnTo = getSafeReturnTo(searchParams.get('returnTo')) || '';
 
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
