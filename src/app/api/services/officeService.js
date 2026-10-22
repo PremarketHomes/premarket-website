@@ -148,6 +148,16 @@ export async function createOffice({ adminUid, name }) {
     throw new OfficeError('Office name is required', 400);
   }
 
+  // An account that already belongs to an office must NEVER be pointed
+  // at a second one: the update below overwrites users.officeId, which
+  // would silently strand the admin outside their real office (and its
+  // whole roster) — e.g. if the "Set Up Your Office" form is ever shown
+  // to an established admin by mistake.
+  const callerDoc = await adminDb.collection('users').doc(adminUid).get();
+  if (callerDoc.exists && callerDoc.data()?.officeId) {
+    throw new OfficeError('Your account already belongs to an office', 409);
+  }
+
   const existing = await findOfficeByExactName(trimmedName);
   if (existing) {
     await adminDb.collection('officeJoinRequests').add({
@@ -198,7 +208,9 @@ export async function getOfficeForUser(uid) {
   const officeId = userDoc.exists ? userDoc.data()?.officeId : null;
   if (!officeId) return null;
   const office = await getOfficeById(officeId);
-  if (!office) return null;
+  // A linked-but-unreadable office is an error, NOT "no office" — the
+  // caller must never be offered office setup because of it.
+  if (!office) throw new OfficeError('Your office record could not be loaded', 500);
   return { ...office, isOfficeAdmin: isOfficeAdminUid(office, uid) };
 }
 

@@ -1149,7 +1149,7 @@ function DashboardPage() {
   // Logo onboarding for agents without a logo
   useEffect(() => {
     if (!userData) return;
-    if ((userData.isAgent || userData.agent) && !userData.logoUrl && !localStorage.getItem('logo_onboarding_dismissed')) {
+    if ((userData.isAgent || userData.agent) && !userData.officeId && !userData.logoUrl && !localStorage.getItem('logo_onboarding_dismissed')) {
       setShowLogoModal(true);
     }
   }, [userData]);
@@ -1590,7 +1590,7 @@ function DashboardPage() {
 
       {/* Logo Nudge */}
       <AnimatePresence>
-        {(userData?.isAgent || userData?.agent) && !userData?.logoUrl && !showLogoModal && (
+        {(userData?.isAgent || userData?.agent) && !userData?.officeId && !userData?.logoUrl && !showLogoModal && (
           <LogoNudge onClick={() => setShowLogoModal(true)} />
         )}
       </AnimatePresence>

@@ -178,6 +178,23 @@ describe('createOffice', () => {
   });
 });
 
+describe('createOffice — never re-homes an existing office member', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetState();
+  });
+
+  it('refuses (409) and leaves officeId/admin flags untouched', async () => {
+    const { createOffice } = await import('../../src/app/api/services/officeService');
+    seedOffice('office1', { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] });
+    state.users.admin1 = { officeId: 'office1', isOfficeAdmin: true };
+
+    await expect(createOffice({ adminUid: 'admin1', name: 'Some Other Name' })).rejects.toMatchObject({ status: 409 });
+    expect(state.users.admin1.officeId).toBe('office1');
+    expect(Object.keys(state.offices)).toEqual(['office1']);
+  });
+});
+
 describe('requireOfficeAdmin / isOfficeAdminUid', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -398,6 +415,26 @@ describe('getOfficeForUser / listOfficeAgents / computeOfficeStats', () => {
     const { getOfficeForUser } = await import('../../src/app/api/services/officeService');
     state.users.agent1 = {};
     expect(await getOfficeForUser('agent1')).toBeNull();
+  });
+
+  it('throws (never returns null) when the user is linked to an office whose record is missing', async () => {
+    const { getOfficeForUser } = await import('../../src/app/api/services/officeService');
+    state.users.admin1 = { officeId: 'ghost' };
+    await expect(getOfficeForUser('admin1')).rejects.toMatchObject({ status: 500 });
+  });
+
+  it('roster is identical across repeated loads and includes active, invited and pending-acceptance agents', async () => {
+    const { listOfficeAgents } = await import('../../src/app/api/services/officeService');
+    state.users.a = { officeId: 'office1', firstName: 'A', accountStatus: 'active', isOfficeAdmin: true };
+    state.users.b = { officeId: 'office1', firstName: 'B', accountStatus: 'invited' };
+    state.officeInvites.office1_c = { officeId: 'office1', targetUid: 'c', status: 'pending' };
+    const before = JSON.stringify(state);
+
+    const first = await listOfficeAgents('office1');
+    const second = await listOfficeAgents('office1');
+    expect(second).toEqual(first);
+    expect(first.map((x) => x.status).sort()).toEqual(['active', 'invited', 'pending-acceptance']);
+    expect(JSON.stringify(state)).toBe(before); // read-only: never mutates membership
   });
 
   it('reports isOfficeAdmin correctly for an admin vs an ordinary member', async () => {
