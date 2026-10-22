@@ -201,8 +201,20 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * doc (the full `.set()` below omits it), since it's now fully
  * superseded by this confirmation — never left dangling as "still
  * pending" after its own approval.
+ *
+ * `expectedVersion`, when supplied, guards against approving a STALE
+ * submission: proposeBillingContact bumps `version` by 1 on every
+ * single submission (initial or amendment), so if the agent edits
+ * their request again after the admin loaded it for review but
+ * before clicking Approve, the doc's current version will have moved
+ * on. Checked inside this same transaction so it's race-free against
+ * a submission landing concurrently with the approval itself — not
+ * just a UI-level staleness hint. Mismatched ⇒ 409, nothing is
+ * written, and the admin must refresh to see the newer request
+ * before deciding again. Omit it only for a direct admin-initiated
+ * set with no proposal being reviewed at all.
  */
-export async function setBillingContact({ billingEntityKey, billingName, name, email, adminUid }) {
+export async function setBillingContact({ billingEntityKey, billingName, name, email, adminUid, expectedVersion }) {
   if (!billingEntityKey) throw new Error('billingEntityKey is required');
   if (!email || !EMAIL_RE.test(email)) throw new Error('A valid email is required');
 
@@ -210,6 +222,13 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
   await adminDb.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const prior = snap.exists ? snap.data() : {};
+
+    if (expectedVersion != null && prior.version !== expectedVersion) {
+      const err = new Error('This request has changed since you reviewed it — please refresh and try again.');
+      err.status = 409;
+      throw err;
+    }
+
     tx.set(ref, {
       billingEntityKey,
       billingEntityType: prior.billingEntityType || 'independent',
@@ -222,6 +241,7 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
       setAt: FieldValue.serverTimestamp(),
       proposedBy: prior.proposedBy ?? null,
       proposedAt: prior.proposedAt ?? null,
+      version: prior.version ?? null,
     });
   });
 
@@ -268,6 +288,12 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
  *      ever promotes changeRequest's values into the active contact.
  *      Submitting again while a changeRequest is already pending
  *      simply replaces it — same no-collision reasoning as mode 1.
+ *
+ * Every call bumps `version` by 1, regardless of which mode — the
+ * one thing setBillingContact/rejectBillingContact's `expectedVersion`
+ * check needs to tell an outdated review decision apart from a
+ * current one, so a newer edit here can never be silently overwritten
+ * by an admin action that was based on an older submission.
  */
 export async function proposeBillingContact({
   billingEntityKey,
@@ -286,10 +312,12 @@ export async function proposeBillingContact({
   return adminDb.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const data = snap.exists ? snap.data() : null;
+    const nextVersion = (data?.version || 0) + 1;
 
     if (data?.status === 'confirmed') {
       tx.set(ref, {
         ...data,
+        version: nextVersion,
         changeRequest: {
           proposedBillingName: proposedBillingName || '',
           proposedName: proposedName || '',
@@ -297,9 +325,10 @@ export async function proposeBillingContact({
           proposedBy: agentUserId,
           proposedAt: FieldValue.serverTimestamp(),
           status: 'pending',
+          version: nextVersion,
         },
       });
-      return { billingEntityKey, status: 'confirmed', changeRequestStatus: 'pending' };
+      return { billingEntityKey, status: 'confirmed', changeRequestStatus: 'pending', version: nextVersion };
     }
 
     tx.set(ref, {
@@ -307,13 +336,14 @@ export async function proposeBillingContact({
       billingEntityType,
       billingEntityName,
       status: 'pending',
+      version: nextVersion,
       proposedBillingName: proposedBillingName || '',
       proposedName: proposedName || '',
       proposedEmail,
       proposedBy: agentUserId,
       proposedAt: FieldValue.serverTimestamp(),
     });
-    return { billingEntityKey, status: 'pending' };
+    return { billingEntityKey, status: 'pending', version: nextVersion };
   });
 }
 
@@ -340,8 +370,14 @@ export async function proposeBillingContact({
  * Either way, keeps the declined submission under
  * previousProposal/changeRequest purely for audit; it is never
  * auto-reused.
+ *
+ * `expectedVersion`, when supplied, guards against rejecting a STALE
+ * submission — same optimistic-lock reasoning as setBillingContact's
+ * own `expectedVersion`: if the agent has edited their request again
+ * since the admin loaded it, this rejects with 409 rather than
+ * discarding a newer submission the admin never actually saw.
  */
-export async function rejectBillingContact({ billingEntityKey, reason, adminUid }) {
+export async function rejectBillingContact({ billingEntityKey, reason, adminUid, expectedVersion }) {
   if (!billingEntityKey) throw new Error('billingEntityKey is required');
   const ref = adminDb.collection('billingContacts').doc(billingEntityKey);
 
@@ -350,6 +386,11 @@ export async function rejectBillingContact({ billingEntityKey, reason, adminUid 
     const data = snap.exists ? snap.data() : null;
 
     if (data?.status === 'confirmed' && data.changeRequest?.status === 'pending') {
+      if (expectedVersion != null && data.version !== expectedVersion) {
+        const err = new Error('This request has changed since you reviewed it — please refresh and try again.');
+        err.status = 409;
+        throw err;
+      }
       tx.set(ref, {
         ...data,
         changeRequest: {
@@ -365,6 +406,11 @@ export async function rejectBillingContact({ billingEntityKey, reason, adminUid 
 
     if (!data || data.status !== 'pending') {
       const err = new Error('No pending proposal for this agency — it may already have been approved or rejected.');
+      err.status = 409;
+      throw err;
+    }
+    if (expectedVersion != null && data.version !== expectedVersion) {
+      const err = new Error('This request has changed since you reviewed it — please refresh and try again.');
       err.status = 409;
       throw err;
     }
@@ -470,6 +516,7 @@ export async function listPendingBillingContacts() {
         billingEntityType: data.billingEntityType,
         billingEntityName: data.billingEntityName,
         isChangeRequest: true,
+        version: data.version,
         currentBillingName: data.billingName || null,
         currentName: data.name || null,
         currentEmail: data.email || null,

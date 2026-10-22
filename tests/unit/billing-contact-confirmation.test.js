@@ -222,7 +222,7 @@ describe('proposeBillingContact / setBillingContact / rejectBillingContact lifec
       proposedEmail: 'updated@a.example.com', agentUserId: 'agent1',
     });
 
-    expect(result).toEqual({ billingEntityKey: 'agent:agent1', status: 'confirmed', changeRequestStatus: 'pending' });
+    expect(result).toEqual({ billingEntityKey: 'agent:agent1', status: 'confirmed', changeRequestStatus: 'pending', version: 1 });
     // The active, already-confirmed contact is still exactly what it was — untouched, still invoice-usable.
     expect(fakeDb._store.billingContacts['agent:agent1'].email).toBe('jane@a.example.com');
     expect((await resolveBillingContact('agent:agent1')).email).toBe('jane@a.example.com');
