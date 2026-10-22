@@ -74,21 +74,36 @@ export function wrapEmail({ previewText, bodyHTML, recipientEmail, reason, orgLa
 }
 
 /**
+ * Bulletproof CTA button: solid background-color (and bgcolor on the
+ * table cell) so clients that drop `linear-gradient` — Gmail, some
+ * mobile apps — still show a filled button instead of white-on-white
+ * text. The gradient is layered on top as progressive enhancement.
+ * Pass `{ fallback: true }` to add a visible copy-and-paste link
+ * underneath for clients that block or restyle buttons.
+ */
+function bulletproofButton(text, href, solid, gradient, { fallback = false } = {}) {
+  const fallbackHTML = fallback
+    ? `<p style="margin:0 0 20px; text-align:center; font-size:12px; color:#64748b; line-height:1.5; word-break:break-all;">Button not working? Copy and paste this link into your browser:<br><a href="${href}" style="color:${solid}; text-decoration:underline;">${href}</a></p>`
+    : '';
+  return `<table role="presentation" align="center" border="0" cellspacing="0" cellpadding="0" style="margin:28px auto;">
+  <tr><td align="center" bgcolor="${solid}" style="background-color:${solid}; background-image:${gradient}; border-radius:10px;">
+    <a href="${href}" target="_blank" style="display:inline-block; padding:14px 32px; background-color:${solid}; color:#ffffff !important; text-decoration:none; border-radius:10px; font-size:15px; font-weight:700; letter-spacing:0.3px; font-family:Arial, Helvetica, sans-serif;"><font color="#ffffff">${text}</font></a>
+  </td></tr>
+</table>${fallbackHTML}`;
+}
+
+/**
  * Orange CTA button
  */
-export function ctaButton(text, href) {
-  return `<div style="text-align:center; margin:28px 0;">
-  <a href="${href}" style="display:inline-block; padding:14px 32px; background:linear-gradient(135deg, #f97316 0%, #ea580c 100%); color:#ffffff; text-decoration:none; border-radius:10px; font-size:15px; font-weight:700; letter-spacing:0.3px;">${text}</a>
-</div>`;
+export function ctaButton(text, href, opts) {
+  return bulletproofButton(text, href, '#ea580c', 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', opts);
 }
 
 /**
  * Dark CTA button
  */
-export function ctaButtonDark(text, href) {
-  return `<div style="text-align:center; margin:28px 0;">
-  <a href="${href}" style="display:inline-block; padding:14px 32px; background:linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%); color:#ffffff; text-decoration:none; border-radius:10px; font-size:15px; font-weight:700; letter-spacing:0.3px;">${text}</a>
-</div>`;
+export function ctaButtonDark(text, href, opts) {
+  return bulletproofButton(text, href, '#1a1a2e', 'linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%)', opts);
 }
 
 /**
