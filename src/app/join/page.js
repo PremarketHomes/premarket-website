@@ -176,7 +176,12 @@ export default function AgentSignup() {
         // Pull the server-set officeId/isOfficeAdmin into the auth
         // context BEFORE navigating, or the sidebar's Office link
         // stays hidden until a reload.
-        await refreshUserData();
+        // If the refresh fails, the office already exists — never
+        // re-submit; a full page load re-reads userData from scratch.
+        if (!(await refreshUserData())) {
+          window.location.assign('/dashboard/office');
+          return;
+        }
         router.push('/dashboard/office');
       } catch (officeErr) {
         console.error('Office creation failed after the account was already created (recoverable):', officeErr);
