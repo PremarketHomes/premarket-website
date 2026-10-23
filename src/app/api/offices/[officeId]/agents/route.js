@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { verifyAuth } from '../../../middleware/auth';
 import { requireOfficeAdmin, listOfficeAgents, computeOfficeStats } from '../../../services/officeService';
-import { processOneRow } from '../../../services/officeImportService';
+import { processOneRow, listStagedAgents } from '../../../services/officeImportService';
 
 /**
  * GET /api/offices/{officeId}/agents
@@ -19,7 +19,18 @@ export async function GET(request, { params }) {
     const { officeId } = await params;
     await requireOfficeAdmin({ officeId, uid: auth.uid });
 
-    const agents = await listOfficeAgents(officeId);
+    const members = await listOfficeAgents(officeId);
+    const stagedRows = await listStagedAgents(officeId);
+    const byEmail = new Map(members.map((a, i) => [(a.email || '').toLowerCase(), i]));
+    const extra = [];
+    for (const row of stagedRows) {
+      const at = byEmail.get((row.email || '').toLowerCase());
+      if (at === undefined) { extra.push(row); continue; }
+      // Already on the roster (their account/invitation exists) — the only thing the staged record can add
+      // is that the invitation EMAIL failed, so the admin can see it and retry.
+      if (row.status === 'send-failed') members[at] = { ...members[at], status: 'send-failed', error: row.error };
+    }
+    const agents = [...members, ...extra];
     return NextResponse.json({ agents, stats: computeOfficeStats(agents) });
   } catch (err) {
     console.error('List office agents error:', err);

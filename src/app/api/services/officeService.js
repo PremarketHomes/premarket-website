@@ -332,6 +332,8 @@ export function computeOfficeStats(agents) {
     active: agents.filter((a) => a.status === 'active').length,
     invited: agents.filter((a) => a.status === 'invited').length,
     pendingAcceptance: agents.filter((a) => a.status === 'pending-acceptance').length,
+    staged: agents.filter((a) => a.status === 'staged').length,
+    sendFailed: agents.filter((a) => a.status === 'send-failed').length,
   };
 }
 

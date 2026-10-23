@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const state = { users: {}, offices: {}, officeAdminInfo: {}, officeImports: {}, officeAgentContacts: {}, officeInvites: {} };
+const state = { users: {}, offices: {}, officeAdminInfo: {}, officeImports: {}, officeAgentContacts: {}, officeInvites: {}, officeActivations: {} };
 const authState = { users: new Map() }; // email (lowercase) -> { uid, email }
 let uidCounter = 0;
 
@@ -54,7 +54,7 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
       return result;
     },
     collection: (name) => {
-      if (!['users', 'offices', 'officeAdminInfo', 'officeImports', 'officeAgentContacts', 'officeInvites'].includes(name)) {
+      if (!['users', 'offices', 'officeAdminInfo', 'officeImports', 'officeAgentContacts', 'officeInvites', 'officeActivations'].includes(name)) {
         throw new Error(`Unexpected collection in test: ${name}`);
       }
       return makeCollection(name);
@@ -69,6 +69,7 @@ vi.mock('firebase-admin/firestore', () => ({
 const sentEmails = [];
 vi.mock('../../src/app/api/services/resendService', () => ({
   sendOfficeInviteEmail: vi.fn().mockImplementation(async (email, firstName, officeName, link) => {
+    if (globalThis.__activationEmailFail) { const e = globalThis.__activationEmailFail; globalThis.__activationEmailFail = null; throw e; }
     sentEmails.push({ type: 'activation', email, firstName, officeName, link });
   }),
   sendOfficeJoinInviteEmail: vi.fn().mockImplementation(async (email, firstName, officeName, link) => {
@@ -97,6 +98,7 @@ function resetAll() {
   state.officeImports = {};
   state.officeAgentContacts = {};
   state.officeInvites = {};
+  state.officeActivations = {};
   authState.users = new Map();
   sentEmails.length = 0;
   uidCounter = 0;
@@ -285,10 +287,16 @@ describe('processOneRow — new agent (brand-new Firebase Auth account)', () => 
       row: { name: 'Jane Smith', email: 'jane@x.com', phone: '0412345678' },
       actorUid: 'admin1',
     });
-    expect(generatePasswordResetLinkMock).toHaveBeenCalledWith('jane@x.com', expect.objectContaining({ url: expect.stringContaining('/login?activated=1') }));
+    // The email carries a long-lived Premarket activation link; the (1-hour) Firebase link is only minted when it is clicked.
+    expect(generatePasswordResetLinkMock).not.toHaveBeenCalled();
     expect(sentEmails).toHaveLength(1);
     expect(sentEmails[0].type).toBe('activation');
+    expect(sentEmails[0].link).toMatch(/^https:\/\/premarket\.homes\/activate\?t=[A-Za-z0-9_-]{40,}$/);
     expect(sentEmails[0].link).not.toContain('password');
+    // Only a hash of the token is stored — never a usable link.
+    const stored = Object.keys(state.officeActivations);
+    expect(stored).toHaveLength(1);
+    expect(sentEmails[0].link).not.toContain(stored[0]);
   });
 
   it('a Firebase Auth createUser failure is caught and returned as a failed outcome, not thrown', async () => {
@@ -351,8 +359,11 @@ describe('processOneRow — existing Premarket account (never silently transferr
       actorUid: 'admin1',
     });
 
-    expect(result.outcome).toBe('invited-existing');
+    // Belongs to another office: never moved, and no pointless invitation is created or emailed.
+    expect(result).toMatchObject({ outcome: 'skipped', reason: 'other-office' });
     expect(state.users['uid-elsewhere'].officeId).toBe('some-other-office'); // unchanged
+    expect(Object.keys(state.officeInvites)).toHaveLength(0);
+    expect(sentEmails).toHaveLength(0);
   });
 
   it('an agent already active in THIS office is skipped — a no-op', async () => {
@@ -442,7 +453,7 @@ describe('processOneRow — email-send failures never abort the brand-new accoun
   beforeEach(() => { vi.clearAllMocks(); resetAll(); });
 
   it('a brand-new account is still created even if the activation email fails to send', async () => {
-    generatePasswordResetLinkMock.mockRejectedValueOnce(new Error('Resend misconfigured'));
+    globalThis.__activationEmailFail = new Error('Resend misconfigured');
     const { processOneRow } = await import('../../src/app/api/services/officeImportService');
     const result = await processOneRow({
       officeId: 'office1', officeName: 'X',
@@ -590,8 +601,8 @@ describe('acceptOfficeInvite', () => {
     expect(state.users.agentX.officeId).toBeUndefined();
   });
 
-  it('EXPIRY: rejects acceptance of an invite older than 7 days', async () => {
-    const eightDaysAgo = { toMillis: () => Date.now() - 8 * 24 * 60 * 60 * 1000 };
+  it('EXPIRY: rejects acceptance of an invite older than 14 days', async () => {
+    const eightDaysAgo = { toMillis: () => Date.now() - 15 * 24 * 60 * 60 * 1000 };
     state.officeInvites['office1_agentX'] = {
       officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
       status: 'pending', createdAt: eightDaysAgo,
@@ -603,7 +614,7 @@ describe('acceptOfficeInvite', () => {
     expect(state.users.agentX.officeId).toBeUndefined();
   });
 
-  it('EXPIRY: a recent invite (within 7 days) is still accepted normally', async () => {
+  it('EXPIRY: a recent invite (within 14 days) is still accepted normally', async () => {
     const oneDayAgo = { toMillis: () => Date.now() - 24 * 60 * 60 * 1000 };
     state.officeInvites['office1_agentX'] = {
       officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
@@ -617,7 +628,7 @@ describe('acceptOfficeInvite', () => {
   });
 
   it('a resend (fresh createdAt) un-expires a previously-old invite', async () => {
-    const eightDaysAgo = { toMillis: () => Date.now() - 8 * 24 * 60 * 60 * 1000 };
+    const eightDaysAgo = { toMillis: () => Date.now() - 15 * 24 * 60 * 60 * 1000 };
     state.officeInvites['office1_agentX'] = {
       officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
       status: 'pending', createdAt: eightDaysAgo, createdBy: 'admin1',
@@ -635,7 +646,7 @@ describe('getOfficeInviteByToken', () => {
   beforeEach(() => { vi.clearAllMocks(); resetAll(); });
 
   it('reports expired: true for an old pending invite', async () => {
-    const eightDaysAgo = { toMillis: () => Date.now() - 8 * 24 * 60 * 60 * 1000 };
+    const eightDaysAgo = { toMillis: () => Date.now() - 15 * 24 * 60 * 60 * 1000 };
     state.officeInvites['office1_agentX'] = {
       officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
       status: 'pending', createdAt: eightDaysAgo,
@@ -657,7 +668,7 @@ describe('getOfficeInviteByToken', () => {
   });
 
   it('never reports expired: true for an already-accepted or revoked invite (status already explains it)', async () => {
-    const eightDaysAgo = { toMillis: () => Date.now() - 8 * 24 * 60 * 60 * 1000 };
+    const eightDaysAgo = { toMillis: () => Date.now() - 15 * 24 * 60 * 60 * 1000 };
     state.officeInvites['office1_a'] = { officeName: 'X', status: 'accepted', createdAt: eightDaysAgo };
     state.officeInvites['office1_b'] = { officeName: 'X', status: 'revoked', createdAt: eightDaysAgo };
     const { getOfficeInviteByToken } = await import('../../src/app/api/services/officeImportService');
@@ -757,7 +768,7 @@ describe('commitImportBatch — retry safety', () => {
   });
 
   it('BUG FIX: a row whose account was created but whose email failed is counted in summary.emailFailed, and the batch is marked completed-with-errors', async () => {
-    generatePasswordResetLinkMock.mockRejectedValueOnce(new Error('Resend down'));
+    globalThis.__activationEmailFail = new Error('Resend down');
     const { createImportBatch, commitImportBatch, getImportBatch } = await import('../../src/app/api/services/officeImportService');
     state.officeAdminInfo.office1 = { name: 'X' };
     const importId = await createImportBatch({
@@ -785,7 +796,8 @@ describe('resendInvitation', () => {
     const { resendInvitation } = await import('../../src/app/api/services/officeImportService');
     const result = await resendInvitation({ officeId: 'office1', targetUid: 'agent1' });
     expect(result.type).toBe('activation');
-    expect(generatePasswordResetLinkMock).toHaveBeenCalled();
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0].link).toContain('/activate?t=');
   });
 
   it('refuses to resend for an already-active member', async () => {
@@ -819,7 +831,7 @@ describe('resendInvitation', () => {
   });
 
   it('reports emailSent/emailError for an activation resend', async () => {
-    generatePasswordResetLinkMock.mockRejectedValueOnce(new Error('down'));
+    globalThis.__activationEmailFail = new Error('down');
     state.officeAdminInfo.office1 = { name: 'X' };
     state.users.agent1 = { officeId: 'office1', accountStatus: 'invited', email: 'a@x.com', firstName: 'Jo' };
     const { resendInvitation } = await import('../../src/app/api/services/officeImportService');

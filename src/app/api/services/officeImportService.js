@@ -39,11 +39,12 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { BASE_URL } from './emailTemplates';
 import { sendOfficeInviteEmail, sendOfficeJoinInviteEmail } from './resendService';
 import { OfficeError } from './officeService';
+import { createActivationLink } from './officeActivationService';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_ROWS_PER_IMPORT = 2000;
 const AUTH_LOOKUP_CHUNK_SIZE = 100; // Firebase Admin SDK's own getUsers() limit
-const OFFICE_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, same createdAt-based pattern as docLinks
+const OFFICE_INVITE_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000; // 14 days — long enough for a bulk rollout
 
 function toMillis(value) {
   if (!value) return null;
@@ -160,20 +161,32 @@ export async function classifyImportRows({ officeId, rawRows }) {
 
   const toLookUp = shaped.filter((r) => r.previewStatus === 'pending-lookup');
   const foundByEmail = await lookupExistingAuthUsersByEmail(toLookUp.map((r) => r.email));
+  const stagedEmails = await getStagedEmails(officeId);
 
   const resolved = await Promise.all(
     shaped.map(async (row) => {
       if (row.previewStatus !== 'pending-lookup') return row;
+      // Same email already waiting in another staged (unsent) batch — never stage twice.
+      if (stagedEmails.has(row.email)) return { ...row, previewStatus: 'already-staged' };
+
       const existingUser = foundByEmail.get(row.email);
       if (!existingUser) return { ...row, previewStatus: 'new' };
 
       const existingDoc = await adminDb.collection('users').doc(existingUser.uid).get();
-      const existingOfficeId = existingDoc.exists ? existingDoc.data()?.officeId : null;
-      return {
-        ...row,
-        previewStatus: existingOfficeId === officeId ? 'already-active-member' : 'existing-account',
-        existingUid: existingUser.uid,
-      };
+      const existing = existingDoc.exists ? existingDoc.data() : {};
+      const base = { ...row, existingUid: existingUser.uid };
+
+      if (existing.officeId === officeId) {
+        // Already linked to THIS office: active, or invited-but-not-yet-activated.
+        return { ...base, previewStatus: existing.accountStatus === 'invited' ? 'already-invited' : 'already-active-member' };
+      }
+      // Belongs to a different office — never moved or re-invited from here.
+      if (existing.officeId) return { ...base, previewStatus: 'in-other-office' };
+
+      // Existing account with no office: skip if a join invitation is already pending.
+      const inviteDoc = await adminDb.collection('officeInvites').doc(officeInviteDocId(officeId, existingUser.uid)).get();
+      if (inviteDoc.exists && inviteDoc.data().status === 'pending') return { ...base, previewStatus: 'already-invited' };
+      return { ...base, previewStatus: 'existing-account' };
     })
   );
 
@@ -270,8 +283,14 @@ export async function processOneRow({ officeId, officeName, row, actorUid }) {
     // action — never creates anything new. resendNewAgentActivation
     // never throws for an email failure, so this only fails here on a
     // genuinely unexpected error.
-    const result = await resendNewAgentActivation({ uid: existingUser.uid, email, firstName, officeName });
+    const result = await resendNewAgentActivation({ uid: existingUser.uid, email, firstName, officeName, officeId });
     return { outcome: 'created', uid: existingUser.uid, emailSent: result.sent, emailError: result.error };
+  }
+
+  // Belongs to a DIFFERENT office — never invite (acceptance would be refused anyway),
+  // so don't send an unnecessary email.
+  if (existingData.officeId && existingData.officeId !== officeId) {
+    return { outcome: 'skipped', reason: 'other-office', uid: existingUser.uid };
   }
 
   // Found, but not (yet) a member of this office — never silently
@@ -337,7 +356,7 @@ async function inviteNewAgent({ officeId, officeName, firstName, lastName, email
     });
   }
 
-  const emailResult = await resendNewAgentActivation({ uid, email, firstName, officeName });
+  const emailResult = await resendNewAgentActivation({ uid, email, firstName, officeName, officeId });
   return { uid, emailSent: emailResult.sent, emailError: emailResult.error };
 }
 
@@ -362,9 +381,11 @@ async function inviteNewAgent({ officeId, officeName, firstName, lastName, email
  * all-or-nothing outcome. Logs only the uid and the error message on
  * failure — never the email address or the generated link.
  */
-export async function resendNewAgentActivation({ uid, email, firstName, officeName }) {
+export async function resendNewAgentActivation({ uid, email, firstName, officeName, officeId }) {
   try {
-    const link = await getAuth().generatePasswordResetLink(email, { url: `${BASE_URL}/login?activated=1` });
+    // A long-lived (14-day) Premarket link; a fresh Firebase password-setup link is
+    // minted only when the agent clicks it (see officeActivationService.js).
+    const link = await createActivationLink({ uid, email, officeId });
     await sendOfficeInviteEmail(email, firstName, officeName, link);
     return { uid, sent: true };
   } catch (err) {
@@ -549,6 +570,7 @@ export async function resendInvitation({ officeId, targetUid }) {
       email: u.email,
       firstName: u.firstName,
       officeName: officeAdminInfo.exists ? officeAdminInfo.data().name : 'Your office',
+      officeId,
     });
     return { resent: true, type: 'activation', emailSent: result.sent, emailError: result.error };
   }
@@ -569,6 +591,180 @@ export async function resendInvitation({ officeId, targetUid }) {
   }
 
   throw new OfficeError('No pending invitation found for this agent', 404);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// STAGING: validate -> stage (no emails, no accounts) -> send on confirmation.
+// A staged row is a `rows[]` entry on an officeImports batch with status
+// 'staged'. Nothing is created in Auth/Firestore-users and no email is sent
+// until sendStagedChunk runs, which reuses processOneRow (the same code the
+// single "add an agent" path uses) and is safe to repeat.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Row states that may be sent. Everything else was already classified as skip. */
+const ELIGIBLE_PREVIEW = ['new', 'existing-account'];
+const RESOLVED_OK = ['created', 'invited-existing', 'skipped'];
+const SEND_CHUNK_DEFAULT = 10;
+const STALE_SENDING_MS = 3 * 60 * 1000;
+const LIVE_BATCH_STATUSES = ['staged', 'sending', 'completed-with-errors'];
+
+/** 'staged' (not yet attempted) | 'sending' | 'send-failed' | 'sent' | null (not applicable). */
+export function stagedRowState(row, nowMs = Date.now()) {
+  if (!ELIGIBLE_PREVIEW.includes(row.previewStatus)) return null;
+  const o = row.commitOutcome;
+  if (!o) return 'staged';
+  if (o === 'sending') return nowMs - (row.sendingAtMs || 0) > STALE_SENDING_MS ? 'send-failed' : 'sending';
+  if (o === 'failed' || row.emailSent === false) return 'send-failed';
+  if (RESOLVED_OK.includes(o)) return 'sent';
+  return null;
+}
+
+async function getStagedEmails(officeId) {
+  const snap = await adminDb.collection('officeImports').where('officeId', '==', officeId).get();
+  const emails = new Set();
+  for (const d of snap.docs) {
+    const b = d.data();
+    if (!LIVE_BATCH_STATUSES.includes(b.status)) continue;
+    for (const r of b.rows || []) {
+      const st = stagedRowState(r);
+      if (st && st !== 'sent') emails.add(r.email);
+    }
+  }
+  return emails;
+}
+
+/** Marks a previewed batch as staged. Nothing is sent. */
+export async function stageImportBatch({ importId, officeId }) {
+  const batch = await getImportBatch(importId);
+  if (!batch) throw new OfficeError('Import batch not found', 404);
+  if (batch.officeId !== officeId) throw new OfficeError('Import batch does not belong to this office', 403);
+  if (batch.status !== 'previewed' && batch.status !== 'staged') {
+    throw new OfficeError('This import has already been sent or discarded', 409);
+  }
+  const eligible = batch.rows.filter((r) => ELIGIBLE_PREVIEW.includes(r.previewStatus)).length;
+  if (eligible === 0) throw new OfficeError('There are no eligible agents to stage in this file', 400);
+  await adminDb.collection('officeImports').doc(importId).update({ status: 'staged', stagedAt: FieldValue.serverTimestamp() });
+  return { importId, staged: eligible };
+}
+
+/** Throws away a batch that has not been sent. Already-sent rows are unaffected (they live as real accounts/invites). */
+export async function discardImportBatch({ importId, officeId }) {
+  const batch = await getImportBatch(importId);
+  if (!batch) throw new OfficeError('Import batch not found', 404);
+  if (batch.officeId !== officeId) throw new OfficeError('Import batch does not belong to this office', 403);
+  const attempted = (batch.rows || []).some((r) => r.commitOutcome && r.commitOutcome !== 'sending');
+  if (attempted) throw new OfficeError('Some invitations in this import were already sent and cannot be discarded', 409);
+  await adminDb.collection('officeImports').doc(importId).update({ status: 'discarded', discardedAt: FieldValue.serverTimestamp() });
+  return { importId, discarded: true };
+}
+
+/** Staged/in-flight/failed rows for the roster (read-only). Phone numbers are never returned. */
+export async function listStagedAgents(officeId) {
+  const snap = await adminDb.collection('officeImports').where('officeId', '==', officeId).get();
+  const out = [];
+  for (const d of snap.docs) {
+    const b = d.data();
+    if (!LIVE_BATCH_STATUSES.includes(b.status)) continue;
+    for (const r of b.rows || []) {
+      const state = stagedRowState(r);
+      if (!state || state === 'sent') continue;
+      out.push({
+        uid: null,
+        key: `staged:${d.id}:${r.rowIndex}`,
+        importId: d.id,
+        name: r.name || null,
+        email: r.email || null,
+        status: state, // 'staged' | 'sending' | 'send-failed'
+        isOfficeAdmin: false,
+        error: state === 'send-failed' ? (r.commitError || r.emailError || 'Email could not be sent') : null,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Sends one chunk of staged invitations.
+ *  - mode 'new':   rows never attempted (the "Send All Invitations" button)
+ *  - mode 'retry': rows that failed (the "Retry failed" button) — successful rows are never touched
+ * Rows are claimed inside a transaction ('sending') so two overlapping calls can never send the same
+ * agent twice. Call repeatedly until `remaining` is 0 (the client loops; each call stays short).
+ */
+export async function sendStagedChunk({ officeId, actorUid, mode = 'new', maxRows = SEND_CHUNK_DEFAULT }) {
+  const wanted = mode === 'retry' ? ['send-failed'] : ['staged'];
+  const officeAdminInfo = await adminDb.collection('officeAdminInfo').doc(officeId).get();
+  const officeName = officeAdminInfo.exists ? officeAdminInfo.data().name : 'Your office';
+
+  const snap = await adminDb.collection('officeImports').where('officeId', '==', officeId).get();
+  const batchIds = snap.docs.filter((d) => LIVE_BATCH_STATUSES.includes(d.data().status)).map((d) => d.id);
+
+  // 1. Claim up to maxRows rows (atomically, per batch).
+  const claimed = [];
+  for (const importId of batchIds) {
+    if (claimed.length >= maxRows) break;
+    const ref = adminDb.collection('officeImports').doc(importId);
+    await adminDb.runTransaction(async (tx) => {
+      const doc = await tx.get(ref);
+      const batch = doc.data();
+      const rows = [...batch.rows];
+      let changed = false;
+      for (let i = 0; i < rows.length && claimed.length < maxRows; i++) {
+        if (!wanted.includes(stagedRowState(rows[i]))) continue;
+        rows[i] = { ...rows[i], commitOutcome: 'sending', sendingAtMs: Date.now() };
+        claimed.push({ importId, index: i, row: rows[i] });
+        changed = true;
+      }
+      if (changed) tx.update(ref, { rows, status: 'sending' });
+    });
+  }
+
+  // 2. Send them (bounded concurrency), then record every outcome.
+  const results = [];
+  const CONCURRENCY = 5;
+  for (let i = 0; i < claimed.length; i += CONCURRENCY) {
+    const group = claimed.slice(i, i + CONCURRENCY);
+    const done = await Promise.all(group.map(async (c) => {
+      try {
+        const r = await processOneRow({ officeId, officeName, row: c.row, actorUid });
+        return { ...c, result: r };
+      } catch (err) {
+        return { ...c, result: { outcome: 'failed', error: err.message } };
+      }
+    }));
+    results.push(...done);
+  }
+
+  const byBatch = new Map();
+  for (const r of results) byBatch.set(r.importId, [...(byBatch.get(r.importId) || []), r]);
+  for (const [importId, items] of byBatch) {
+    const ref = adminDb.collection('officeImports').doc(importId);
+    await adminDb.runTransaction(async (tx) => {
+      const doc = await tx.get(ref);
+      const rows = [...doc.data().rows];
+      for (const it of items) {
+        const res = it.result;
+        rows[it.index] = {
+          ...rows[it.index],
+          commitOutcome: res.outcome,
+          commitError: res.error || null,
+          uid: res.uid || null,
+          emailSent: res.emailSent ?? null,
+          emailError: res.emailError || null,
+          sendingAtMs: null,
+        };
+      }
+      const anyOpen = rows.some((r) => ['staged', 'sending', 'send-failed'].includes(stagedRowState(r)));
+      tx.update(ref, { rows, status: anyOpen ? (rows.some((r) => stagedRowState(r) === 'send-failed') ? 'completed-with-errors' : 'sending') : 'completed' });
+    });
+  }
+
+  // 3. What is left?
+  const after = await listStagedAgents(officeId);
+  const remaining = after.filter((r) => wanted.includes(r.status) || r.status === 'sending').length;
+  const sent = results.filter((r) => RESOLVED_OK.includes(r.result.outcome) && r.result.emailSent !== false).length;
+  const skipped = results.filter((r) => r.result.outcome === 'skipped').length;
+  const failed = results.length - sent;
+  return { processed: results.length, sent, failed, skipped, remaining };
 }
 
 /**

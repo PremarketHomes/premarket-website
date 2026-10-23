@@ -12,7 +12,22 @@ import { Upload, Loader2, UserPlus, RotateCcw, Trash2, Users, AlertCircle } from
 const STATUS_LABEL = {
   active: { text: 'Active', className: 'bg-emerald-100 text-emerald-700' },
   invited: { text: 'Invited', className: 'bg-amber-100 text-amber-700' },
-  'pending-acceptance': { text: 'Pending acceptance', className: 'bg-slate-100 text-slate-600' },
+  'pending-acceptance': { text: 'Invited (existing account)', className: 'bg-amber-100 text-amber-700' },
+  staged: { text: 'Pending Invitation', className: 'bg-indigo-100 text-indigo-700' },
+  sending: { text: 'Sending…', className: 'bg-slate-100 text-slate-600' },
+  'send-failed': { text: 'Send failed', className: 'bg-red-100 text-red-700' },
+};
+
+/** Plain-English labels for how the CSV validator classified each row. */
+const IMPORT_ROW_LABEL = {
+  new: { text: 'New account', ok: true },
+  'existing-account': { text: 'Existing Premarket user — will get a join invitation', ok: true },
+  'already-active-member': { text: 'Already an active member — skipped', ok: false },
+  'already-invited': { text: 'Already invited — skipped', ok: false },
+  'already-staged': { text: 'Already staged — skipped', ok: false },
+  'in-other-office': { text: 'Belongs to another office — skipped', ok: false },
+  'duplicate-in-csv': { text: 'Duplicate email in this file — skipped', ok: false },
+  invalid: { text: 'Invalid', ok: false },
 };
 
 /** 'warning' is distinct from 'error' on purpose — it means the
@@ -151,6 +166,7 @@ export default function OfficeManagementPage() {
         <OfficeBrandingCard officeId={office.id} agencyBrandId={office.agencyBrandId} onSaved={refresh} />
         <AddAgentCard officeId={office.id} onAdded={refresh} />
         <CsvImportCard officeId={office.id} onImported={refresh} />
+        <StagedInvitationsCard officeId={office.id} agents={agents} onChanged={refresh} />
         <RosterTable officeId={office.id} agents={agents} onChanged={refresh} />
       </div>
     </div>
@@ -253,9 +269,10 @@ function StatsRow({ stats }) {
     { label: 'Total Agents', value: stats.total },
     { label: 'Activated', value: stats.active },
     { label: 'Invited', value: stats.invited + stats.pendingAcceptance },
+    { label: 'Pending Invitation', value: (stats.staged || 0) + (stats.sendFailed || 0) },
   ];
   return (
-    <div className="grid grid-cols-3 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       {items.map((item) => (
         <div key={item.label} className="bg-white border border-slate-200 rounded-xl p-4">
           <p className="text-2xl font-bold text-slate-900">{item.value}</p>
@@ -624,18 +641,24 @@ function CsvImportCard({ officeId, onImported }) {
     }
   };
 
-  const handleCommit = async () => {
+  const eligibleCount = preview ? preview.rows.filter((r) => IMPORT_ROW_LABEL[r.previewStatus]?.ok).length : 0;
+
+  // Staging only SAVES the validated list. No accounts are created and no emails are sent.
+  const handleStage = async () => {
     setCommitting(true);
     setError('');
     try {
-      const res = await authFetch(`/api/offices/${officeId}/import/commit`, {
+      const res = await authFetch(`/api/offices/${officeId}/import/stage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ importId: preview.importId }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error || 'Failed to import agents');
-      setResult(body.summary);
+      if (!res.ok) throw new Error(body.error || 'Failed to stage agents');
+      setResult({ staged: body.staged });
+      setPreview(null);
+      setCsvText('');
+      setFileName('');
       onImported();
     } catch (err) {
       setError(err.message);
@@ -667,38 +690,44 @@ function CsvImportCard({ officeId, onImported }) {
         </button>
       )}
 
-      {preview && !result && (
+      {preview && (
         <div className="mt-4 space-y-3">
-          <div className="flex gap-3 text-xs flex-wrap">
+          <div className="flex gap-2 text-xs flex-wrap">
             {Object.entries(preview.summary).map(([status, count]) => (
-              <span key={status} className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 font-medium">
-                {status}: {count}
+              <span key={status} className={`px-2.5 py-1 rounded-full font-medium ${IMPORT_ROW_LABEL[status]?.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                {(IMPORT_ROW_LABEL[status]?.text || status).split(' — ')[0]}: {count}
               </span>
             ))}
           </div>
-          <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-lg">
+          <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-lg">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-500 text-left">
                 <tr>
                   <th className="px-3 py-2">Name</th>
                   <th className="px-3 py-2">Email</th>
-                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">What will happen</th>
                 </tr>
               </thead>
               <tbody>
-                {preview.rows.map((row) => (
-                  <tr key={row.rowIndex} className="border-t border-slate-100">
-                    <td className="px-3 py-2 text-slate-700">{row.name}</td>
-                    <td className="px-3 py-2 text-slate-700">{row.email}</td>
-                    <td className="px-3 py-2 text-slate-500">{row.previewStatus}{row.invalidReason ? ` — ${row.invalidReason}` : ''}</td>
-                  </tr>
-                ))}
+                {preview.rows.map((row) => {
+                  const info = IMPORT_ROW_LABEL[row.previewStatus];
+                  return (
+                    <tr key={row.rowIndex} className="border-t border-slate-100">
+                      <td className="px-3 py-2 text-slate-700">{row.name}</td>
+                      <td className="px-3 py-2 text-slate-700">{row.email}</td>
+                      <td className={`px-3 py-2 ${info?.ok ? 'text-emerald-700' : 'text-slate-500'}`}>
+                        {info?.text || row.previewStatus}{row.invalidReason ? ` — ${row.invalidReason}` : ''}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          <p className="text-xs text-slate-500">Staging saves this list only. <strong>No emails are sent</strong> until you press “Send All Invitations”.</p>
           <div className="flex gap-3">
-            <button onClick={handleCommit} disabled={committing} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold text-sm disabled:opacity-50">
-              {committing ? 'Importing…' : 'Confirm & Invite Agents'}
+            <button onClick={handleStage} disabled={committing || eligibleCount === 0} className="px-5 py-2.5 rounded-xl bg-slate-900 text-white font-semibold text-sm disabled:opacity-50">
+              {committing ? 'Staging…' : `Stage ${eligibleCount} agent${eligibleCount === 1 ? '' : 's'} (no emails sent)`}
             </button>
             <button onClick={() => { setPreview(null); setCsvText(''); setFileName(''); }} className="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm">
               Cancel
@@ -708,29 +737,114 @@ function CsvImportCard({ officeId, onImported }) {
       )}
 
       {result && (
-        <div className="mt-4">
-          <p className={`text-sm font-semibold mb-2 ${result.emailFailed > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
-            Import complete{result.emailFailed > 0 ? ` — ${result.emailFailed} invitation email(s) failed to send` : ''}.
-          </p>
-          <div className="flex gap-3 text-xs flex-wrap">
-            {Object.entries(result).map(([outcome, count]) => {
-              const isEmailFailed = outcome === 'emailFailed';
-              if (isEmailFailed && count === 0) return null;
-              return (
-                <span
-                  key={outcome}
-                  className={`px-2.5 py-1 rounded-full font-medium ${isEmailFailed ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}
-                >
-                  {outcome}: {count}
-                </span>
-              );
-            })}
-          </div>
-          {result.emailFailed > 0 && (
-            <p className="text-xs text-slate-500 mt-2">
-              The affected agents were still added to the roster — use Resend below to retry just the email.
+        <p className="mt-4 text-sm font-semibold text-emerald-700">
+          {result.staged} agent{result.staged === 1 ? '' : 's'} staged with “Pending Invitation”. Review them below, then press “Send All Invitations”.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Sends staged invitations only after an explicit confirmation. Works in short server chunks
+ * (the page loops), so 50+ agents never hit a request timeout. "Send All" never touches failed
+ * rows; "Retry failed" never touches successful ones.
+ */
+function StagedInvitationsCard({ officeId, agents, onChanged }) {
+  const staged = agents.filter((a) => a.status === 'staged').length;
+  const failed = agents.filter((a) => a.status === 'send-failed').length;
+  const [confirm, setConfirm] = useState(null); // { mode, count }
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const [message, setMessage] = useState(null);
+
+  const run = async (mode, total) => {
+    setConfirm(null);
+    setBusy(true);
+    setMessage(null);
+    const totals = { sent: 0, failed: 0, skipped: 0 };
+    setProgress({ done: 0, total });
+    try {
+      for (let guard = 0; guard < 200; guard++) {
+        const res = await authFetch(`/api/offices/${officeId}/import/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Failed to send invitations');
+        totals.sent += body.sent; totals.failed += body.failed; totals.skipped += body.skipped || 0;
+        setProgress({ done: totals.sent + totals.failed, total });
+        if (body.processed === 0 || body.remaining === 0) break;
+      }
+      setMessage({
+        type: totals.failed ? 'warning' : 'success',
+        text: `${totals.sent} invitation${totals.sent === 1 ? '' : 's'} sent${totals.failed ? `, ${totals.failed} failed — use “Retry failed” (successful ones are never resent)` : ''}${totals.skipped ? `, ${totals.skipped} skipped (already in another office)` : ''}.`,
+      });
+    } catch (err) {
+      setMessage({ type: 'error', text: `${err.message}. Nothing is lost — press the button again to continue; agents already invited will not be emailed twice.` });
+    } finally {
+      setBusy(false);
+      setProgress(null);
+      onChanged();
+    }
+  };
+
+  if (staged === 0 && failed === 0 && !message) return null;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-6">
+      <h2 className="font-semibold text-slate-900 mb-1">Invitations</h2>
+      <p className="text-sm text-slate-500 mb-4">
+        {staged > 0
+          ? `${staged} agent${staged === 1 ? ' is' : 's are'} staged and have not been emailed yet.`
+          : failed > 0 ? `${failed} invitation${failed === 1 ? '' : 's'} could not be sent.` : 'All staged invitations have been processed.'}
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        {staged > 0 && (
+          <button
+            onClick={() => setConfirm({ mode: 'new', count: staged })}
+            disabled={busy}
+            className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+          >
+            Send All Invitations ({staged})
+          </button>
+        )}
+        {failed > 0 && (
+          <button
+            onClick={() => setConfirm({ mode: 'retry', count: failed })}
+            disabled={busy}
+            className="px-5 py-3 rounded-xl bg-white border border-red-300 text-red-700 font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
+          >
+            Retry failed ({failed})
+          </button>
+        )}
+        {busy && progress && (
+          <span className="text-sm text-slate-600 inline-flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> Sending… {progress.done} of {progress.total}
+          </span>
+        )}
+      </div>
+      {message && <p className={`text-sm mt-3 ${messageClassName(message.type)}`}>{message.text}</p>}
+
+      {confirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-slate-900 mb-2">
+              {confirm.mode === 'retry' ? 'Retry failed invitations?' : 'Send invitations now?'}
+            </h3>
+            <p className="text-sm text-slate-600 mb-5">
+              {confirm.mode === 'retry'
+                ? `${confirm.count} invitation email${confirm.count === 1 ? '' : 's'} that failed earlier will be sent again. Agents who were already invited will not be emailed again.`
+                : `You are about to email ${confirm.count} invitation${confirm.count === 1 ? '' : 's'}. Each agent will receive an email from your office. This cannot be undone.`}
             </p>
-          )}
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirm(null)} className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm">Cancel</button>
+              <button onClick={() => run(confirm.mode, confirm.count)} className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm">
+                {confirm.mode === 'retry' ? `Yes, retry ${confirm.count}` : `Yes, send ${confirm.count} invitation${confirm.count === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -804,13 +918,16 @@ function RosterTable({ officeId, agents, onChanged }) {
               {agents.map((agent) => {
                 const statusInfo = STATUS_LABEL[agent.status] || { text: agent.status, className: 'bg-slate-100 text-slate-600' };
                 return (
-                  <tr key={agent.uid} className="border-b border-slate-50">
+                  <tr key={agent.uid || agent.key} className="border-b border-slate-50">
                     <td className="py-2.5 pr-4 text-slate-700">{agent.name || '—'}{agent.isOfficeAdmin ? ' (admin)' : ''}</td>
                     <td className="py-2.5 pr-4 text-slate-500">{agent.email || '—'}</td>
                     <td className="py-2.5 pr-4">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusInfo.className}`}>{statusInfo.text}</span>
+                      <span title={agent.error || undefined} className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusInfo.className}`}>{statusInfo.text}</span>
                     </td>
                     <td className="py-2.5 pr-4 text-right whitespace-nowrap">
+                      {!agent.uid ? (
+                        <span className="text-xs text-slate-400">{agent.status === 'staged' ? 'Not sent yet' : ''}</span>
+                      ) : (<>
                       {agent.status !== 'active' && (
                         <button
                           onClick={() => handleResend(agent.uid)}
@@ -827,6 +944,7 @@ function RosterTable({ officeId, agents, onChanged }) {
                       >
                         <Trash2 className="w-3 h-3" /> {agent.status === 'pending-acceptance' ? 'Revoke' : 'Remove'}
                       </button>
+                      </>)}
                     </td>
                   </tr>
                 );

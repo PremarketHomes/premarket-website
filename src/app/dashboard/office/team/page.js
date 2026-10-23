@@ -9,8 +9,11 @@ import { authFetch } from '../../../utils/authFetch';
 
 const MEMBER_STATUS = {
   active: { label: 'Active', className: 'bg-emerald-100 text-emerald-700' },
-  invited: { label: 'Invited — not yet signed in', className: 'bg-amber-100 text-amber-700' },
-  'pending-acceptance': { label: 'Pending acceptance', className: 'bg-slate-100 text-slate-600' },
+  invited: { label: 'Invited', className: 'bg-amber-100 text-amber-700' },
+  'pending-acceptance': { label: 'Invited (existing account)', className: 'bg-amber-100 text-amber-700' },
+  staged: { label: 'Pending Invitation', className: 'bg-indigo-100 text-indigo-700' },
+  sending: { label: 'Sending…', className: 'bg-slate-100 text-slate-600' },
+  'send-failed': { label: 'Send failed', className: 'bg-red-100 text-red-700' },
 };
 
 const PROPERTY_STATUS = {
@@ -75,7 +78,7 @@ export default function OfficeTeamPage() {
 
   const openAgent = useCallback(async (agent) => {
     setSelected(agent);
-    if (agent.status === 'pending-acceptance') return setProps({ status: 'idle', data: null });
+    if (!agent.uid || agent.status === 'pending-acceptance') return setProps({ status: 'idle', data: null });
     setProps({ status: 'loading', data: null });
     try {
       const res = await authFetch(`/api/offices/${state.office.id}/agents/${agent.uid}/properties`);
@@ -129,7 +132,7 @@ export default function OfficeTeamPage() {
           </Link>
           <h1 className="text-2xl font-bold text-slate-900">Team</h1>
           <p className="text-sm text-slate-500 mt-1">
-            {state.office.name} · {counts.active || 0} active · {(counts.invited || 0) + (counts['pending-acceptance'] || 0)} pending
+            {state.office.name} · {counts.active || 0} active · {(counts.invited || 0) + (counts['pending-acceptance'] || 0)} invited · {(counts.staged || 0) + (counts['send-failed'] || 0) + (counts.sending || 0)} pending invitation
           </p>
           <p className="text-xs text-slate-400 mt-1">
             Need your own listing-agent profiles? <Link href="/dashboard/agents" className="text-orange-600 hover:text-orange-700 font-semibold">Manage them here</Link>.
@@ -155,10 +158,10 @@ export default function OfficeTeamPage() {
             ) : (
               <ul className="divide-y divide-slate-100">
                 {agents.map((a) => (
-                  <li key={`${a.uid}-${a.status}`}>
+                  <li key={a.uid || a.key}>
                     <button
                       onClick={() => openAgent(a)}
-                      className={`w-full text-left px-4 py-3 hover:bg-slate-50 ${selected?.uid === a.uid ? 'bg-orange-50' : ''}`}
+                      className={`w-full text-left px-4 py-3 hover:bg-slate-50 ${selected && (selected.uid || selected.key) === (a.uid || a.key) ? 'bg-orange-50' : ''}`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-slate-900 truncate">
@@ -188,8 +191,12 @@ export default function OfficeTeamPage() {
                   <p className="text-xs text-slate-500">{selected.email}</p>
                   <p className="text-xs text-slate-400 mt-1">Read-only view. Ownership and billing stay with the agent.</p>
                 </div>
-                {selected.status === 'pending-acceptance' ? (
-                  <p className="text-sm text-slate-500">This agent hasn't accepted the office invitation yet, so there is nothing to show.</p>
+                {!selected.uid || selected.status === 'pending-acceptance' ? (
+                  <p className="text-sm text-slate-500">
+                    {!selected.uid
+                      ? 'This agent has been added to your list but has not been sent an invitation yet.'
+                      : "This agent hasn't accepted the office invitation yet, so there is nothing to show."}
+                  </p>
                 ) : props.status === 'loading' ? (
                   <div className="py-10 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-4 border-orange-500" /></div>
                 ) : props.status === 'error' ? (
