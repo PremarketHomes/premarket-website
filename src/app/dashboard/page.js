@@ -48,6 +48,7 @@ import {
   Megaphone,
   Clock,
   Building,
+  UserCheck,
 } from 'lucide-react';
 
 // --- Shimmer Image Wrapper ---
@@ -86,7 +87,10 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     { id: 'agents', label: 'Team', icon: Users, href: '/dashboard/agents' },
     { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/settings' },
     ...(userData?.isOfficeAdmin === true
-      ? [{ id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' }]
+      ? [
+          { id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' },
+          { id: 'office-team', label: 'Office Team', icon: UserCheck, href: '/dashboard/office/team' },
+        ]
       : []),
     ...(userData?.superAdmin === true
       ? [{ id: 'admin', label: 'Admin', icon: Shield, href: '/dashboard/admin' }]
@@ -125,20 +129,23 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
           )}
           <div className="min-w-0">
             <p className="text-xs text-slate-500">Welcome back,</p>
+            {/* The greeting is always the person's own name — agency/office
+                branding is shown beneath it and never replaces it. */}
+            <p className="text-slate-900 font-semibold truncate">{userName}</p>
             {sidebarOfficeId ? (
               officeBrand.status === 'loading' ? (
-                <div className="h-4 w-28 rounded bg-slate-200 animate-pulse mt-1" aria-label="Loading agency" />
+                <div className="h-3 w-24 rounded bg-slate-200 animate-pulse mt-1" aria-label="Loading agency" />
               ) : officeBrand.status === 'failed' ? (
-                <button onClick={officeBrand.retry} className="text-orange-500 hover:text-orange-600 text-sm font-semibold">
+                <button onClick={officeBrand.retry} className="text-orange-500 hover:text-orange-600 text-xs font-semibold">
                   Agency unavailable — retry
                 </button>
               ) : (
-                <p className="text-slate-900 font-semibold truncate">{officeBrand.brand?.name || 'Your office'}</p>
+                <p className="text-xs text-slate-500 truncate">{officeBrand.brand?.name || 'Your office'}</p>
               )
             ) : agencyTitle ? (
-              <p className="text-slate-900 font-semibold truncate">{agencyTitle}</p>
+              <p className="text-xs text-slate-500 truncate">{agencyTitle}</p>
             ) : (
-              <Link href="/dashboard/settings" className="text-orange-500 hover:text-orange-600 text-sm font-semibold">
+              <Link href="/dashboard/settings" className="text-orange-500 hover:text-orange-600 text-xs font-semibold">
                 Add Agency Details
               </Link>
             )}
@@ -1384,7 +1391,8 @@ function DashboardPage() {
 
   if (!user) return null;
 
-  const userName = [userData?.firstName, userData?.lastName].filter(Boolean).join(' ') || 'Agent';
+  // Always the signed-in person's own name — never the agency/company name.
+  const userName = [userData?.firstName, userData?.lastName].filter(Boolean).join(' ') || user?.displayName || 'there';
   const activeProperties = properties.filter(p => p.archived !== true && p.hidden !== true);
   // Sold is a distinct reason for being archived — kept separate from the
   // general Archive tab so the two features don't overlap.
@@ -1456,9 +1464,12 @@ function DashboardPage() {
                   ? `${archivedProperties.length} ${archivedProperties.length === 1 ? 'property' : 'properties'}`
                   : activeTab === 'sold'
                   ? `${soldProperties.length} ${soldProperties.length === 1 ? 'property' : 'properties'}`
-                  : userData?.companyName
-                    ? `Welcome back, ${userData.companyName}`
-                    : <span>Welcome back! <Link href="/dashboard/settings" className="text-orange-500 hover:text-orange-600 font-semibold">Add Agency Details</Link></span>}
+                  : <span>
+                      Welcome back, {userName}
+                      {!userData?.officeId && !userData?.companyName && (
+                        <> · <Link href="/dashboard/settings" className="text-orange-500 hover:text-orange-600 font-semibold">Add Agency Details</Link></>
+                      )}
+                    </span>}
               </p>
             </div>
             <Link
