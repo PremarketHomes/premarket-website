@@ -38,7 +38,7 @@ import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { BASE_URL } from './emailTemplates';
 import { sendOfficeInviteEmail, sendOfficeJoinInviteEmail } from './resendService';
-import { OfficeError, claimOfficeContactPhone } from './officeService';
+import { OfficeError } from './officeService';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_ROWS_PER_IMPORT = 2000;
@@ -488,15 +488,38 @@ export async function acceptOfficeInvite({ token, acceptingUid }) {
     throw new OfficeError('This invitation has expired — ask your office administrator to resend it', 410);
   }
 
-  const patch = { officeId: invite.officeId };
-  const claimedPhone = await claimOfficeContactPhone(acceptingUid);
-  if (claimedPhone) {
-    patch.phone = claimedPhone;
-    patch.mobileConfirmedAt = FieldValue.serverTimestamp();
-  }
+  // Accepting must never silently re-home someone: a user who already
+  // belongs to a DIFFERENT office (member or administrator) would have
+  // their officeId overwritten, stranding them away from their real
+  // office and roster. The check and the write happen in ONE Firestore
+  // transaction, so two concurrent acceptances (or an acceptance racing
+  // an office creation) cannot both pass the check and clobber each
+  // other. A refusal leaves the invite pending and the user untouched.
+  const userRef = adminDb.collection('users').doc(acceptingUid);
+  const contactRef = adminDb.collection('officeAgentContacts').doc(acceptingUid);
+  await adminDb.runTransaction(async (tx) => {
+    const [userSnap, contactSnap, freshInvite] = await Promise.all([tx.get(userRef), tx.get(contactRef), tx.get(inviteRef)]);
 
-  await adminDb.collection('users').doc(acceptingUid).update(patch);
-  await inviteRef.update({ status: 'accepted', acceptedAt: FieldValue.serverTimestamp() });
+    if (freshInvite.exists && freshInvite.data().status === 'revoked') {
+      throw new OfficeError('This invitation has been revoked', 410);
+    }
+    const currentOfficeId = userSnap.exists ? userSnap.data()?.officeId : null;
+    if (currentOfficeId && currentOfficeId !== invite.officeId) {
+      throw new OfficeError('Your account already belongs to another office, so this invitation cannot be accepted', 409);
+    }
+
+    const patch = { officeId: invite.officeId };
+    // Same rule as claimOfficeContactPhone: never overwrite a number
+    // the agent already has on file.
+    const hasOwnPhone = userSnap.exists && userSnap.data().phone;
+    if (!hasOwnPhone && contactSnap.exists && contactSnap.data().phone) {
+      patch.phone = contactSnap.data().phone;
+      patch.mobileConfirmedAt = FieldValue.serverTimestamp();
+    }
+
+    tx.update(userRef, patch);
+    tx.update(inviteRef, { status: 'accepted', acceptedAt: FieldValue.serverTimestamp() });
+  });
 
   return { officeId: invite.officeId, officeName: invite.officeName, alreadyAccepted: false };
 }
