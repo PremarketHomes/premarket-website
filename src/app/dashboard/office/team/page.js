@@ -127,9 +127,12 @@ export default function OfficeTeamPage() {
           <Link href="/dashboard" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 mb-2">
             <ArrowLeft className="w-4 h-4" /> Dashboard
           </Link>
-          <h1 className="text-2xl font-bold text-slate-900">Office Team</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Team</h1>
           <p className="text-sm text-slate-500 mt-1">
             {state.office.name} · {counts.active || 0} active · {(counts.invited || 0) + (counts['pending-acceptance'] || 0)} pending
+          </p>
+          <p className="text-xs text-slate-400 mt-1">
+            Need your own listing-agent profiles? <Link href="/dashboard/agents" className="text-orange-600 hover:text-orange-700 font-semibold">Manage them here</Link>.
           </p>
         </div>
 

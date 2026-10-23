@@ -48,7 +48,6 @@ import {
   Megaphone,
   Clock,
   Building,
-  UserCheck,
 } from 'lucide-react';
 
 // --- Shimmer Image Wrapper ---
@@ -84,13 +83,14 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     { id: 'archived', label: 'Archive', icon: Archive },
     { id: 'add', label: 'Add Property', icon: Plus, href: '/dashboard/add' },
     { id: 'user-manual', label: 'User Manual', icon: BookOpen, href: '/dashboard/user-manual' },
-    { id: 'agents', label: 'Team', icon: Users, href: '/dashboard/agents' },
+    // For office administrators "Team" is the OFFICE team (members + their
+    // properties). Everyone else keeps the personal listing-agent profiles
+    // page, exactly as before — which is also why it looked empty for an
+    // office admin: it only ever shows the signed-in user's own profiles.
+    { id: 'agents', label: 'Team', icon: Users, href: userData?.isOfficeAdmin === true ? '/dashboard/office/team' : '/dashboard/agents' },
     { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/settings' },
     ...(userData?.isOfficeAdmin === true
-      ? [
-          { id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' },
-          { id: 'office-team', label: 'Office Team', icon: UserCheck, href: '/dashboard/office/team' },
-        ]
+      ? [{ id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' }]
       : []),
     ...(userData?.superAdmin === true
       ? [{ id: 'admin', label: 'Admin', icon: Shield, href: '/dashboard/admin' }]

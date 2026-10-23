@@ -117,9 +117,12 @@ describe('dashboard greeting and Office Team navigation (source guards)', () => 
     expect(dash).toContain('<p className="text-xs text-slate-500 truncate">{officeBrand.brand?.name || \'Your office\'}</p>');
   });
 
-  it('Office Team appears only for office administrators; the personal Team item is unchanged', () => {
-    expect(dash).toMatch(/userData\?\.isOfficeAdmin === true\s*\?\s*\[[\s\S]*?id: 'office-team'[\s\S]*?href: '\/dashboard\/office\/team'/);
-    expect(dash).toContain("{ id: 'agents', label: 'Team', icon: Users, href: '/dashboard/agents' }");
+  it('"Team" opens the office team for office administrators only; everyone else keeps the personal page', () => {
+    expect(dash).toContain("href: userData?.isOfficeAdmin === true ? '/dashboard/office/team' : '/dashboard/agents'");
+    // no duplicate second item next to it
+    expect(dash).not.toContain("id: 'office-team'");
+    // the personal listing-agent profiles page stays reachable for admins
+    expect(read('src/app/dashboard/office/team/page.js')).toContain('href="/dashboard/agents"');
   });
 
   it('team page is read-only and uses only the office APIs', () => {
