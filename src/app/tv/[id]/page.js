@@ -30,6 +30,7 @@ import {
   Grid2X2,
 } from 'lucide-react';
 import PriceOpinionSlider, { roundToStep } from '../../components/PriceOpinionSlider';
+import { withOfficeBrand } from '../../utils/officeBrand';
 
 /* ─────────── helpers ─────────── */
 
@@ -220,7 +221,7 @@ function TvDisplayPage() {
           const snap = await getDoc(doc(db, 'users', uid));
           if (snap.exists()) {
             const d = snap.data();
-            return [uid, { firstName: d.firstName, lastName: d.lastName, companyName: d.companyName, avatar: d.avatar, logoUrl: d.logoUrl }];
+            return [uid, await withOfficeBrand({ firstName: d.firstName, lastName: d.lastName, companyName: d.companyName, avatar: d.avatar, logoUrl: d.logoUrl, officeId: d.officeId || null })];
           }
         } catch {}
         return null;
@@ -520,7 +521,7 @@ function TvDisplayPage() {
                 </div>
                 {agent.logoUrl && (
                   <div className="flex-shrink-0 ml-auto">
-                    <img src={agent.logoUrl} alt="" className="h-8 w-auto max-w-[80px] object-contain" />
+                    <img src={agent.logoUrl} alt="" className="h-8 w-auto max-w-[80px] object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                   </div>
                 )}
               </>

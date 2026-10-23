@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, Suspense } from 'react';
+import { useOfficeBrand } from '../utils/officeBrand';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -70,6 +71,12 @@ function ShimmerImage({ src, alt, ...props }) {
 
 // --- Sidebar ---
 function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, userName, userData }) {
+  // Office-linked agents show their office's agency title, resolved
+  // live — a neutral placeholder while it loads and a retry if it
+  // fails, NEVER their old personal company name.
+  const sidebarOfficeId = userData?.officeId || null;
+  const officeBrand = useOfficeBrand(sidebarOfficeId);
+  const agencyTitle = sidebarOfficeId ? null : userData?.companyName;
   const navItems = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'sold', label: 'Sold', icon: CheckCircle },
@@ -118,8 +125,18 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
           )}
           <div className="min-w-0">
             <p className="text-xs text-slate-500">Welcome back,</p>
-            {userData?.companyName ? (
-              <p className="text-slate-900 font-semibold truncate">{userData.companyName}</p>
+            {sidebarOfficeId ? (
+              officeBrand.status === 'loading' ? (
+                <div className="h-4 w-28 rounded bg-slate-200 animate-pulse mt-1" aria-label="Loading agency" />
+              ) : officeBrand.status === 'failed' ? (
+                <button onClick={officeBrand.retry} className="text-orange-500 hover:text-orange-600 text-sm font-semibold">
+                  Agency unavailable — retry
+                </button>
+              ) : (
+                <p className="text-slate-900 font-semibold truncate">{officeBrand.brand?.name || 'Your office'}</p>
+              )
+            ) : agencyTitle ? (
+              <p className="text-slate-900 font-semibold truncate">{agencyTitle}</p>
             ) : (
               <Link href="/dashboard/settings" className="text-orange-500 hover:text-orange-600 text-sm font-semibold">
                 Add Agency Details
@@ -1409,16 +1426,23 @@ function DashboardPage() {
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
-          <BillingAnnouncementBanner
-            userData={userData}
-            onAcknowledged={(announcementId) => {
-              setUserData((prev) => ({
-                ...prev,
-                acknowledgedAnnouncements: { ...(prev?.acknowledgedAnnouncements || {}), [announcementId]: true },
-              }));
-            }}
-          />
-          <BillingContactPrompt />
+          {/* Office-linked agents are onboarded by their office: no
+              billing-details prompt or "invoicing is activated"
+              announcement. Display-only — billing itself is untouched. */}
+          {!userData?.officeId && (
+            <>
+              <BillingAnnouncementBanner
+                userData={userData}
+                onAcknowledged={(announcementId) => {
+                  setUserData((prev) => ({
+                    ...prev,
+                    acknowledgedAnnouncements: { ...(prev?.acknowledgedAnnouncements || {}), [announcementId]: true },
+                  }));
+                }}
+              />
+              <BillingContactPrompt />
+            </>
+          )}
           <DownloadBanner />
 
           {/* Page Header */}

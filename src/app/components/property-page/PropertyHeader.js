@@ -1,3 +1,6 @@
+'use client';
+
+import { useState } from 'react';
 import Image from 'next/image';
 import PremarketBadge from './PremarketBadge';
 
@@ -20,11 +23,14 @@ import PremarketBadge from './PremarketBadge';
  * for the agencies who haven't uploaded a logo.
  */
 export default function PropertyHeader({ agencyName, agencyLogoUrl, onOpenIpadMode }) {
+  // A missing or broken logo falls back to the agency name as text —
+  // never a broken-image icon, and never some other agency's logo.
+  const [logoFailed, setLogoFailed] = useState(false);
   return (
     <header className="border-b border-slate-100 bg-white">
       <div className="max-w-6xl mx-auto px-5 sm:px-8 h-16 sm:h-20 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          {agencyLogoUrl ? (
+          {agencyLogoUrl && !logoFailed ? (
             // Fixed height, auto width — not a forced square box — so a
             // wide wordmark-style agency logo renders at its own natural
             // proportions instead of being squeezed small to fit a tile.
@@ -37,6 +43,7 @@ export default function PropertyHeader({ agencyName, agencyLogoUrl, onOpenIpadMo
               height={60}
               className="h-10 sm:h-12 w-auto max-w-[140px] sm:max-w-[180px] rounded-md object-contain flex-shrink-0"
               unoptimized
+              onError={() => setLogoFailed(true)}
             />
           ) : agencyName ? (
             <span className="font-semibold text-slate-900 text-base sm:text-lg tracking-tight truncate">
