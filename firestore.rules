@@ -392,6 +392,9 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════
     match /officeImports/{importId} { allow read, write: if false; }
 
+    // Hashed activation tokens for office-invited agents (server-only).
+    match /officeActivations/{tokenHash} { allow read, write: if false; }
+
     // ═══════════════════════════════════════════════════════════
     // OFFICE AGENT CONTACTS (protected phone-number storage)
     // Server-only. The CSV-submitted phone number for an office-

@@ -464,7 +464,7 @@ describe('getOfficeForUser / listOfficeAgents / computeOfficeStats', () => {
     expect(byUid.agent3.email).toBe('pending@x.com');
 
     const stats = computeOfficeStats(agents);
-    expect(stats).toEqual({ total: 3, active: 1, invited: 1, pendingAcceptance: 1 });
+    expect(stats).toEqual({ total: 3, active: 1, invited: 1, pendingAcceptance: 1, staged: 0, sendFailed: 0 });
   });
 
   it('BUG FIX: a pending existing-account invite displays the name it was given, not "—"/null', async () => {

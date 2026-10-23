@@ -520,7 +520,7 @@ export async function sendOfficeInviteEmail(email, firstName, officeName, activa
     ${ctaButton('Activate Your Account', activationLink, { fallback: true })}
     ${infoBox(`
       <p style="margin:0; font-size:13px; color:#64748b; line-height:1.5;">
-        This link is personal to you and will expire after a short time. If it's expired, ask your office administrator to resend your invitation.
+        This link is personal to you and stays valid for 14 days. If it has expired, ask your office administrator to resend your invitation.
       </p>
     `)}
     ${signature()}

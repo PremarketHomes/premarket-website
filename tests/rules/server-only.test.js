@@ -28,6 +28,7 @@ const SERVER_ONLY_COLLECTIONS = [
   'phiVerifications',
   'integrationCredentials',
   'officeImports',
+  'officeActivations',
   'officeAgentContacts',
   'officeInvites',
   'officeJoinRequests',

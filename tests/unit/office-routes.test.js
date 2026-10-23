@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockVerifyIdToken = vi.fn();
-const state = { users: {}, offices: {}, officeAdminInfo: {}, officeImports: {}, officeAgentContacts: {}, officeInvites: {}, officeJoinRequests: [] };
+const state = { users: {}, offices: {}, officeAdminInfo: {}, officeImports: {}, officeAgentContacts: {}, officeInvites: {}, officeActivations: {}, officeJoinRequests: [] };
 const authState = { users: new Map() };
 let autoIdCounter = 0;
 
@@ -67,7 +67,7 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
       return result;
     },
     collection: (name) => {
-      if (!['users', 'offices', 'officeAdminInfo', 'officeImports', 'officeAgentContacts', 'officeInvites', 'officeJoinRequests', 'agencyBrands'].includes(name)) {
+      if (!['users', 'offices', 'officeAdminInfo', 'officeImports', 'officeAgentContacts', 'officeInvites', 'officeActivations', 'officeJoinRequests', 'agencyBrands'].includes(name)) {
         throw new Error(`Unexpected collection in test: ${name}`);
       }
       if (!state[name] && name === 'agencyBrands') state.agencyBrands = {};
@@ -132,6 +132,7 @@ function resetAll() {
   state.officeImports = {};
   state.officeAgentContacts = {};
   state.officeInvites = {};
+  state.officeActivations = {};
   state.officeJoinRequests = [];
   state.agencyBrands = {};
   authState.users = new Map();
@@ -321,7 +322,7 @@ describe('POST /api/offices/[officeId]/agents/[uid]/resend', () => {
     const { POST } = await import('../../src/app/api/offices/[officeId]/agents/[uid]/resend/route');
     const res = await POST(makeRequest(undefined, 'Bearer valid'), { params: Promise.resolve({ officeId: 'office1', uid: 'agent1' }) });
     expect(res.status).toBe(200);
-    expect(generatePasswordResetLinkMock).toHaveBeenCalled();
+    expect(sentEmails.some((e) => e.type === 'activation')).toBe(true);
   });
 });
 
@@ -349,6 +350,45 @@ describe('POST /api/offices/[officeId]/import/preview + /commit', () => {
     expect(commitRes.status).toBe(200);
     expect(commitBody.summary.created).toBe(2);
     expect(createUserMock).toHaveBeenCalledTimes(2);
+  });
+
+
+  it('STAGED FLOW end to end through the routes: stage sends nothing; send needs admin; Send All sends once; roster shows statuses', async () => {
+    seedOffice('office1', { name: 'X', officeAdminUids: ['admin1'] });
+    state.users.admin1 = { officeId: 'office1', isOfficeAdmin: true };
+    setupValidAuth('admin1');
+    const params = { params: Promise.resolve({ officeId: 'office1' }) };
+    const { POST: previewPOST } = await import('../../src/app/api/offices/[officeId]/import/preview/route');
+    const { POST: stagePOST } = await import('../../src/app/api/offices/[officeId]/import/stage/route');
+    const { POST: sendPOST } = await import('../../src/app/api/offices/[officeId]/import/send/route');
+    const { GET: rosterGET } = await import('../../src/app/api/offices/[officeId]/agents/route');
+
+    const previewBody = await (await previewPOST(makeRequest({ csvText: 'Jane Smith,jane@x.com,0412345678\nJohn Doe,john@x.com,0498765432' }, 'Bearer valid'), params)).json();
+    const stageRes = await stagePOST(makeRequest({ importId: previewBody.importId }, 'Bearer valid'), params);
+    expect(stageRes.status).toBe(200);
+    expect(createUserMock).not.toHaveBeenCalled();
+    expect(sentEmails).toHaveLength(0);
+
+    const staged = await (await rosterGET(makeRequest(undefined, 'Bearer valid'), params)).json();
+    expect(staged.agents.filter((a) => a.status === 'staged')).toHaveLength(2);
+    expect(staged.stats.staged).toBe(2);
+
+    // an intruder cannot send, and nothing goes out
+    setupValidAuth('intruder');
+    expect((await sendPOST(makeRequest({}, 'Bearer valid'), params)).status).toBe(403);
+    expect(sentEmails).toHaveLength(0);
+
+    setupValidAuth('admin1');
+    const sendBody = await (await sendPOST(makeRequest({ mode: 'new' }, 'Bearer valid'), params)).json();
+    expect(sendBody).toMatchObject({ processed: 2, sent: 2, remaining: 0 });
+    expect(sentEmails).toHaveLength(2);
+    const again = await (await sendPOST(makeRequest({ mode: 'new' }, 'Bearer valid'), params)).json();
+    expect(again.processed).toBe(0);
+    expect(sentEmails).toHaveLength(2);
+
+    const after = await (await rosterGET(makeRequest(undefined, 'Bearer valid'), params)).json();
+    expect(after.agents.filter((a) => a.status === 'staged')).toHaveLength(0);
+    expect(after.agents.filter((a) => a.status === 'invited')).toHaveLength(2);
   });
 
   it('SECURITY: a non-admin cannot preview or commit an import for this office', async () => {
@@ -481,7 +521,7 @@ describe('GET/POST /api/office-invites/[token]', () => {
   it('EXPIRY: GET reports an old pending invite as expired', async () => {
     state.officeInvites.tok1 = {
       officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com',
-      status: 'pending', createdAt: { toMillis: () => Date.now() - 8 * 24 * 60 * 60 * 1000 },
+      status: 'pending', createdAt: { toMillis: () => Date.now() - 15 * 24 * 60 * 60 * 1000 },
     };
     const { GET } = await import('../../src/app/api/office-invites/[token]/route');
     const res = await GET(makeRequest(undefined, undefined, 'GET'), { params: Promise.resolve({ token: 'tok1' }) });

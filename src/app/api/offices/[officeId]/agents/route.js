@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { verifyAuth } from '../../../middleware/auth';
 import { requireOfficeAdmin, listOfficeAgents, computeOfficeStats } from '../../../services/officeService';
-import { processOneRow } from '../../../services/officeImportService';
+import { processOneRow, listStagedAgents } from '../../../services/officeImportService';
 
 /**
  * GET /api/offices/{officeId}/agents
@@ -19,7 +19,11 @@ export async function GET(request, { params }) {
     const { officeId } = await params;
     await requireOfficeAdmin({ officeId, uid: auth.uid });
 
-    const agents = await listOfficeAgents(officeId);
+    const members = await listOfficeAgents(officeId);
+    // Staged (not yet sent) and failed invitations, minus anyone already on the roster.
+    const known = new Set(members.map((a) => (a.email || '').toLowerCase()));
+    const staged = (await listStagedAgents(officeId)).filter((a) => !known.has((a.email || '').toLowerCase()));
+    const agents = [...members, ...staged];
     return NextResponse.json({ agents, stats: computeOfficeStats(agents) });
   } catch (err) {
     console.error('List office agents error:', err);
