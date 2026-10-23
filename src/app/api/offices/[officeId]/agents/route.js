@@ -20,10 +20,17 @@ export async function GET(request, { params }) {
     await requireOfficeAdmin({ officeId, uid: auth.uid });
 
     const members = await listOfficeAgents(officeId);
-    // Staged (not yet sent) and failed invitations, minus anyone already on the roster.
-    const known = new Set(members.map((a) => (a.email || '').toLowerCase()));
-    const staged = (await listStagedAgents(officeId)).filter((a) => !known.has((a.email || '').toLowerCase()));
-    const agents = [...members, ...staged];
+    const stagedRows = await listStagedAgents(officeId);
+    const byEmail = new Map(members.map((a, i) => [(a.email || '').toLowerCase(), i]));
+    const extra = [];
+    for (const row of stagedRows) {
+      const at = byEmail.get((row.email || '').toLowerCase());
+      if (at === undefined) { extra.push(row); continue; }
+      // Already on the roster (their account/invitation exists) — the only thing the staged record can add
+      // is that the invitation EMAIL failed, so the admin can see it and retry.
+      if (row.status === 'send-failed') members[at] = { ...members[at], status: 'send-failed', error: row.error };
+    }
+    const agents = [...members, ...extra];
     return NextResponse.json({ agents, stats: computeOfficeStats(agents) });
   } catch (err) {
     console.error('List office agents error:', err);

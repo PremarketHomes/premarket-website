@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore 'npx vitest run tests/rules/'",
     "emulators": "firebase emulators:start --only firestore",
-    "migrate:integration-credentials": "node scripts/migrate-integration-credentials.js"
+    "migrate:integration-credentials": "node scripts/migrate-integration-credentials.js",
+    "test:e2e": "firebase emulators:exec --only firestore,auth --project demo-premarket-e2e 'npx vitest run tests/e2e/'"
   },
   "dependencies": {
     "@react-google-maps/api": "^2.20.7",
@@ -37,7 +38,10 @@
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.0",
     "@tailwindcss/postcss": "^4",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "firebase-tools": "^15.12.0",
+    "jsdom": "^30.1.3",
     "tailwindcss": "^4.1.11",
     "vitest": "^4.1.2"
   }
