@@ -43,6 +43,16 @@ function makeCollection(name) {
 
 vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: {
+    // Minimal transaction: reads pass straight through, writes are
+    // queued and applied only if the callback completes without throwing
+    // (a throw aborts with nothing written, like a real rollback).
+    runTransaction: async (fn) => {
+      const writes = [];
+      const tx = { get: (ref) => ref.get(), update: (ref, patch) => { writes.push(() => ref.update(patch)); } };
+      const result = await fn(tx);
+      for (const w of writes) await w();
+      return result;
+    },
     collection: (name) => {
       if (!['users', 'offices', 'officeAdminInfo', 'officeImports', 'officeAgentContacts', 'officeInvites'].includes(name)) {
         throw new Error(`Unexpected collection in test: ${name}`);
@@ -466,6 +476,33 @@ describe('acceptOfficeInvite', () => {
       officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com', status: 'pending',
     };
     state.users.agentX = {};
+
+    const { acceptOfficeInvite } = await import('../../src/app/api/services/officeImportService');
+    const result = await acceptOfficeInvite({ token: 'office1_agentX', acceptingUid: 'agentX' });
+
+    expect(result.officeId).toBe('office1');
+    expect(state.users.agentX.officeId).toBe('office1');
+    expect(state.officeInvites['office1_agentX'].status).toBe('accepted');
+  });
+
+  it('REFUSES (409) when the accepting user already belongs to a DIFFERENT office — officeId untouched, invite stays pending', async () => {
+    state.officeInvites['office2_agentX'] = {
+      officeId: 'office2', officeName: 'Other', targetUid: 'agentX', targetEmail: 'x@x.com', status: 'pending',
+    };
+    state.users.agentX = { officeId: 'office1', isOfficeAdmin: true };
+
+    const { acceptOfficeInvite } = await import('../../src/app/api/services/officeImportService');
+    await expect(acceptOfficeInvite({ token: 'office2_agentX', acceptingUid: 'agentX' })).rejects.toMatchObject({ status: 409 });
+
+    expect(state.users.agentX).toEqual({ officeId: 'office1', isOfficeAdmin: true });
+    expect(state.officeInvites['office2_agentX'].status).toBe('pending');
+  });
+
+  it('still accepts when the user is already in the SAME office (idempotent, no re-home)', async () => {
+    state.officeInvites['office1_agentX'] = {
+      officeId: 'office1', officeName: 'X', targetUid: 'agentX', targetEmail: 'x@x.com', status: 'pending',
+    };
+    state.users.agentX = { officeId: 'office1' };
 
     const { acceptOfficeInvite } = await import('../../src/app/api/services/officeImportService');
     const result = await acceptOfficeInvite({ token: 'office1_agentX', acceptingUid: 'agentX' });

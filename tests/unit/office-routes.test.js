@@ -57,6 +57,15 @@ function makeCollection(name) {
 
 vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: {
+    // Minimal transaction: reads pass through, writes apply only if the
+    // callback completes without throwing (a throw aborts like a rollback).
+    runTransaction: async (fn) => {
+      const writes = [];
+      const tx = { get: (ref) => ref.get(), update: (ref, patch) => { writes.push(() => ref.update(patch)); } };
+      const result = await fn(tx);
+      for (const w of writes) await w();
+      return result;
+    },
     collection: (name) => {
       if (!['users', 'offices', 'officeAdminInfo', 'officeImports', 'officeAgentContacts', 'officeInvites', 'officeJoinRequests', 'agencyBrands'].includes(name)) {
         throw new Error(`Unexpected collection in test: ${name}`);
