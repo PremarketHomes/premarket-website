@@ -10,7 +10,7 @@ import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { usePropertyEngagement } from '../hooks/usePropertyEngagement';
 import PriceOpinionSlider, { roundToStep } from './PriceOpinionSlider';
-import { computeBrandStyle, computeDisplayLogoUrl, computeEffectiveColors } from '../utils/brandStyle';
+import { computeBrandStyle, computeDisplayLogoUrl, computeEffectiveColors, applyOfficeBrand } from '../utils/brandStyle';
 import { getMarketStatusCopy } from '../utils/marketStatusCopy';
 import { isPreviewDeployment } from '../utils/previewEnvironment';
 import { getSwipeDirection } from '../utils/swipeGesture';
@@ -286,6 +286,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
             avatar: userData.avatar,
             logoUrl: userData.logoUrl,
             brandColors: userData.brandColors,
+            officeId: userData.officeId || null,
             phone: userData.phone,
           };
 
@@ -342,7 +343,12 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
             try {
               const brandDoc = await getDoc(doc(db, 'agencyBrands', brandId));
               if (brandDoc.exists()) {
-                setBrand({ id: brandDoc.id, ...brandDoc.data() });
+                const resolvedBrand = { id: brandDoc.id, ...brandDoc.data() };
+                setBrand(resolvedBrand);
+                // Office-linked agents: the office's master brand is
+                // authoritative (logo, agency name, colours) over any
+                // personal values on their own user doc.
+                if (data.officeId) setAgentData(applyOfficeBrand(data, resolvedBrand));
               }
             } catch (err) {
               console.error('Error fetching agency brand (non-fatal):', err);

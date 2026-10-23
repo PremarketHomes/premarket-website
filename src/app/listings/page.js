@@ -12,6 +12,7 @@ import LikeButton from '../components/LikeButton';
 import BrandMark from '../components/BrandMark';
 import { SkeletonCard, Spinner } from '../components/marketing/Loading';
 import { Sparkles, ShieldCheck, Heart, MessageSquare } from 'lucide-react';
+import { withOfficeBrand } from '../utils/officeBrand';
 
 function ShimmerImage({ src, alt, ...props }) {
   const [loaded, setLoaded] = useState(false);
@@ -325,13 +326,14 @@ function ListingsContent() {
             const userDoc = await getDoc(doc(db, 'users', userId));
             if (userDoc.exists()) {
               const userData = userDoc.data();
-              agentData[userId] = {
+              agentData[userId] = await withOfficeBrand({
                 firstName: userData.firstName,
                 lastName: userData.lastName,
                 companyName: userData.companyName,
                 avatar: userData.avatar,
                 logoUrl: userData.logoUrl,
-              };
+                officeId: userData.officeId || null,
+              });
             }
           } catch (err) {
             console.error('Error fetching agent:', userId, err);
@@ -956,6 +958,7 @@ function ListingsContent() {
                                     height={32}
                                     className="w-8 h-8 rounded-lg object-contain bg-white border border-slate-100"
                                     unoptimized
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
                                   />
                                 </div>
                               )}

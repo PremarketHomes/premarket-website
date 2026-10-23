@@ -78,6 +78,7 @@ export default function AgentSignOff({ agentData, displayLogoUrl }) {
               width={44}
               height={44}
               unoptimized
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
               className="w-11 h-11 rounded-lg object-contain border border-slate-200 bg-white"
             />
           )}

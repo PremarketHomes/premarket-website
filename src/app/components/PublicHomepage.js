@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { db } from '../firebase/clientApp';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import {
+import { withOfficeBrand } from '../utils/officeBrand';
   GradientMesh,
   PulseBadge,
   GlowButton,
@@ -380,13 +381,14 @@ function FeaturedProperties() {
               const userDoc = await getDoc(doc(db, 'users', userId));
               if (userDoc.exists()) {
                 const userData = userDoc.data();
-                agentData[userId] = {
+                agentData[userId] = await withOfficeBrand({
                   firstName: userData.firstName,
                   lastName: userData.lastName,
                   companyName: userData.companyName,
                   avatar: userData.avatar,
                   logoUrl: userData.logoUrl,
-                };
+                  officeId: userData.officeId || null,
+                });
               }
             } catch (err) {
               console.error('Error fetching agent:', userId, err);
@@ -595,6 +597,7 @@ function FeaturedProperties() {
                                 height={32}
                                 className="w-8 h-8 rounded-lg object-contain bg-white border border-slate-100"
                                 unoptimized
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
                               />
                             </div>
                           )}

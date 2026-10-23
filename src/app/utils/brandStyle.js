@@ -55,3 +55,21 @@ export function computeDisplayLogoUrl({ brand, agentData, previewBrand }) {
   if (previewBrand) return previewBrand.logoUrl || null;
   return agentData?.logoUrl || brand?.logoUrl || null;
 }
+
+/** For an office-linked agent the office's master brand is authoritative:
+ * its logo, agency name and colours replace the agent's PERSONAL
+ * logoUrl/companyName/brandColors for display. Pure and display-only —
+ * the agent's own user document is never written, so removing them from
+ * the office (or changing the office brand) takes effect immediately.
+ * Independent agents (no officeId) and a missing brand pass through
+ * untouched. Fields the brand lacks fall back to null, not the old
+ * personal value, so stale personal branding can't show through. */
+export function applyOfficeBrand(agent, brand) {
+  if (!agent || !agent.officeId || !brand) return agent;
+  return {
+    ...agent,
+    logoUrl: brand.logoUrl || null,
+    companyName: brand.name || agent.companyName || null,
+    brandColors: null,
+  };
+}

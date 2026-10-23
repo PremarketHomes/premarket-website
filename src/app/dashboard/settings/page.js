@@ -21,6 +21,7 @@ import {
 import ImagePositioner from '../../components/ImagePositioner';
 import { getCroppedImageBlob, blobToFile } from '../../utils/imageCrop';
 import BillingDetailsSection from './BillingDetailsSection';
+import { useOfficeBrand } from '../../utils/officeBrand';
 
 const ROLES = [
   { id: 'homeowner', label: 'Home Owner / Investor' },
@@ -45,6 +46,8 @@ export default function SettingsPage() {
   const [logoPreview, setLogoPreview] = useState(userData?.logoUrl || '');
   const [logoFile, setLogoFile] = useState(null);
   const [companyName, setCompanyName] = useState(userData?.companyName || '');
+  const officeId = userData?.officeId || null;
+  const officeBrand = useOfficeBrand(officeId);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -247,8 +250,10 @@ export default function SettingsPage() {
         lastName: lastName.trim(),
         roles,
         avatar: avatarUrl,
-        ...(logoUrl && { logoUrl }),
-        companyName: companyName.trim(),
+        // Office-linked agents inherit logo + agency title from the
+        // office, so those personal fields are never written from here.
+        ...(!officeId && logoUrl && { logoUrl }),
+        ...(!officeId && { companyName: companyName.trim() }),
       };
 
       await updateDoc(doc(db, 'users', user.uid), updates);
@@ -354,8 +359,45 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Agency Logo (agents only) */}
-        {(userData?.isAgent || userData?.agent) && (
+        {/* Agency branding inherited from the office (office-linked agents) */}
+        {(userData?.isAgent || userData?.agent) && officeId && (
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <h2 className="text-sm font-semibold text-slate-900 mb-4">Agency Branding</h2>
+            {officeBrand.status === 'loading' ? (
+              <div className="flex items-center gap-5" aria-label="Loading agency branding">
+                <div className="w-32 h-20 rounded-xl bg-slate-100 animate-pulse" />
+                <div className="h-4 w-40 rounded bg-slate-100 animate-pulse" />
+              </div>
+            ) : officeBrand.status === 'failed' ? (
+              <div className="flex items-center gap-5">
+                <div className="w-32 h-20 rounded-xl bg-slate-100 flex items-center justify-center">
+                  <Building2 className="w-8 h-8 text-slate-400" />
+                </div>
+                <div>
+                  <p className="text-sm text-slate-700">We couldn't load your office branding right now.</p>
+                  <button onClick={officeBrand.retry} className="text-sm font-semibold text-orange-600 hover:text-orange-700 mt-1">Retry</button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-5">
+                {officeBrand.brand?.logoUrl ? (
+                  <img src={officeBrand.brand.logoUrl} alt="Agency logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} className="w-32 h-20 rounded-xl object-contain bg-slate-50 border border-slate-100" />
+                ) : (
+                  <div className="w-32 h-20 rounded-xl bg-slate-100 flex items-center justify-center">
+                    <Building2 className="w-8 h-8 text-slate-400" />
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{officeBrand.brand?.name || 'Your office'}</p>
+                  <p className="text-xs text-slate-500 mt-1">Your logo, agency title and brand colours come from your office and update automatically. Contact your office administrator to change them.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Agency Logo (independent agents only) */}
+        {(userData?.isAgent || userData?.agent) && !officeId && (
           <div className="bg-white rounded-xl border border-slate-200 p-6">
             <h2 className="text-sm font-semibold text-slate-900 mb-4">Agency Logo</h2>
             <div className="flex items-center gap-5">
@@ -424,7 +466,7 @@ export default function SettingsPage() {
         )}
 
         {/* Billing Details (agents only) */}
-        {(userData?.isAgent || userData?.agent) && <BillingDetailsSection />}
+        {(userData?.isAgent || userData?.agent) && !officeId && <BillingDetailsSection />}
 
         {/* Personal Info */}
         <div className="bg-white rounded-xl border border-slate-200 p-6">
