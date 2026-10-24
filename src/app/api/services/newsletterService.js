@@ -113,7 +113,7 @@ function propertyCardHTML(property) {
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff; border-radius:14px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,0.06);">
       <tr><td>${property.imageUrl
         ? `<img src="${property.imageUrl}" alt="${property.title}" width="100%" height="200" style="display:block; object-fit:cover;" />`
-        : `<div style="width:100%; height:200px; background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div>`
+        : `<div style="width:100%; height:200px; background:#e2e8f0;"></div>`
       }</td></tr>
       <tr><td style="padding:18px;">
         <table width="100%" cellpadding="0" cellspacing="0" border="0">
@@ -130,7 +130,7 @@ function propertyCardHTML(property) {
             <table width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td><span style="font-size:18px; font-weight:800; color:#f97316;">${formatPrice(property.price)}</span></td>
-                <td align="right"><a href="${BASE_URL}/find-property?propertyId=${property.id}" style="display:inline-block; padding:8px 18px; background:linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%); color:#fff; text-decoration:none; border-radius:8px; font-size:12px; font-weight:600;">View</a></td>
+                <td align="right"><a href="${BASE_URL}/find-property?propertyId=${property.id}" style="display:inline-block; padding:8px 18px; background-color:#1a1a2e; color:#ffffff; text-decoration:none; border-radius:8px; font-size:12px; font-weight:600;">View</a></td>
               </tr>
             </table>
           </td></tr>

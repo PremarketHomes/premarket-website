@@ -30,6 +30,9 @@ export async function POST(request, { params }) {
 
     // Dynamic import to avoid build-time failures
     const { sendEmail } = await import('../../../../services/resendService');
+    const { wrapEmail, heading, greeting, p, ctaButton, signature, esc } = await import('../../../../services/emailTemplates');
+    const shell = (previewText, bodyHTML, reason) => wrapEmail({ previewText, bodyHTML, recipientEmail: email, reason });
+    const first = esc(userData.firstName || '');
 
     let result;
     switch (emailType) {
@@ -39,7 +42,7 @@ export async function POST(request, { params }) {
         result = await sendEmail({
           to: email,
           subject: 'Reset Your Password - Premarket',
-          html: `<p>Hi ${userData.firstName || ''},</p><p>Click the link below to reset your password:</p><p><a href="${resetLink}">Reset Password</a></p><p>This link expires in 1 hour.</p><p>— Premarket Team</p>`,
+          html: shell('Reset your Premarket password', `${heading('Reset your password')}${greeting(first)}${p('Click the button below to choose a new password.')}${ctaButton('Reset password', resetLink, { fallback: true })}${p('This link expires in 1 hour.')}${signature()}`, "You're receiving this because a password reset was requested for your account."),
         });
         break;
       }
@@ -47,7 +50,7 @@ export async function POST(request, { params }) {
         result = await sendEmail({
           to: email,
           subject: 'Welcome to Premarket!',
-          html: `<p>Hi ${userData.firstName || ''},</p><p>Welcome to Premarket! We're excited to have you on board.</p><p>— Premarket Team</p>`,
+          html: shell('Welcome to Premarket', `${heading('Welcome to Premarket')}${greeting(first)}${p("We're excited to have you on board. Your dashboard is where you create campaigns and track buyer interest.")}${ctaButton('Open your dashboard', 'https://premarket.homes/dashboard')}${signature()}`, "You're receiving this because you have a Premarket account."),
         });
         break;
       }
@@ -55,7 +58,7 @@ export async function POST(request, { params }) {
         result = await sendEmail({
           to: email,
           subject: 'Your Property is Live on Premarket',
-          html: `<p>Hi ${userData.firstName || ''},</p><p>Your property listing is now live on Premarket and visible to buyers.</p><p>— Premarket Team</p>`,
+          html: shell('Your property is live on Premarket', `${heading('Your property is live')}${greeting(first)}${p('Your property listing is now live on Premarket and visible to buyers.')}${ctaButton('View your dashboard', 'https://premarket.homes/dashboard')}${signature()}`, "You're receiving this because you listed a property on Premarket."),
         });
         break;
       }
@@ -63,7 +66,7 @@ export async function POST(request, { params }) {
         result = await sendEmail({
           to: email,
           subject: 'How are things going? - Premarket',
-          html: `<p>Hi ${userData.firstName || ''},</p><p>Just checking in to see how things are going with your Premarket experience. Let us know if you need anything!</p><p>— Premarket Team</p>`,
+          html: shell('How are things going?', `${heading('How are things going?')}${greeting(first)}${p('Just checking in to see how things are going with your Premarket experience. Let us know if you need anything!')}${signature()}`, "You're receiving this because you have a Premarket account."),
         });
         break;
       }

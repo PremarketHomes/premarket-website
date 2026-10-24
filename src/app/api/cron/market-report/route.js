@@ -187,7 +187,7 @@ Write 3-4 sentences only. No headings, no bullet points.`;
       </div>
 
       <!-- Overall MHI Score -->
-      <div style="text-align:center; background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius:16px; padding:28px; margin-bottom:24px;">
+      <div bgcolor="#1a1a2e" style="text-align:center; background-color:#1a1a2e; border-radius:16px; padding:28px; margin-bottom:24px;">
         <p style="margin:0 0 4px 0; font-size:12px; color:#94a3b8; text-transform:uppercase; letter-spacing:1px;">Overall Market Health</p>
         <p style="margin:0 0 4px 0; font-size:52px; font-weight:900; color:${mhiColor};">${mhiScore}</p>
         <p style="margin:0; font-size:14px; font-weight:600; color:${mhiColor};">${scoreLabel(mhiScore)}</p>

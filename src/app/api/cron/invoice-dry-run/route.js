@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
 import { sendEmail } from '../../services/resendService';
+import { wrapEmail, eyebrow, heading, p, infoBox, ctaButton } from '../../services/emailTemplates';
 import { createInvoiceRunFromPendingCharges } from '../../services/invoiceRunService';
 import { getDueBillingEntityKeys } from '../../services/billingService';
 import { verifyCron } from '../../middleware/auth';
@@ -62,18 +63,24 @@ export async function GET(request) {
         await sendEmail({
           to: adminData.email,
           subject: `Invoice Run Ready for Review: ${todayStr}`,
-          html: `
-            <body style="font-family: Arial, sans-serif; padding: 20px;">
-              <h2>Draft Invoice Run Ready</h2>
-              <p>${result.totalAgencies} agenc${result.totalAgencies === 1 ? 'y' : 'ies'} reached its 30-day billing cycle and has been bundled into a new draft run.</p>
-              <ul>
-                <li>Properties: ${result.totalProperties}</li>
-                <li>Agencies: ${result.totalAgencies}</li>
-                <li>Total (inc GST): $${Math.round(result.totalAmountInc).toLocaleString()}</li>
-              </ul>
-              <p><a href="https://premarket.homes/dashboard/admin/invoicing">Review in Admin Dashboard</a></p>
-            </body>
-          `,
+          html: wrapEmail({
+            previewText: `${result.totalAgencies} agenc${result.totalAgencies === 1 ? 'y' : 'ies'} ready for invoicing review`,
+            orgLabel: 'Premarket Group Pty Ltd',
+            recipientEmail: adminData.email,
+            reason: 'Internal notification for Premarket administrators.',
+            showUnsubscribe: false,
+            bodyHTML: `
+              ${eyebrow('Invoicing')}
+              ${heading('Draft invoice run ready')}
+              ${p(`${result.totalAgencies} agenc${result.totalAgencies === 1 ? 'y' : 'ies'} reached its 30-day billing cycle and has been bundled into a new draft run.`)}
+              ${infoBox(`
+                <p style="margin:0 0 6px 0; font-size:14px; color:#475569;">Properties: <strong style="color:#0f172a;">${result.totalProperties}</strong></p>
+                <p style="margin:0 0 6px 0; font-size:14px; color:#475569;">Agencies: <strong style="color:#0f172a;">${result.totalAgencies}</strong></p>
+                <p style="margin:0; font-size:14px; color:#475569;">Total (inc GST): <strong style="color:#0f172a;">$${Math.round(result.totalAmountInc).toLocaleString()}</strong></p>
+              `)}
+              ${ctaButton('Review in admin dashboard', 'https://premarket.homes/dashboard/admin/invoicing')}
+            `,
+          }),
         });
       }
     }

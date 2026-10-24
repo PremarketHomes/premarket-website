@@ -1,72 +1,139 @@
 const BASE_URL = 'https://premarket.homes';
 const LOGO_URL = 'https://premarketvideos.b-cdn.net/assets/logo.png';
 
+// Premarket email design system. One place defines the look of every
+// email the website sends; individual templates only compose the helpers
+// below. Rules every helper follows, so it renders the same in Gmail,
+// Outlook (Word engine), Apple Mail and phone clients:
+//   - tables for layout, inline styles for everything that matters
+//   - solid background colours only — NO gradients anywhere (Gmail and
+//     Outlook drop them, which is what produced white-on-white buttons)
+//   - system font stack (web fonts don't load in most inboxes)
+//   - every button has a solid bgcolor, plus an Outlook VML version
+// Dark mode is progressive enhancement through the <style> block below
+// (Apple Mail, iOS Mail, Outlook apps); clients that ignore it just show
+// the light design, which is fully designed on its own.
+
+export const COLORS = {
+  brand: '#ea580c',
+  ink: '#0f172a',
+  body: '#475569',
+  muted: '#94a3b8',
+  line: '#e2e8f0',
+  page: '#f1f5f9',
+  card: '#ffffff',
+  panel: '#f8fafc',
+};
+
+const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+
+const DARK_CSS = `
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  @media (max-width: 620px) {
+    .px { padding-left: 24px !important; padding-right: 24px !important; }
+    .h1 { font-size: 24px !important; }
+  }
+  @media (prefers-color-scheme: dark) {
+    .bg-page { background-color: #0b1020 !important; }
+    .bg-card { background-color: #121a2e !important; border-color: #243049 !important; }
+    .bg-panel { background-color: #1a2440 !important; border-color: #243049 !important; }
+    .t-ink { color: #f1f5f9 !important; }
+    .t-body { color: #cbd5e1 !important; }
+    .t-muted { color: #94a3b8 !important; }
+    .line { border-color: #243049 !important; }
+    .logo-chip { background-color: #ffffff !important; border-radius: 10px !important; padding: 8px 14px !important; }
+    a.link { color: #fb923c !important; }
+  }
+`;
+
+/** Escapes text that came from a user (office names, buyer names, etc.). */
+export function esc(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * Shared email template wrapper for all Premarket emails.
- * Provides consistent dark-themed header, footer with unsubscribe, and layout.
  *
  * @param {Object} opts
  * @param {string} opts.previewText - Hidden preview text for inbox snippets
  * @param {string} opts.bodyHTML - Main email content HTML
  * @param {string} opts.recipientEmail - For unsubscribe link
  * @param {string} [opts.reason] - Why they're getting this email
- * @param {string} [opts.orgLabel] - Business identity shown in the header
- *   and footer copyright. Defaults to the consumer-facing "Premarket
- *   Australia" brand every existing caller relies on; invoicing-related
- *   emails pass 'Premarket Group Pty Ltd' instead, since a financial
- *   document should show the actual billing entity, not the marketing
- *   brand. Every other email is unaffected unless it explicitly opts in.
+ * @param {string} [opts.orgLabel] - Business identity shown in the footer
+ *   copyright. Defaults to the consumer-facing "Premarket Australia"
+ *   brand every existing caller relies on; invoicing-related emails pass
+ *   'Premarket Group Pty Ltd' instead, since a financial document should
+ *   show the actual billing entity, not the marketing brand.
+ * @param {boolean} [opts.showUnsubscribe=true] - Internal staff notifications
+ *   (contact form, invoice-run alerts) pass false; every email to a
+ *   customer keeps the unsubscribe link.
  */
-export function wrapEmail({ previewText, bodyHTML, recipientEmail, reason, orgLabel = 'Premarket Australia' }) {
+export function wrapEmail({ previewText, bodyHTML, recipientEmail, reason, orgLabel = 'Premarket Australia', showUnsubscribe = true }) {
   const unsubUrl = `${BASE_URL}/unsubscribe?email=${encodeURIComponent(recipientEmail || '')}`;
   const year = new Date().getFullYear();
+  // Zero-width padding stops clients appending body text to the preview.
+  const preheader = previewText ? `${previewText}${'&#8199;&zwnj;'.repeat(40)}` : '';
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <meta name="x-apple-disable-message-reformatting">
   <title>Premarket</title>
+  <!--[if mso]>
+  <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+  <style>table, td, p, a, h1, h2 { font-family: Arial, Helvetica, sans-serif !important; }</style>
+  <![endif]-->
+  <style>${DARK_CSS}</style>
 </head>
-<body style="margin:0; padding:0; background-color:#f8fafc; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color:#333;">
-  <div style="display:none; max-height:0; overflow:hidden;">${previewText || ''}</div>
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;">
-    <tr><td align="center" style="padding:40px 20px;">
-      <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px; width:100%;">
+<body class="bg-page" bgcolor="${COLORS.page}" style="margin:0; padding:0; background-color:${COLORS.page}; font-family:${FONT}; color:${COLORS.body}; -webkit-text-size-adjust:100%;">
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:${COLORS.page};">${preheader}</div>
+  <table role="presentation" class="bg-page" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.page}" style="background-color:${COLORS.page};">
+    <tr><td align="center" style="padding:32px 16px 40px 16px;">
+      <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:600px;">
 
         <!-- Logo -->
-        <tr><td align="center" style="padding:0 0 24px 0;">
-          <a href="${BASE_URL}" style="text-decoration:none;">
-            <img src="${LOGO_URL}" alt="Premarket" width="180" style="display:block; max-width:180px;" />
+        <tr><td align="center" style="padding:0 0 22px 0;">
+          <a href="${BASE_URL}" target="_blank" style="text-decoration:none;">
+            <span class="logo-chip" style="display:inline-block;"><img src="${LOGO_URL}" alt="Premarket" width="150" style="display:block; width:150px; max-width:150px; height:auto; border:0;" /></span>
           </a>
         </td></tr>
 
-        <!-- Header bar -->
-        <tr><td style="background:linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius:24px 24px 0 0; padding:32px 40px; text-align:center;">
-          <p style="margin:0; font-size:13px; color:#94a3b8; letter-spacing:0.5px; text-transform:uppercase;">${orgLabel}</p>
-        </td></tr>
-
-        <!-- Body -->
-        <tr><td style="background:#ffffff; padding:40px 36px;">
-          ${bodyHTML}
+        <!-- Card -->
+        <tr><td class="bg-card line" bgcolor="${COLORS.card}" style="background-color:${COLORS.card}; border:1px solid ${COLORS.line}; border-radius:16px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr><td height="4" bgcolor="${COLORS.brand}" style="height:4px; line-height:4px; font-size:0; background-color:${COLORS.brand}; border-radius:16px 16px 0 0;">&nbsp;</td></tr>
+            <tr><td class="px" style="padding:40px 44px 36px 44px;">
+              ${bodyHTML}
+            </td></tr>
+          </table>
         </td></tr>
 
         <!-- Footer -->
-        <tr><td style="background:#1a1a2e; border-radius:0 0 24px 24px; padding:28px 40px; text-align:center;">
-          ${reason ? `<p style="margin:0 0 14px 0; font-size:13px; color:#94a3b8;">${reason}</p>` : ''}
-          <table cellpadding="0" cellspacing="0" border="0" align="center">
-            <tr>
-              <td style="padding:0 10px;"><a href="${unsubUrl}" style="color:#6b7280; font-size:12px; text-decoration:none;">Unsubscribe</a></td>
-              <td style="color:#4b5563; font-size:12px;">|</td>
-              <td style="padding:0 10px;"><a href="${BASE_URL}/privacy" style="color:#6b7280; font-size:12px; text-decoration:none;">Privacy</a></td>
-              <td style="color:#4b5563; font-size:12px;">|</td>
-              <td style="padding:0 10px;"><a href="${BASE_URL}" style="color:#6b7280; font-size:12px; text-decoration:none;">premarket.homes</a></td>
-            </tr>
-          </table>
-          <p style="margin:18px 0 0 0; font-size:11px; color:#4b5563;">&copy; ${year} ${orgLabel}. All rights reserved.</p>
+        <tr><td align="center" style="padding:26px 24px 0 24px;">
+          ${reason ? `<p class="t-muted" style="margin:0 0 14px 0; font-size:13px; line-height:1.5; color:${COLORS.muted};">${reason}</p>` : ''}
+          <p class="t-muted" style="margin:0 0 12px 0; font-size:12px; line-height:1.6; color:${COLORS.muted};">
+            ${showUnsubscribe ? `<a class="link" href="${unsubUrl}" style="color:${COLORS.muted}; text-decoration:underline;">Unsubscribe</a>
+            &nbsp;&middot;&nbsp;` : ''}
+            <a class="link" href="${BASE_URL}/privacy" style="color:${COLORS.muted}; text-decoration:underline;">Privacy</a>
+            &nbsp;&middot;&nbsp;
+            <a class="link" href="${BASE_URL}" style="color:${COLORS.muted}; text-decoration:underline;">premarket.homes</a>
+          </p>
+          <p class="t-muted" style="margin:0; font-size:11px; line-height:1.5; color:${COLORS.muted};">&copy; ${year} ${orgLabel}. All rights reserved.</p>
         </td></tr>
 
       </table>
+      <!--[if mso]></td></tr></table><![endif]-->
     </td></tr>
   </table>
 </body>
@@ -74,66 +141,118 @@ export function wrapEmail({ previewText, bodyHTML, recipientEmail, reason, orgLa
 }
 
 /**
- * Bulletproof CTA button: solid background-color (and bgcolor on the
- * table cell) so clients that drop `linear-gradient` — Gmail, some
- * mobile apps — still show a filled button instead of white-on-white
- * text. The gradient is layered on top as progressive enhancement.
- * Pass `{ fallback: true }` to add a visible copy-and-paste link
- * underneath for clients that block or restyle buttons.
+ * Bulletproof button: a solid-colour table cell (bgcolor, so it still
+ * shows if CSS is stripped), white text, plus a VML rounded rectangle
+ * for Outlook's Word engine. Pass `{ fallback: true }` to add a visible
+ * copy-and-paste link underneath for clients that block or restyle
+ * buttons.
  */
-function bulletproofButton(text, href, solid, gradient, { fallback = false } = {}) {
+function bulletproofButton(text, href, solid, { fallback = false } = {}) {
+  const width = Math.min(360, Math.max(220, String(text).length * 9 + 72));
   const fallbackHTML = fallback
-    ? `<p style="margin:0 0 20px; text-align:center; font-size:12px; color:#64748b; line-height:1.5; word-break:break-all;">Button not working? Copy and paste this link into your browser:<br><a href="${href}" style="color:${solid}; text-decoration:underline;">${href}</a></p>`
+    ? `<p class="t-muted" style="margin:0 0 4px 0; text-align:center; font-size:12px; color:${COLORS.muted}; line-height:1.6; word-break:break-all;">Button not working? Copy and paste this link into your browser:<br><a class="link" href="${href}" style="color:${solid}; text-decoration:underline;">${href}</a></p>`
     : '';
-  return `<table role="presentation" align="center" border="0" cellspacing="0" cellpadding="0" style="margin:28px auto;">
-  <tr><td align="center" bgcolor="${solid}" style="background-color:${solid}; background-image:${gradient}; border-radius:10px;">
-    <a href="${href}" target="_blank" style="display:inline-block; padding:14px 32px; background-color:${solid}; color:#ffffff !important; text-decoration:none; border-radius:10px; font-size:15px; font-weight:700; letter-spacing:0.3px; font-family:Arial, Helvetica, sans-serif;"><font color="#ffffff">${text}</font></a>
+  return `<table role="presentation" align="center" border="0" cellspacing="0" cellpadding="0" style="margin:28px auto 20px auto;">
+  <tr><td align="center" bgcolor="${solid}" style="background-color:${solid}; border-radius:10px;">
+    <!--[if mso]>
+    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:50px; v-text-anchor:middle; width:${width}px;" arcsize="20%" stroke="f" fillcolor="${solid}">
+      <w:anchorlock/>
+      <center style="color:#ffffff; font-family:Arial, sans-serif; font-size:16px; font-weight:bold;">${text}</center>
+    </v:roundrect>
+    <![endif]-->
+    <!--[if !mso]><!-- -->
+    <a href="${href}" target="_blank" style="display:inline-block; min-width:${width - 64}px; padding:15px 32px; background-color:${solid}; color:#ffffff; text-decoration:none; border-radius:10px; font-size:16px; font-weight:700; line-height:20px; text-align:center; font-family:${FONT};"><span style="color:#ffffff;">${text}</span></a>
+    <!--<![endif]-->
   </td></tr>
 </table>${fallbackHTML}`;
 }
 
-/**
- * Orange CTA button
- */
+/** Primary (orange) button. */
 export function ctaButton(text, href, opts) {
-  return bulletproofButton(text, href, '#ea580c', 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', opts);
+  return bulletproofButton(text, href, COLORS.brand, opts);
 }
 
-/**
- * Dark CTA button
- */
+/** Secondary (dark) button. */
 export function ctaButtonDark(text, href, opts) {
-  return bulletproofButton(text, href, '#1a1a2e', 'linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%)', opts);
+  return bulletproofButton(text, href, COLORS.ink, opts);
 }
 
-/**
- * Info box with a subtle background
- */
+/** Info box: a quiet panel for supporting detail. */
 export function infoBox(html) {
-  return `<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:20px; margin:20px 0;">
-  ${html}
-</div>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0;">
+  <tr><td class="bg-panel line" bgcolor="${COLORS.panel}" style="background-color:${COLORS.panel}; border:1px solid ${COLORS.line}; border-radius:12px; padding:20px 22px;">
+    ${html}
+  </td></tr>
+</table>`;
 }
 
-/**
- * Heading + paragraph combo
- */
+/** Small orange label above a heading, e.g. "Office invitation". */
+export function eyebrow(text) {
+  return `<p style="margin:0 0 10px 0; font-size:12px; font-weight:700; color:${COLORS.brand}; text-transform:uppercase; letter-spacing:1px;">${text}</p>`;
+}
+
+/** Main email heading. */
+export function heading(text) {
+  return `<h1 class="h1 t-ink" style="margin:0 0 18px 0; font-size:28px; line-height:1.25; font-weight:800; color:${COLORS.ink}; letter-spacing:-0.4px;">${text}</h1>`;
+}
+
+/** Greeting line ("Hi Sam,"). */
 export function greeting(name) {
-  return `<h2 style="margin:0 0 16px 0; font-size:22px; font-weight:700; color:#1a1a2e;">Hi ${name || 'there'},</h2>`;
+  return `<p class="t-ink" style="margin:0 0 16px 0; font-size:17px; font-weight:600; color:${COLORS.ink};">Hi ${name || 'there'},</p>`;
 }
 
-/**
- * Standard paragraph
- */
+/** Standard paragraph. */
 export function p(text) {
-  return `<p style="margin:0 0 16px 0; font-size:15px; color:#4b5563; line-height:1.6;">${text}</p>`;
+  return `<p class="t-body" style="margin:0 0 16px 0; font-size:15px; color:${COLORS.body}; line-height:1.65;">${text}</p>`;
+}
+
+/** Numbered "what happens next" steps. Items are trusted HTML strings. */
+export function steps(items, title = 'What happens next') {
+  const rows = items
+    .map(
+      (item, i) => `<tr>
+      <td width="36" valign="top" style="padding:0 0 14px 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="26" height="26" align="center" bgcolor="${COLORS.brand}" style="width:26px; height:26px; background-color:${COLORS.brand}; border-radius:13px; color:#ffffff; font-size:13px; font-weight:700; line-height:26px; font-family:${FONT};">${i + 1}</td></tr></table></td>
+      <td valign="top" class="t-body" style="padding:2px 0 14px 0; font-size:15px; line-height:1.55; color:${COLORS.body};">${item}</td>
+    </tr>`,
+    )
+    .join('');
+  return `<p class="t-ink" style="margin:26px 0 14px 0; font-size:13px; font-weight:700; color:${COLORS.ink}; text-transform:uppercase; letter-spacing:0.6px;">${title}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table>`;
+}
+
+/** Signature. */
+export function signature() {
+  return `<p class="t-body" style="margin:28px 0 0 0; font-size:14px; color:${COLORS.body}; line-height:1.6;">Kind regards,<br/><strong class="t-ink" style="color:${COLORS.ink};">The Premarket Team</strong></p>`;
 }
 
 /**
- * Signature
+ * Plain-text alternative derived from the HTML, so every email carries a
+ * text part (better deliverability, and readable in text-only clients).
+ * Button/links become "text (url)".
  */
-export function signature() {
-  return `<p style="margin:24px 0 0 0; font-size:14px; color:#6b7280; line-height:1.6;">Kind regards,<br/><strong style="color:#1a1a2e;">The Premarket Team</strong></p>`;
+export function toPlainText(html) {
+  return String(html || '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<div style="display:none[\s\S]*?<\/div>/gi, '')
+    .replace(/<(style|head|script)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<a\s[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href, label) => {
+      const text = label.replace(/<[^>]+>/g, '').trim();
+      return text && text !== href ? `${text} (${href})` : href;
+    })
+    .replace(/<\/(p|h1|h2|h3|tr|li|table|div)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;|&#8199;|&zwnj;/g, ' ')
+    .replace(/&middot;/g, '·')
+    .replace(/&copy;/g, '©')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 export { BASE_URL, LOGO_URL };
