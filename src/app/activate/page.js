@@ -12,6 +12,21 @@ const LOGO = 'https://premarketvideos.b-cdn.net/assets/logo.png';
 const MIN_LENGTH = 8;
 const STALE_CODE_ERRORS = ['auth/invalid-action-code', 'auth/expired-action-code'];
 
+// Field colours are set explicitly so iPhone dark mode and Safari autofill can't turn the
+// typed text white on the white card.
+const FIELD_CSS = `
+  .activate-input { color-scheme: light; -webkit-text-fill-color: #0f172a; caret-color: #0f172a; }
+  .activate-input::placeholder { color: #94a3b8; -webkit-text-fill-color: #94a3b8; opacity: 1; }
+  .activate-input:-webkit-autofill,
+  .activate-input:-webkit-autofill:hover,
+  .activate-input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #0f172a;
+    -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+    box-shadow: 0 0 0 1000px #ffffff inset;
+    caret-color: #0f172a;
+  }
+`;
+
 /**
  * Landing page for the activation button in an office invitation email.
  *
@@ -187,18 +202,19 @@ function ActivateInner() {
           ? <>Choose a password to activate your Premarket account with <strong>{state.officeName}</strong>.</>
           : 'Choose a password to activate your Premarket account.'}
       </p>
+      <style>{FIELD_CSS}</style>
       <form onSubmit={onSubmit} noValidate>
         <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="new-password">New password</label>
         <input
-          id="new-password" name="new-password" type={showPw ? 'text' : 'password'} autoComplete="new-password"
+          id="new-password" name="new-password" placeholder="Choose a password" type={showPw ? 'text' : 'password'} autoComplete="new-password"
           value={password} onChange={(e) => setPassword(e.target.value)} disabled={saving}
-          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-base mb-4 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          className="activate-input w-full rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 px-4 py-3 text-base mb-4 focus:outline-none focus:ring-2 focus:ring-orange-500"
         />
         <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="confirm-password">Confirm password</label>
         <input
-          id="confirm-password" name="confirm-password" type={showPw ? 'text' : 'password'} autoComplete="new-password"
+          id="confirm-password" name="confirm-password" placeholder="Re-enter your password" type={showPw ? 'text' : 'password'} autoComplete="new-password"
           value={confirm} onChange={(e) => setConfirm(e.target.value)} disabled={saving}
-          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-base mb-3 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          className="activate-input w-full rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 px-4 py-3 text-base mb-3 focus:outline-none focus:ring-2 focus:ring-orange-500"
         />
         <label className="flex items-center gap-2 text-sm text-slate-600 mb-4">
           <input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} /> Show password
