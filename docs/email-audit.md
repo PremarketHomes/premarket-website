@@ -21,7 +21,6 @@ Preview everything locally: `npm run email:previews` then open `email-previews/i
 | Property is live | Property goes live | `sendPropertyLiveEmail` |
 | New prospect added | Vendor adds a property | `sendPropertyAgentEmail` |
 | New buyer registration | Buyer registers interest | `sendNewBuyerInterestEmail` |
-| Vendor invitation | Agent invites a vendor | `sendInviteLink` |
 | Property link to share | Agent requests link | `sendLink` |
 | Listing follow-up (14/30 days) | Daily cron | `sendPropertyFollowUpEmail` |
 | Weekly buyer newsletter | Weekly cron | `newsletterService` |

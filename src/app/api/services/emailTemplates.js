@@ -23,6 +23,9 @@ export const COLORS = {
   page: '#f1f5f9',
   card: '#ffffff',
   panel: '#f8fafc',
+  warm: '#fff7ed',
+  warmLine: '#fed7aa',
+  lead: '#334155',
 };
 
 const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
@@ -37,6 +40,9 @@ const DARK_CSS = `
     .bg-page { background-color: #0b1020 !important; }
     .bg-card { background-color: #121a2e !important; border-color: #243049 !important; }
     .bg-panel { background-color: #1a2440 !important; border-color: #243049 !important; }
+    .bg-warm { background-color: #2a1a12 !important; border-color: #5a3320 !important; }
+    .t-lead { color: #e2e8f0 !important; }
+    .step-dot { background-color: #2a1a12 !important; border-color: #5a3320 !important; }
     .t-ink { color: #f1f5f9 !important; }
     .t-body { color: #cbd5e1 !important; }
     .t-muted { color: #94a3b8 !important; }
@@ -103,30 +109,32 @@ export function wrapEmail({ previewText, bodyHTML, recipientEmail, reason, orgLa
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:600px;">
 
         <!-- Logo -->
-        <tr><td align="center" style="padding:0 0 22px 0;">
+        <tr><td align="center" style="padding:4px 0 26px 0;">
           <a href="${BASE_URL}" target="_blank" style="text-decoration:none;">
-            <span class="logo-chip" style="display:inline-block;"><img src="${LOGO_URL}" alt="Premarket" width="150" style="display:block; width:150px; max-width:150px; height:auto; border:0;" /></span>
+            <span class="logo-chip" style="display:inline-block;"><img src="${LOGO_URL}" alt="Premarket" width="140" style="display:block; width:140px; max-width:140px; height:auto; border:0;" /></span>
           </a>
         </td></tr>
 
         <!-- Card -->
-        <tr><td class="bg-card line" bgcolor="${COLORS.card}" style="background-color:${COLORS.card}; border:1px solid ${COLORS.line}; border-radius:16px;">
+        <tr><td class="bg-card line" bgcolor="${COLORS.card}" style="background-color:${COLORS.card}; border:1px solid ${COLORS.line}; border-radius:18px;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-            <tr><td height="4" bgcolor="${COLORS.brand}" style="height:4px; line-height:4px; font-size:0; background-color:${COLORS.brand}; border-radius:16px 16px 0 0;">&nbsp;</td></tr>
-            <tr><td class="px" style="padding:40px 44px 36px 44px;">
+            <tr><td class="px" style="padding:44px 48px 40px 48px;">
+              <!-- Accent mark -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px 0;"><tr><td width="40" height="3" bgcolor="${COLORS.brand}" style="width:40px; height:3px; line-height:3px; font-size:0; background-color:${COLORS.brand}; border-radius:2px;">&nbsp;</td></tr></table>
               ${bodyHTML}
             </td></tr>
           </table>
         </td></tr>
 
         <!-- Footer -->
-        <tr><td align="center" style="padding:26px 24px 0 24px;">
-          ${reason ? `<p class="t-muted" style="margin:0 0 14px 0; font-size:13px; line-height:1.5; color:${COLORS.muted};">${reason}</p>` : ''}
-          <p class="t-muted" style="margin:0 0 12px 0; font-size:12px; line-height:1.6; color:${COLORS.muted};">
+        <tr><td align="center" style="padding:30px 24px 0 24px;">
+          ${reason ? `<p class="t-muted" style="margin:0 0 18px 0; font-size:13px; line-height:1.6; color:${COLORS.muted};">${reason}</p>` : ''}
+          <table role="presentation" width="48" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 18px auto;"><tr><td height="1" bgcolor="${COLORS.line}" class="line" style="height:1px; line-height:1px; font-size:0; background-color:${COLORS.line};">&nbsp;</td></tr></table>
+          <p class="t-muted" style="margin:0 0 10px 0; font-size:12px; line-height:1.6; color:${COLORS.muted};">
             ${showUnsubscribe ? `<a class="link" href="${unsubUrl}" style="color:${COLORS.muted}; text-decoration:underline;">Unsubscribe</a>
-            &nbsp;&middot;&nbsp;` : ''}
+            &nbsp;&nbsp;&middot;&nbsp;&nbsp;` : ''}
             <a class="link" href="${BASE_URL}/privacy" style="color:${COLORS.muted}; text-decoration:underline;">Privacy</a>
-            &nbsp;&middot;&nbsp;
+            &nbsp;&nbsp;&middot;&nbsp;&nbsp;
             <a class="link" href="${BASE_URL}" style="color:${COLORS.muted}; text-decoration:underline;">premarket.homes</a>
           </p>
           <p class="t-muted" style="margin:0; font-size:11px; line-height:1.5; color:${COLORS.muted};">&copy; ${year} ${orgLabel}. All rights reserved.</p>
@@ -152,16 +160,16 @@ function bulletproofButton(text, href, solid, { fallback = false } = {}) {
   const fallbackHTML = fallback
     ? `<p class="t-muted" style="margin:0 0 4px 0; text-align:center; font-size:12px; color:${COLORS.muted}; line-height:1.6; word-break:break-all;">Button not working? Copy and paste this link into your browser:<br><a class="link" href="${href}" style="color:${solid}; text-decoration:underline;">${href}</a></p>`
     : '';
-  return `<table role="presentation" align="center" border="0" cellspacing="0" cellpadding="0" style="margin:28px auto 20px auto;">
-  <tr><td align="center" bgcolor="${solid}" style="background-color:${solid}; border-radius:10px;">
+  return `<table role="presentation" align="center" border="0" cellspacing="0" cellpadding="0" style="margin:30px auto 22px auto;">
+  <tr><td align="center" bgcolor="${solid}" style="background-color:${solid}; border-radius:12px;">
     <!--[if mso]>
-    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:50px; v-text-anchor:middle; width:${width}px;" arcsize="20%" stroke="f" fillcolor="${solid}">
+    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:52px; v-text-anchor:middle; width:${width}px;" arcsize="22%" stroke="f" fillcolor="${solid}">
       <w:anchorlock/>
       <center style="color:#ffffff; font-family:Arial, sans-serif; font-size:16px; font-weight:bold;">${text}</center>
     </v:roundrect>
     <![endif]-->
     <!--[if !mso]><!-- -->
-    <a href="${href}" target="_blank" style="display:inline-block; min-width:${width - 64}px; padding:15px 32px; background-color:${solid}; color:#ffffff; text-decoration:none; border-radius:10px; font-size:16px; font-weight:700; line-height:20px; text-align:center; font-family:${FONT};"><span style="color:#ffffff;">${text}</span></a>
+    <a href="${href}" target="_blank" style="display:inline-block; min-width:${width - 64}px; padding:16px 36px; background-color:${solid}; color:#ffffff; text-decoration:none; border-radius:12px; font-size:16px; font-weight:600; letter-spacing:0.1px; line-height:20px; text-align:center; font-family:${FONT};"><span style="color:#ffffff;">${text}</span></a>
     <!--<![endif]-->
   </td></tr>
 </table>${fallbackHTML}`;
@@ -178,9 +186,12 @@ export function ctaButtonDark(text, href, opts) {
 }
 
 /** Info box: a quiet panel for supporting detail. */
-export function infoBox(html) {
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0;">
-  <tr><td class="bg-panel line" bgcolor="${COLORS.panel}" style="background-color:${COLORS.panel}; border:1px solid ${COLORS.line}; border-radius:12px; padding:20px 22px;">
+export function infoBox(html, { tone = 'neutral' } = {}) {
+  const warm = tone === 'warm';
+  const bg = warm ? COLORS.warm : COLORS.panel;
+  const border = warm ? COLORS.warmLine : COLORS.line;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+  <tr><td class="${warm ? 'bg-warm' : 'bg-panel'} line" bgcolor="${bg}" style="background-color:${bg}; border:1px solid ${border}; border-radius:14px; padding:20px 24px;">
     ${html}
   </td></tr>
 </table>`;
@@ -188,22 +199,53 @@ export function infoBox(html) {
 
 /** Small orange label above a heading, e.g. "Office invitation". */
 export function eyebrow(text) {
-  return `<p style="margin:0 0 10px 0; font-size:12px; font-weight:700; color:${COLORS.brand}; text-transform:uppercase; letter-spacing:1px;">${text}</p>`;
+  return `<p style="margin:0 0 12px 0; font-size:12px; font-weight:700; color:${COLORS.brand}; text-transform:uppercase; letter-spacing:1.6px;">${text}</p>`;
 }
 
 /** Main email heading. */
 export function heading(text) {
-  return `<h1 class="h1 t-ink" style="margin:0 0 18px 0; font-size:28px; line-height:1.25; font-weight:800; color:${COLORS.ink}; letter-spacing:-0.4px;">${text}</h1>`;
+  return `<h1 class="h1 t-ink" style="margin:0 0 22px 0; font-size:30px; line-height:1.2; font-weight:700; color:${COLORS.ink}; letter-spacing:-0.7px;">${text}</h1>`;
 }
 
 /** Greeting line ("Hi Sam,"). */
 export function greeting(name) {
-  return `<p class="t-ink" style="margin:0 0 16px 0; font-size:17px; font-weight:600; color:${COLORS.ink};">Hi ${name || 'there'},</p>`;
+  return `<p class="t-ink" style="margin:0 0 14px 0; font-size:16px; font-weight:600; color:${COLORS.ink};">Hi ${name || 'there'},</p>`;
 }
 
 /** Standard paragraph. */
 export function p(text) {
-  return `<p class="t-body" style="margin:0 0 16px 0; font-size:15px; color:${COLORS.body}; line-height:1.65;">${text}</p>`;
+  return `<p class="t-body" style="margin:0 0 16px 0; font-size:15px; color:${COLORS.body}; line-height:1.7;">${text}</p>`;
+}
+
+/** Larger introductory paragraph, directly under the greeting. */
+export function lead(text) {
+  return `<p class="t-lead" style="margin:0 0 18px 0; font-size:17px; color:${COLORS.lead}; line-height:1.65;">${text}</p>`;
+}
+
+/** Thin divider between sections. */
+export function divider() {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0;"><tr><td height="1" class="line" bgcolor="${COLORS.line}" style="height:1px; line-height:1px; font-size:0; background-color:${COLORS.line};">&nbsp;</td></tr></table>`;
+}
+
+/**
+ * Key/value card ("Your account": office, login email...). Values must
+ * already be escaped HTML.
+ */
+export function detailList(rows, title) {
+  const body = rows
+    .map(
+      ([label, value], i) => `<tr>
+      <td class="t-muted${i ? ' line' : ''}" width="38%" valign="top" style="padding:11px 12px 11px 0; ${i ? `border-top:1px solid ${COLORS.line}; ` : ''}font-size:12px; font-weight:600; color:${COLORS.muted}; text-transform:uppercase; letter-spacing:0.6px;">${label}</td>
+      <td class="t-ink${i ? ' line' : ''}" valign="top" style="padding:11px 0; ${i ? `border-top:1px solid ${COLORS.line}; ` : ''}font-size:14px; font-weight:600; color:${COLORS.ink}; line-height:1.4; word-break:break-word;">${value}</td>
+    </tr>`,
+    )
+    .join('');
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0;">
+  <tr><td class="bg-panel line" bgcolor="${COLORS.panel}" style="background-color:${COLORS.panel}; border:1px solid ${COLORS.line}; border-radius:14px; padding:8px 24px;">
+    ${title ? `<p class="t-ink" style="margin:14px 0 0 0; font-size:12px; font-weight:700; color:${COLORS.ink}; text-transform:uppercase; letter-spacing:1px;">${title}</p>` : ''}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${body}</table>
+  </td></tr>
+</table>`;
 }
 
 /** Numbered "what happens next" steps. Items are trusted HTML strings. */
@@ -211,12 +253,12 @@ export function steps(items, title = 'What happens next') {
   const rows = items
     .map(
       (item, i) => `<tr>
-      <td width="36" valign="top" style="padding:0 0 14px 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="26" height="26" align="center" bgcolor="${COLORS.brand}" style="width:26px; height:26px; background-color:${COLORS.brand}; border-radius:13px; color:#ffffff; font-size:13px; font-weight:700; line-height:26px; font-family:${FONT};">${i + 1}</td></tr></table></td>
-      <td valign="top" class="t-body" style="padding:2px 0 14px 0; font-size:15px; line-height:1.55; color:${COLORS.body};">${item}</td>
+      <td width="40" valign="top" style="padding:0 0 16px 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td class="step-dot" width="26" height="26" align="center" bgcolor="${COLORS.warm}" style="width:26px; height:26px; background-color:${COLORS.warm}; border:1px solid ${COLORS.warmLine}; border-radius:14px; color:${COLORS.brand}; font-size:13px; font-weight:700; line-height:26px; font-family:${FONT};">${i + 1}</td></tr></table></td>
+      <td valign="top" class="t-body" style="padding:3px 0 16px 0; font-size:15px; line-height:1.6; color:${COLORS.body};">${item}</td>
     </tr>`,
     )
     .join('');
-  return `<p class="t-ink" style="margin:26px 0 14px 0; font-size:13px; font-weight:700; color:${COLORS.ink}; text-transform:uppercase; letter-spacing:0.6px;">${title}</p>
+  return `<p class="t-ink" style="margin:30px 0 16px 0; font-size:12px; font-weight:700; color:${COLORS.ink}; text-transform:uppercase; letter-spacing:1.2px;">${title}</p>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table>`;
 }
 

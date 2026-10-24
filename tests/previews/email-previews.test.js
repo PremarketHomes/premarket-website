@@ -90,8 +90,6 @@ beforeAll(async () => {
       propertyId: 'sample', buyerName: 'Alex Buyer', buyerEmail: 'alex.buyer@example.com', buyerPhone: '0400 000 000',
       nextAction: 'inspection', timeframe: '1_3_months', buyerType: 'approved_finance', isFirstHomeBuyer: true, isInvestor: false,
     }));
-  add('vendor-invite', 'Vendor invitation', 'Website', 'An agent invites a vendor', () =>
-    svc.sendInviteLink('vendor.example@example.com', 'Jo', 'Sam', 'https://premarket.homes/add?ref=SAMPLE'));
   add('property-link', 'Property link to share', 'Website', 'An agent requests their share link', () =>
     svc.sendLink('https://premarket.homes/find-property?propertyId=sample', 'sam.example@example.com'));
   add('followup', 'Listing follow-up (14 / 30 days)', 'Website', 'Daily follow-up cron', () =>
@@ -117,6 +115,7 @@ describe('redesigned emails', () => {
       const html = msg.html;
       expect(html, item.id).not.toMatch(/linear-gradient/i);
       expect(html, item.id).not.toMatch(/app store|google play|apps\.apple|play\.google|download the (premarket )?app|premarket app/i);
+      expect(html, item.id).not.toMatch(/fastest-growing|best in|number one|#1 /i);
       expect(html, item.id).not.toMatch(/undefined|\[object Object\]|NaN/);
       expect(html, item.id).toMatch(/alt="Premarket"/);
       if (msg.text !== undefined) expect(msg.text.length, item.id).toBeGreaterThan(20);

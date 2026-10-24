@@ -1,5 +1,5 @@
 import { Resend } from 'resend';
-import { wrapEmail, ctaButton, ctaButtonDark, infoBox, greeting, p, signature, eyebrow, heading, steps, esc, toPlainText, COLORS, BASE_URL } from './emailTemplates';
+import { wrapEmail, ctaButton, ctaButtonDark, infoBox, greeting, p, signature, eyebrow, heading, lead, divider, detailList, steps, esc, toPlainText, COLORS, BASE_URL } from './emailTemplates';
 
 const FROM_EMAIL = 'Premarket <no-reply@mail.premarket.homes>';
 
@@ -308,68 +308,6 @@ export async function sendNewBuyerInterestEmail({
 }
 
 /**
- * Vendor invite link email — sent by agents to invite vendors.
- */
-export async function sendInviteLink(email, firstName, agentFirstName, link) {
-  const qrImage = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(link)}`;
-
-  const bodyHTML = `
-    ${greeting(firstName)}
-    ${p(`You've been invited by your agent to use <strong>Premarket</strong> — a simple way to test buyer interest in your property before deciding whether to take it to market.`)}
-    ${p('Premarket is a secure platform your agent uses to manage premarket campaigns. By uploading your property details, your agent can quietly introduce it to active buyers and buyer\'s agents, gather feedback, and track interest — without public advertising or any obligation to sell.')}
-
-    ${infoBox(`
-      <p class="t-ink" style="margin:0 0 10px 0; font-size:14px; font-weight:600; color:#1a1a2e;">Once your property is added:</p>
-      <ul class="t-body" style="margin:0; padding-left:18px; color:#4b5563; font-size:14px; line-height:1.8;">
-        <li>Your agent manages the campaign through their dashboard</li>
-        <li>Buyer interest and enquiries are tracked</li>
-        <li>Your agent will contact you with updates and a summary report</li>
-        <li>You'll have clearer information to help decide what to do next</li>
-      </ul>
-    `)}
-
-    ${p('<strong>Getting started is free.</strong> Scan the QR code or click the button below to upload your property details.')}
-
-    <div style="text-align:center; margin:24px 0;">
-      <img src="${qrImage}" alt="QR Code" style="max-width:180px; border:1px solid #e2e8f0; border-radius:10px;" />
-    </div>
-
-    ${ctaButton('Upload Your Property', link)}
-
-    <div class="bg-panel line" style="text-align:center; margin:16px 0; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px;">
-      <a class="link" href="${link}" style="word-break:break-all; font-size:14px; font-weight:600; color:#ea580c; text-decoration:none;">${link}</a>
-    </div>
-
-    ${infoBox(`
-      <p class="t-ink" style="margin:0 0 8px 0; font-size:14px; font-weight:600; color:#1a1a2e;">Tips for uploading your property photos</p>
-      <p class="t-muted" style="margin:0 0 10px 0; font-size:13px; color:#94a3b8; font-style:italic;">Simple phone photos are fine — don't stress!</p>
-      <ul class="t-body" style="margin:0; padding-left:18px; color:#4b5563; font-size:13px; line-height:1.8;">
-        <li>Take photos during the day using natural light</li>
-        <li>Open blinds and curtains</li>
-        <li>Capture main living areas, kitchen, exterior and outdoor spaces</li>
-        <li>Use landscape mode on your phone</li>
-        <li>Tidy surfaces and remove obvious clutter</li>
-      </ul>
-      <p class="t-muted" style="margin:10px 0 0 0; font-size:13px; color:#64748b;">Premarket includes AI photo touch-ups, so your agent can enhance brightness, clarity and presentation.</p>
-    `)}
-
-    ${p('If you need help at any stage, your agent can guide you through the process.')}
-    ${signature()}
-  `;
-
-  return sendEmail({
-    to: email,
-    subject: "You've been invited to join Premarket",
-    html: wrapEmail({
-      previewText: 'Your agent has invited you to list your property on Premarket',
-      bodyHTML,
-      recipientEmail: email,
-      reason: "You're receiving this because your agent invited you to Premarket.",
-    }),
-  });
-}
-
-/**
  * Property link email — QR + CRM distribution instructions.
  */
 export async function sendLink(link, email) {
@@ -520,18 +458,24 @@ export async function sendOfficeInviteEmail(email, firstName, officeName, activa
     ${eyebrow('Office invitation')}
     ${heading(`${office} has set up your Premarket account`)}
     ${greeting(esc(firstName))}
-    ${p(`<strong>${office}</strong> uses Premarket to run premarket campaigns and track buyer interest ahead of going to market. Your account is ready &mdash; you just need to choose a password.`)}
+    ${lead(`Your office uses Premarket to run premarket campaigns and track buyer interest ahead of going to market. Your account is ready &mdash; all that's left is to choose a password.`)}
+    ${detailList([
+      ['Office', office],
+      ['Your login', esc(email)],
+      ['Branding', 'Applied automatically'],
+    ], 'Your account')}
     ${ctaButton('Activate your account', activationLink, { fallback: true })}
+    ${divider()}
     ${steps([
-      'Click <strong>Activate your account</strong> above.',
+      'Select <strong>Activate your account</strong>.',
       'Choose your own password. We never email passwords.',
-      `You land in your dashboard, already connected to <strong>${office}</strong> with its branding applied.`,
+      `Arrive in your dashboard, already connected to <strong>${office}</strong>.`,
     ])}
     ${infoBox(`
-      <p class="t-body" style="margin:0; font-size:13px; color:${COLORS.body}; line-height:1.6;">
+      <p class="t-body" style="margin:0; font-size:13px; color:${COLORS.body}; line-height:1.65;">
         <strong class="t-ink" style="color:${COLORS.ink};">This link is personal to you</strong> and stays valid for 14 days. If it has expired, ask your office administrator to resend your invitation. If you weren't expecting this email, you can safely ignore it.
       </p>
-    `)}
+    `, { tone: 'warm' })}
     ${signature()}
   `;
 
@@ -562,17 +506,18 @@ export async function sendOfficeJoinInviteEmail(email, firstName, officeName, ac
     ${eyebrow('Office invitation')}
     ${heading(`${office} has invited you to join their office`)}
     ${greeting(esc(firstName))}
-    ${p(`<strong>${office}</strong> has added you to their Premarket office account. You already have a Premarket login, so there is no new password to set &mdash; nothing changes until you confirm.`)}
+    ${lead(`You already have a Premarket login, so there's no new password to set. Nothing changes on your account until you confirm.`)}
+    ${detailList([
+      ['Office', office],
+      ['Your login', esc(email)],
+      ['What changes', `Your campaigns will show ${office}'s branding`],
+    ], 'Invitation')}
     ${ctaButton(`Join ${office}`, acceptLink, { fallback: true })}
-    ${steps([
-      'Click the button above to confirm.',
-      `Sign in as usual. Your campaigns will show <strong>${office}</strong>'s branding.`,
-    ], 'If you join')}
     ${infoBox(`
-      <p class="t-body" style="margin:0; font-size:13px; color:${COLORS.body}; line-height:1.6;">
-        <strong class="t-ink" style="color:${COLORS.ink};">Not expecting this?</strong> You can safely ignore this email &mdash; nothing about your account will change unless you click the button.
+      <p class="t-body" style="margin:0; font-size:13px; color:${COLORS.body}; line-height:1.65;">
+        <strong class="t-ink" style="color:${COLORS.ink};">Not expecting this?</strong> You can safely ignore this email &mdash; nothing about your account will change unless you select the button.
       </p>
-    `)}
+    `, { tone: 'warm' })}
     ${signature()}
   `;
 
