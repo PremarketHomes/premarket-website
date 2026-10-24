@@ -18,7 +18,6 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
 // Mock services
 vi.mock('../../src/app/api/services/resendService', () => ({
   sendLink: vi.fn().mockResolvedValue(true),
-  sendInviteLink: vi.fn().mockResolvedValue(true),
   sendPropertyLiveEmail: vi.fn().mockResolvedValue(true),
   sendPropertyAgentEmail: vi.fn().mockResolvedValue(true),
 }));
@@ -63,34 +62,6 @@ describe('POST /api/send-link', () => {
   it('succeeds with valid auth and body', async () => {
     setupValidAuth();
     const res = await handler(makeRequest({ email: 'a@b.com', link: 'https://x.com' }, 'Bearer valid-token'));
-    expect(res.status).toBe(200);
-  });
-});
-
-describe('POST /api/send-invite-link', () => {
-  let handler;
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    handler = (await import('../../src/app/api/send-invite-link/route.js')).POST;
-  });
-
-  it('returns 401 without auth', async () => {
-    const res = await handler(makeRequest({ email: 'a@b.com', firstName: 'A', agentFirstName: 'B', link: 'x' }));
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 400 with missing fields', async () => {
-    setupValidAuth();
-    const res = await handler(makeRequest({ email: 'a@b.com' }, 'Bearer valid-token'));
-    expect(res.status).toBe(400);
-  });
-
-  it('succeeds with valid auth and body', async () => {
-    setupValidAuth();
-    const res = await handler(makeRequest(
-      { email: 'a@b.com', firstName: 'A', agentFirstName: 'B', link: 'https://x.com' },
-      'Bearer valid-token',
-    ));
     expect(res.status).toBe(200);
   });
 });

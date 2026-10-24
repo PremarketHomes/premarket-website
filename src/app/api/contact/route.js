@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sendEmail } from '../services/resendService';
+import { wrapEmail } from '../services/emailTemplates';
 
 const TARGET = 'knockknock@premarket.homes';
 
@@ -48,8 +49,8 @@ export async function POST(request) {
     const topicKey = ALLOWED_TOPICS.has(topic) ? topic : 'general';
     const topicLabel = TOPIC_LABEL[topicKey];
 
-    const html = `
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:32px;">
+    const emailBody = `
+      <div>
         <div style="border-left:4px solid #e48900;padding-left:16px;margin-bottom:24px;">
           <p style="margin:0;font-size:11px;font-weight:700;color:#c64500;text-transform:uppercase;letter-spacing:1px;">${escape(topicLabel)}</p>
           <h1 style="margin:8px 0 0 0;font-size:22px;color:#0f172a;">New contact form submission</h1>
@@ -68,6 +69,14 @@ export async function POST(request) {
         </p>
       </div>
     `;
+
+    const html = wrapEmail({
+      previewText: `${name} sent a message via the contact form`,
+      bodyHTML: emailBody,
+      recipientEmail: TARGET,
+      reason: 'Internal notification from the premarket.homes contact form.',
+      showUnsubscribe: false,
+    });
 
     await sendEmail({
       to: TARGET,

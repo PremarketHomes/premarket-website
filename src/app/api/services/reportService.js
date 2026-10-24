@@ -1,5 +1,6 @@
 import { adminDb } from '../../firebase/adminApp';
 import { sendEmail } from './resendService';
+import { wrapEmail } from './emailTemplates';
 import PDFDocument from 'pdfkit';
 
 function median(values) {
@@ -537,8 +538,8 @@ export async function gatherReport(email, propertyId, name) {
   // Generate PDF
   const pdfBuffer = await generateReportPDF(report);
 
-  const html = `
-    <div style="font-family:Arial, Helvetica, sans-serif; color:#333; background:#fff; padding:20px; border-radius:12px; max-width:600px; margin:0 auto;">
+  const reportBody = `
+    <div style="font-family:Arial, Helvetica, sans-serif; color:#333;">
       <p style="font-size:14px; color:#555;">Hi ${greeting},</p>
       <p style="font-size:14px; color:#555;">I've used the power of <strong>Premarket</strong> to promote your property to investors and buyers and gather their price opinions. We've then segmented those buyers into two groups:</p>
       <ul style="font-size:14px; color:#555; margin:10px 0 20px 20px; padding:0;">
@@ -723,6 +724,13 @@ export async function gatherReport(email, propertyId, name) {
 
       <p style="margin-top:30px; font-size:12px; color:#777;">This report is powered by Premarket to help sellers and buyers make better, more confident decisions.</p>
     </div>`;
+
+  const html = wrapEmail({
+    previewText: `Your private Premarket insight report: ${title}`,
+    bodyHTML: reportBody,
+    recipientEmail: email,
+    reason: 'You are receiving this report because your agent shared it with you via Premarket.',
+  });
 
   await sendEmail({
     to: email,

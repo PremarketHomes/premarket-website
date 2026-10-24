@@ -46,3 +46,6 @@ next-env.d.ts
 # Firestore emulator debug output
 firestore-debug.log
 firebase-debug.log
+
+# Generated local email previews (npm run email:previews)
+/email-previews/
