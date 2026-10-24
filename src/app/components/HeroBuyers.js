@@ -61,41 +61,6 @@ export default function Hero() {
                 </p>
               </div>
 
-              {/* CTA Buttons */}
-              <div className='mb-2 text-xs sm:text-sm text-white font-medium drop-shadow-lg'>
-                Download the Premarket Homes app to get started for free
-              </div>
-              <div className="flex flex-row justify-center lg:justify-start gap-2 mb-6 flex-wrap sm:flex-nowrap">
-                <a
-                  href="https://apps.apple.com/au/app/premarket-homes/id6742205449"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="transition-transform hover:scale-105 active:scale-95 flex-shrink-0"
-                >
-                  <Image
-                    src="https://www.airtasker.com/images/homepage/apple-store-2022.svg"
-                    alt="Download on the App Store"
-                    width={160}
-                    height={40}
-                    className="w-[160px] sm:w-[190px]"
-                  />
-                </a>
-                <a
-                  href="https://play.google.com/store/apps/details?id=com.premarkethomes.app&hl=en"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="transition-transform hover:scale-105 active:scale-95 flex-shrink-0"
-                >
-                  <Image
-                    src="https://www.airtasker.com/images/homepage/google-play-2022.svg"
-                    alt="Get it on Google Play"
-                    width={160}
-                    height={40}
-                    className="w-[160px] sm:w-[190px]"
-                  />
-                </a>
-              </div>
-
               {/* Mobile Video Button - Shows only on mobile, below download buttons */}
               <div className="lg:hidden flex justify-center mb-8">
                 <button

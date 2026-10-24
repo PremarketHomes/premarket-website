@@ -806,7 +806,7 @@ function DocsContent({ isAdmin, isTokenAccess, linkToken, user }) {
               {[
                 {
                   title: 'Agent creates a campaign',
-                  desc: 'The listing agent creates a pre-market campaign using the native app or desktop dashboard — photos, property details, optional guide price, and a short description. Takes about 1–2 minutes. The agent chooses whether to keep the campaign private or showcase it on the Premarket website.',
+                  desc: 'The listing agent creates a pre-market campaign using the Premarket dashboard — photos, property details, optional guide price, and a short description. Takes about 1–2 minutes. The agent chooses whether to keep the campaign private or showcase it on the Premarket website.',
                 },
                 {
                   title: 'Agent distributes the campaign',
@@ -1191,7 +1191,7 @@ function DocsContent({ isAdmin, isTokenAccess, linkToken, user }) {
               <div>
                 <h4 className="font-medium text-slate-900 mb-1">2. Create the campaign</h4>
                 <p className="text-slate-600 text-sm leading-relaxed mb-2">
-                  Using the native agent app or the desktop dashboard, the agent creates a pre-market campaign in about 1–2 minutes. They upload photos, enter the suburb and property details, set an optional guide price, and write a short description. The agent controls whether the listing stays private (link-only access) or is showcased on the Premarket website.
+                  Using the Premarket dashboard, the agent creates a pre-market campaign in about 1–2 minutes. They upload photos, enter the suburb and property details, set an optional guide price, and write a short description. The agent controls whether the listing stays private (link-only access) or is showcased on the Premarket website.
                 </p>
               </div>
 

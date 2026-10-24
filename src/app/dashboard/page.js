@@ -18,7 +18,6 @@ import {
   LayoutDashboard,
   Home,
   Plus,
-  Download,
   LogOut,
   Menu,
   X,
@@ -196,15 +195,6 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
 
       {/* Bottom Actions */}
       <div className="px-3 py-4 border-t border-slate-200 space-y-1">
-        <a
-          href="https://apps.apple.com/au/app/premarket-homes/id6742205449"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all"
-        >
-          <Download className="w-5 h-5" />
-          Download App
-        </a>
         <button
           onClick={onSignOut}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 transition-all"

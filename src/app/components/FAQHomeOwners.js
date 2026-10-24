@@ -135,36 +135,6 @@ export default function FAQHomeOwners() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             
-            <div className="flex flex-col sm:flex-row justify-center lg:justify-start gap-1 mb-8">
-                           
-             <a
-                            href="https://apps.apple.com/au/app/premarket-homes/id6742205449"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="transition-transform hover:scale-105"
-                          >
-                            <Image
-                              src="https://www.airtasker.com/images/homepage/apple-store-2022.svg"
-                              alt="Download on the App Store"
-                              width={190}
-                              height={40}
-                            />
-                          </a>
-                          <a
-                            href="https://play.google.com/store/apps/details?id=com.premarkethomes.app&hl=en"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="transition-transform hover:scale-105"
-                          >
-                            <Image
-                              src="https://www.airtasker.com/images/homepage/google-play-2022.svg"
-                              alt="Get it on Google Play"
-                              width={190}
-                              height={40}
-                            />
-                          </a>
-                            
-                          </div>
 {/*             
             <a href="https://calendly.com/knockknock-premarket/30min?month=2025-08"
               target="_blank"

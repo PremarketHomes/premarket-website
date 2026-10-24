@@ -567,19 +567,6 @@ export default function PropertyFormModal() {
                                 <div className="px-10 text-sm sm:text-lg inter text-gray-700 mb-4">
                                     Keep an eye on your inbox we'll keep you updated as the campaign nears.
                                 </div>
-                                <p className="text-sm text-gray-700 mb-4">
-                                    Be sure to download the Premarket App from the app stores:
-                                </p>
-                                <div className="sm:flex space-x-1 justify-center">
-
-                            
-                                     <a href="https://apps.apple.com/au/app/premarket-homes/id6742205449">
-                                        <img src="./apple.png" className="mt-4 sm:mt-3 w-36 mx-auto" />
-                                    </a>
-                                   <a href="https://play.google.com/store/apps/details?id=com.premarkethomes.app&hl=en_AU">
-                                        <img src="./play.png" className="h-18 mx-auto -mt-4 sm:mt-0" />
-                                    </a>
-                                </div>
                             </div>
 
                         </div>
