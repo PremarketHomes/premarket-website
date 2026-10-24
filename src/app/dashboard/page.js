@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useOfficeBrand } from '../utils/officeBrand';
+import { isPlaceholderAvatar } from '../utils/avatar';
+import AgentGreeting from './components/AgentGreeting';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -897,16 +899,6 @@ function BrandingNudge({ hasLogo, onDismiss }) {
   );
 }
 
-// The exact placeholder avatar every brand-new agent account is seeded
-// with — both join/page.js's own self-signup and officeImportService.js's
-// inviteNewAgent use this identical URL, so checking for it (rather than
-// just "any avatar") correctly distinguishes "never uploaded one" from
-// "uploaded something that happens to look similar."
-const PLACEHOLDER_AVATAR_URL = 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png?20150327203541';
-function isPlaceholderAvatar(avatar) {
-  return !avatar || avatar === PLACEHOLDER_AVATAR_URL;
-}
-
 // --- Profile Photo Prompt (office agents only) ---
 // An office agent's name/phone/office/branding are all already
 // populated the moment their invitation is accepted — this is the one
@@ -1084,6 +1076,7 @@ function DashboardPage() {
   const [archiving, setArchiving] = useState(false);
   const [successModal, setSuccessModal] = useState(null); // 'created' | 'updated' | null
   const [officeJoinedBanner, setOfficeJoinedBanner] = useState(null); // office name, or null
+  const greetingOfficeBrand = useOfficeBrand(userData?.officeId || null);
   const [showLogoModal, setShowLogoModal] = useState(false);
   const [brandingNudgeDismissed, setBrandingNudgeDismissed] = useState(true);
   const [teamAgents, setTeamAgents] = useState([]);
@@ -1374,10 +1367,20 @@ function DashboardPage() {
           {/* Page Header */}
           <div className="flex items-center justify-between">
             <div>
+              {/* Mobile greeting: profile photo + first name, office underneath.
+                  Desktop keeps the existing text greeting below (its sidebar already shows the photo). */}
+              {activeTab !== 'archived' && activeTab !== 'sold' && (
+                <AgentGreeting
+                  userData={userData}
+                  officeName={greetingOfficeBrand.brand?.name || null}
+                  officeStatus={greetingOfficeBrand.status}
+                  className="sm:hidden mb-5"
+                />
+              )}
               <h1 className="text-2xl font-bold text-slate-900">
                 {activeTab === 'archived' ? 'Archived Properties' : activeTab === 'sold' ? 'Sold Properties' : 'Dashboard'}
               </h1>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className={`text-sm text-slate-500 mt-1 ${activeTab === 'archived' || activeTab === 'sold' ? '' : 'hidden sm:block'}`}>
                 {activeTab === 'archived'
                   ? `${archivedProperties.length} ${archivedProperties.length === 1 ? 'property' : 'properties'}`
                   : activeTab === 'sold'

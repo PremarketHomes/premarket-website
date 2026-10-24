@@ -91,7 +91,7 @@ function reset() {
     return { uid };
   });
   getUserMock.mockReset().mockImplementation(async (uid) => ({ uid, email: `${uid}@x.com`, disabled: false }));
-  resetLinkMock.mockReset().mockResolvedValue('https://firebase.example/reset?oob=fresh');
+  resetLinkMock.mockReset().mockResolvedValue('https://firebase.example/__/auth/action?mode=resetPassword&oobCode=fresh&apiKey=k');
 }
 const svc = () => import('../../src/app/api/services/officeImportService');
 const act = () => import('../../src/app/api/services/officeActivationService');
@@ -279,16 +279,41 @@ describe('activation links — long-lived, single-purpose, safe', () => {
     const l2 = await createActivationLink({ uid: 'u1', email: 'u1@x.com', officeId: OFFICE });
     const { redeemActivationToken } = await act();
     await expect(redeemActivationToken(t1)).rejects.toMatchObject({ status: 410 }); // replaced
-    await expect(redeemActivationToken(new URL(l2).searchParams.get('t'))).resolves.toEqual({ url: 'https://firebase.example/reset?oob=fresh' });
+    await expect(redeemActivationToken(new URL(l2).searchParams.get('t'))).resolves.toEqual({ oobCode: 'fresh' });
   });
 
-  it('mints a FRESH Firebase link only at click time, and the token keeps working for retries', async () => {
+  it('mints a FRESH Firebase code only when the agent submits — never on page load — and retries keep working', async () => {
     seedInvited();
-    const { createActivationLink, redeemActivationToken } = await act();
+    const { createActivationLink, redeemActivationToken, inspectActivationToken } = await act();
     const t = new URL(await createActivationLink({ uid: 'u1', email: 'u1@x.com', officeId: OFFICE })).searchParams.get('t');
     expect(resetLinkMock).not.toHaveBeenCalled();
     await redeemActivationToken(t); await redeemActivationToken(t);
     expect(resetLinkMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('REGRESSION (first-tap "expired link"): scanners / iOS previews opening the page can never mint or consume anything', async () => {
+    state.users.u1 = { email: 'u1@x.com', firstName: 'Sam', accountStatus: 'invited', officeId: OFFICE };
+    const { createActivationLink, inspectActivationToken, hashToken } = await act();
+    const t = new URL(await createActivationLink({ uid: 'u1', email: 'u1@x.com', officeId: OFFICE })).searchParams.get('t');
+    const before = JSON.stringify(state.officeActivations);
+    for (let i = 0; i < 5; i += 1) {
+      await expect(inspectActivationToken(t)).resolves.toEqual({ firstName: 'Sam', officeName: 'Harcourts Property Hub' });
+    }
+    expect(resetLinkMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(state.officeActivations)).toBe(before); // uses/lastUsedAt untouched
+    expect(state.officeActivations[hashToken(t)].uses).toBe(0);
+  });
+
+  it('inspect applies the same safety rules (expired, replaced, active, unknown)', async () => {
+    seedInvited();
+    const { createActivationLink, inspectActivationToken, hashToken } = await act();
+    await expect(inspectActivationToken('nope')).rejects.toMatchObject({ status: 404 });
+    const t = new URL(await createActivationLink({ uid: 'u1', email: 'u1@x.com', officeId: OFFICE })).searchParams.get('t');
+    state.officeActivations[hashToken(t)].expiresAtMs = Date.now() - 1;
+    await expect(inspectActivationToken(t)).rejects.toMatchObject({ status: 410 });
+    state.officeActivations[hashToken(t)].expiresAtMs = Date.now() + 1000;
+    state.users.u1.accountStatus = 'active';
+    await expect(inspectActivationToken(t)).resolves.toEqual({ alreadyActive: true });
   });
 
   it('rejects unknown, malformed, expired and over-used tokens; and disabled accounts', async () => {

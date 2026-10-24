@@ -234,29 +234,51 @@ describe.skipIf(!ON)('Harcourts CSV onboarding — end to end (emulators + real 
     const token = new URL(mail.link).searchParams.get('t');
     expect(mail.link).toMatch(/^https:\/\/premarket\.homes\/activate\?t=/);
 
-    const first = await (await callRoute('/api/office-activation', { method: 'POST', body: JSON.stringify({ token }) })).json();
-    expect(first.url).toContain('oobCode=');
-    const second = await (await callRoute('/api/office-activation', { method: 'POST', body: JSON.stringify({ token }) })).json();
-    expect(second.url).toContain('oobCode=');                                     // a retry mints a fresh link
+    const api = async (body) => (await callRoute('/api/office-activation', { method: 'POST', body: JSON.stringify(body) })).json();
+    const resetWith = (oobCode, newPassword = 'N3w-Passw0rd!') => fetch(`http://${AUTH}/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=fake`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ oobCode, newPassword }),
+    });
+
+    // Opening the page (what a mail scanner / iOS preview does) only inspects: nothing is minted or used up.
+    for (let i = 0; i < 4; i += 1) expect(await api({ token })).toEqual({ firstName: expect.any(String), officeName: expect.any(String) });
+    const beforeUses = (await admin.db.collection('officeActivations').get()).docs.map((d) => d.data().uses);
+    expect(beforeUses.every((n) => n === 0)).toBe(true);
+
+    // Submitting the password mints a code (twice here, as a retry would)
+    const first = await api({ token, intent: 'continue' });
+    expect(first.oobCode).toBeTruthy();
+    const second = await api({ token, intent: 'continue' });
+    expect(second.oobCode).toBeTruthy();
 
     // set the password through Firebase's own flow (emulator), then the agent signs in for the first time
-    const oob = new URL(second.url).searchParams.get('oobCode');
-    const reset = await fetch(`http://${AUTH}/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=fake`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ oobCode: oob, newPassword: 'N3w-Passw0rd!' }),
-    });
-    expect(reset.ok, `reset failed: ${reset.status} ${await reset.clone().text()} ${second.url}`).toBe(true);
+    const reset = await resetWith(second.oobCode);
+    expect(reset.ok, `reset failed: ${reset.status} ${await reset.clone().text()}`).toBe(true);
     const uid = (await admin.auth.getUserByEmail('new1@harcourts-test.com')).uid;
     const { markOfficeAccountActivated } = await import('../../src/app/api/services/officeService');
     expect(await markOfficeAccountActivated(uid)).toEqual({ activated: true });
 
-    expect(await (await callRoute('/api/office-activation', { method: 'POST', body: JSON.stringify({ token }) })).json()).toEqual({ alreadyActive: true });
+    expect(await api({ token })).toEqual({ alreadyActive: true });
+    expect(await api({ token, intent: 'continue' })).toEqual({ alreadyActive: true });
     const roster = await (await callRoute(`/api/offices/${OFFICE}/agents`)).json();
     expect(roster.agents.find((a) => a.email === 'new1@harcourts-test.com').status).toBe('active'); // Invited -> Active
   }, 60000);
 
+  it('7a-ii. what a second minted code does to the first (documents the failure mode the new page is built to survive)', async () => {
+    const token = new URL(outbox.find((e) => e.email === 'new3@harcourts-test.com').link).searchParams.get('t');
+    const api = async (body) => (await callRoute('/api/office-activation', { method: 'POST', body: JSON.stringify(body) })).json();
+    const a = (await api({ token, intent: 'continue' })).oobCode;   // the agent's code
+    const b = (await api({ token, intent: 'continue' })).oobCode;   // a stray second mint (e.g. a preview that ran the old page)
+    const verify = (oobCode) => fetch(`http://${AUTH}/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=fake`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ oobCode }),
+    }).then(async (r) => ({ ok: r.ok, body: await r.json() }));
+    const ra = await verify(a); const rb = await verify(b);
+    console.log(`[emulator] older code still valid after a newer one was minted: ${ra.ok}; newer code valid: ${rb.ok}`);
+    expect(rb.ok).toBe(true);
+  }, 60000);
+
   it('7b. activation links last 14 days, then expire; the existing-account invitation expires after 14 days too', async () => {
     const token = new URL(outbox.find((e) => e.email === 'new2@harcourts-test.com').link).searchParams.get('t');
-    const redeem = () => callRoute('/api/office-activation', { method: 'POST', body: JSON.stringify({ token }) });
+    const redeem = () => callRoute('/api/office-activation', { method: 'POST', body: JSON.stringify({ token, intent: 'continue' }) });
     const inviteToken = new URL(outbox.find((e) => e.type === 'join-invite').link).searchParams.get('token');
     const accept = () => callRoute(`/api/office-invites/${inviteToken}`, { method: 'POST' }, 'solo');
 
