@@ -6,9 +6,10 @@
 // Nothing is sent: the Resend SDK is replaced by a stub that records the
 // message. Sample names/addresses below are fictional.
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { readdirSync } from 'node:fs';
 
 const sent = [];
 vi.mock('resend', () => ({
@@ -46,17 +47,17 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}
 .meta{font-size:12px;color:#475569;margin-left:auto;max-width:520px;line-height:1.4}
 .stage{flex:1;overflow:auto;display:flex;justify-content:center;padding:20px}iframe{border:0;background:#fff;border-radius:10px;box-shadow:0 4px 24px rgba(15,23,42,.15);height:100%;min-height:600px}
 </style></head><body><nav><h1>Premarket email previews</h1><p>Local previews with sample data. Nothing here was sent. Orange tag = sent by a Firebase function; grey = sent by the website.</p><div id="list"></div></nav>
-<main><div class="bar"><button id="b-desk" class="on">Desktop</button><button id="b-mob">Phone</button><span style="width:12px"></span><button id="b-light" class="on">Light</button><button id="b-dark">Dark</button><div class="meta" id="meta"></div></div>
+<main><div class="bar"><button id="b-desk" class="on">Desktop</button><button id="b-mob">Phone</button><span style="width:12px"></span><button id="b-light" class="on">Light</button><button id="b-dark">Dark</button><span style="width:12px"></span><button id="b-new" class="on">Refined</button><button id="b-old">Previous</button><div class="meta" id="meta"></div></div>
 <div class="stage"><iframe id="f" style="width:680px"></iframe></div></main>
-<script>const D=${data};let cur=0,mob=false,dark=false;
+<script>const D=${data};let cur=0,mob=false,dark=false,old=false;
 const $=id=>document.getElementById(id);
-function draw(){let h=D[cur].html;if(dark)h=h.replace(/@media \(prefers-color-scheme: dark\)/g,'@media all');
+function draw(){let h=(old&&D[cur].prev)?D[cur].prev:D[cur].html;if(dark)h=h.replace(/@media \(prefers-color-scheme: dark\)/g,'@media all');
 $('f').srcdoc=h;$('f').style.width=mob?'390px':'680px';
 $('meta').innerHTML='<b>'+D[cur].title+'</b><br>Subject: '+D[cur].subject.replace(/</g,'&lt;')+'<br>Trigger: '+D[cur].trigger;
 document.querySelectorAll('.item').forEach((e,i)=>e.classList.toggle('on',i===cur));
-$('b-desk').classList.toggle('on',!mob);$('b-mob').classList.toggle('on',mob);$('b-light').classList.toggle('on',!dark);$('b-dark').classList.toggle('on',dark);}
+$('b-desk').classList.toggle('on',!mob);$('b-mob').classList.toggle('on',mob);$('b-new').classList.toggle('on',!old);$('b-old').classList.toggle('on',old);$('b-light').classList.toggle('on',!dark);$('b-dark').classList.toggle('on',dark);}
 D.forEach((r,i)=>{const b=document.createElement('button');b.className='item';const fn=/Firebase/.test(r.owner);b.innerHTML='<b>'+r.title+'</b><span>'+r.trigger+'</span><br><span class="tag'+(fn?' fn':'')+'">'+(fn?'Firebase function':'Website')+'</span>';b.onclick=()=>{cur=i;draw()};$('list').appendChild(b)});
-$('b-desk').onclick=()=>{mob=false;draw()};$('b-mob').onclick=()=>{mob=true;draw()};$('b-light').onclick=()=>{dark=false;draw()};$('b-dark').onclick=()=>{dark=true;draw()};draw();</script></body></html>`;
+$('b-new').onclick=()=>{old=false;draw()};$('b-old').onclick=()=>{old=true;draw()};$('b-desk').onclick=()=>{mob=false;draw()};$('b-mob').onclick=()=>{mob=true;draw()};$('b-light').onclick=()=>{dark=false;draw()};$('b-dark').onclick=()=>{dark=true;draw()};draw();</script></body></html>`;
 }
 
 const catalogue = [];
@@ -123,7 +124,17 @@ describe('redesigned emails', () => {
       if (WRITE) writeFileSync(join(OUT, `${item.id}.html`), html);
     }
     if (WRITE) {
-      const rows = index.map(({ fn, ...r }) => ({ ...r, html: readFileSync(join(OUT, r.file), 'utf8') }));
+      // Optional: the previous round's renders (email-previews/previous/*.html)
+      // for side-by-side comparison. Anything only present there was removed.
+      const prevOf = (file) => (existsSync(join(OUT, 'previous', file)) ? readFileSync(join(OUT, 'previous', file), 'utf8') : null);
+      const rows = index.map(({ fn, ...r }) => ({ ...r, html: readFileSync(join(OUT, r.file), 'utf8'), prev: prevOf(r.file) }));
+      if (existsSync(join(OUT, 'previous'))) {
+        for (const f of readdirSync(join(OUT, 'previous'))) {
+          if (f.endsWith('.html') && !rows.some((r) => r.file === f)) {
+            rows.push({ id: f, title: 'Vendor invitation (REMOVED)', owner: 'Website', trigger: 'No longer offered \u2014 template and route deleted', subject: "You've been invited to join Premarket", html: '<body style="font-family:Arial;padding:40px;color:#475569"><h2>Removed</h2><p>This email no longer exists. Previous design is under the Previous toggle.</p></body>', prev: prevOf(f), removed: true });
+          }
+        }
+      }
       writeFileSync(join(OUT, 'index.html'), viewerHtml(rows));
     }
     expect(index.length).toBe(catalogue.length);
