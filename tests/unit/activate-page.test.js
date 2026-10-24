@@ -145,4 +145,34 @@ describe('/activate on iPhone Safari', () => {
     expect(document.body.innerHTML).toContain('knockknock@premarket.homes');
     expect(document.body.innerHTML).not.toContain('hello@premarket.homes');
   });
+
+  it('REGRESSION: both password fields have explicit dark text, white background, visible placeholders and light-scheme/autofill overrides (iPhone dark mode / Safari autofill)', async () => {
+    await mount();
+    const pw = await screen.findByLabelText('New password');
+    const cf = screen.getByLabelText('Confirm password');
+    for (const el of [pw, cf]) {
+      expect(el.className).toMatch(/\btext-slate-900\b/);
+      expect(el.className).toMatch(/\bbg-white\b/);
+      expect(el.className).toMatch(/placeholder:text-slate-400/);
+      expect(el.className).toMatch(/\bactivate-input\b/);
+      expect(el.getAttribute('placeholder')).toBeTruthy();
+    }
+    const css = document.querySelector('style').textContent;
+    expect(css).toMatch(/\.activate-input\s*{[^}]*color-scheme:\s*light/);
+    expect(css).toMatch(/-webkit-text-fill-color:\s*#0f172a/);
+    expect(css).toMatch(/:-webkit-autofill[\s\S]*-webkit-text-fill-color:\s*#0f172a/);
+    expect(css).toMatch(/::placeholder/);
+  });
+
+  it('the show-password toggle still switches both fields between hidden and readable text', async () => {
+    await mount();
+    const pw = await screen.findByLabelText('New password');
+    const cf = screen.getByLabelText('Confirm password');
+    expect(pw.type).toBe('password'); expect(cf.type).toBe('password');
+    fireEvent.click(screen.getByLabelText('Show password'));
+    expect(pw.type).toBe('text'); expect(cf.type).toBe('text');
+    expect(pw.className).toMatch(/text-slate-900/);   // revealed text is the same dark colour
+    fireEvent.click(screen.getByLabelText('Show password'));
+    expect(pw.type).toBe('password');
+  });
 });
