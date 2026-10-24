@@ -80,15 +80,6 @@ export default function Hero() {
                                 </h2>
                             </div>
 
-                            <div className="flex space-x-1 justify-center">
-                                 <a href="https://apps.apple.com/au/app/premarket-homes/id6742205449">
-                  <img src="./apple.png" className="mt-3 w-36" />
-                </a>
-                <a href="https://play.google.com/store/apps/details?id=com.premarkethomes.app&hl=en_AU">
-                  <img src="./play.png" className="h-18" />
-                </a>
-                            </div>
-
                             {/* <p className="text-sm mt-4 inter text-gray-500">
                 No obligation, zero cost and real value
               </p> */}

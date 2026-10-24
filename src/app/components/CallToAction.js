@@ -44,7 +44,7 @@ export default function CallToAction() {
               <h3 className="text-5xl font-bold mb-2">Go to market</h3>
               <h3 className="text-2xl font-bold mb-2">Hire an agent</h3>
               <p className="mb-4 text-sm leading-tight">
-                If you're ready to go to market or need help with formalising a deal, you can hire an agent directly in the app. Pricing is usually lower if buyer activity is present in Premarket.
+                If you're ready to go to market or need help with formalising a deal, you can hire an agent directly through Premarket. Pricing is usually lower if buyer activity is present in Premarket.
               </p>
             </div>
           </div>
