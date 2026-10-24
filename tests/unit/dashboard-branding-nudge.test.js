@@ -28,7 +28,10 @@ describe('dashboard/page.js — branding nudge correctly branches on officeId', 
 
   it('isPlaceholderAvatar treats a missing avatar and the exact known placeholder URL as "not yet uploaded", and anything else as uploaded', async () => {
     const fs = await import('node:fs');
-    const source = fs.readFileSync(new URL('../../src/app/dashboard/page.js', import.meta.url), 'utf-8');
+    // The helper now lives in utils/avatar.js (shared with the mobile greeting); the dashboard imports it.
+    const source = fs.readFileSync(new URL('../../src/app/utils/avatar.js', import.meta.url), 'utf-8');
+    const dashboard = fs.readFileSync(new URL('../../src/app/dashboard/page.js', import.meta.url), 'utf-8');
+    expect(dashboard).toContain("import { isPlaceholderAvatar } from '../utils/avatar';");
 
     // Re-implemented directly here (rather than dynamically eval-ing
     // extracted source, which is fragile) — this is the one place
@@ -40,7 +43,7 @@ describe('dashboard/page.js — branding nudge correctly branches on officeId', 
       return !avatar || avatar === PLACEHOLDER_AVATAR_URL;
     }
 
-    expect(source).toContain('function isPlaceholderAvatar(avatar)');
+    expect(source).toContain('export function isPlaceholderAvatar(avatar)');
     expect(source).toContain('return !avatar || avatar === PLACEHOLDER_AVATAR_URL;');
 
     expect(isPlaceholderAvatar(undefined)).toBe(true);
@@ -51,7 +54,7 @@ describe('dashboard/page.js — branding nudge correctly branches on officeId', 
 
   it('the placeholder URL checked here matches exactly what office-invited accounts are actually seeded with (officeImportService.js) and what self-signup uses (join/page.js)', async () => {
     const fs = await import('node:fs');
-    const dashboardSource = fs.readFileSync(new URL('../../src/app/dashboard/page.js', import.meta.url), 'utf-8');
+    const dashboardSource = fs.readFileSync(new URL('../../src/app/utils/avatar.js', import.meta.url), 'utf-8');
     const officeImportSource = fs.readFileSync(new URL('../../src/app/api/services/officeImportService.js', import.meta.url), 'utf-8');
     const joinSource = fs.readFileSync(new URL('../../src/app/join/page.js', import.meta.url), 'utf-8');
 

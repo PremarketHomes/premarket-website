@@ -44,11 +44,10 @@ export async function createActivationLink({ uid, email, officeId }) {
 }
 
 /**
- * Public (the token is the credential). Returns { url } — a fresh Firebase
- * password-setup link — or { alreadyActive: true }. Throws OfficeError with a
- * safe, generic message otherwise.
+ * Shared validation for both inspect and redeem. Throws OfficeError with a
+ * safe, generic message; otherwise returns what the callers need.
  */
-export async function redeemActivationToken(token) {
+async function loadActivation(token) {
   if (typeof token !== 'string' || token.length < 20 || token.length > 200) {
     throw new OfficeError('This activation link is not valid', 404);
   }
@@ -64,14 +63,51 @@ export async function redeemActivationToken(token) {
   const userDoc = await adminDb.collection('users').doc(data.uid).get();
   if (!userDoc.exists) throw new OfficeError('This activation link is not valid', 404);
   const user = userDoc.data();
-  if (user.accountStatus === 'active') return { alreadyActive: true };
+  if (user.accountStatus === 'active') return { ref, data, user, alreadyActive: true };
   if (user.accountStatus !== 'invited') throw new OfficeError('This activation link is not valid', 404);
 
-  // Never mint a link for an account that has been removed/disabled.
+  // Never hand anything out for an account that has been removed/disabled.
   const authUser = await getAuth().getUser(data.uid);
   if (authUser.disabled) throw new OfficeError('This activation link is not valid', 404);
 
+  return { ref, data, user, authUser };
+}
+
+/**
+ * Read-only look at a token, used when the activation page LOADS.
+ *
+ * Deliberately changes nothing and mints nothing: email security scanners,
+ * iOS link previews and prefetchers open links (and run their JavaScript)
+ * before the agent ever taps them. Minting a Firebase password link on
+ * page load meant such a visit replaced the link the agent was about to
+ * use, so their first attempt landed on Firebase's "expired or already
+ * used" screen. Returns { alreadyActive: true } or { firstName, officeName }.
+ */
+export async function inspectActivationToken(token) {
+  const { data, user, alreadyActive } = await loadActivation(token);
+  if (alreadyActive) return { alreadyActive: true };
+  let officeName = null;
+  if (data.officeId) {
+    const info = await adminDb.collection('officeAdminInfo').doc(data.officeId).get();
+    officeName = info.exists ? info.data().name || null : null;
+  }
+  return { firstName: user.firstName || '', officeName };
+}
+
+/**
+ * Public (the token is the credential). Called only when the agent submits
+ * their new password. Mints a FRESH Firebase password-reset code and returns
+ * it as { oobCode } for the activation page to complete with Firebase's own
+ * client SDK (so the password goes straight from the browser to Firebase, as
+ * on Firebase's hosted page) — or { alreadyActive: true }.
+ */
+export async function redeemActivationToken(token) {
+  const { ref, data, authUser, alreadyActive } = await loadActivation(token);
+  if (alreadyActive) return { alreadyActive: true };
+
   await ref.update({ uses: (data.uses || 0) + 1, lastUsedAt: FieldValue.serverTimestamp() });
-  const url = await getAuth().generatePasswordResetLink(authUser.email, { url: `${BASE_URL}/login?activated=1` });
-  return { url };
+  const link = await getAuth().generatePasswordResetLink(authUser.email, { url: `${BASE_URL}/login?activated=1` });
+  const oobCode = new URL(link).searchParams.get('oobCode');
+  if (!oobCode) throw new Error('Could not create a password setup code');
+  return { oobCode };
 }
