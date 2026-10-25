@@ -11,10 +11,13 @@ const BENEFITS = [
 ];
 
 const STEPS = [
-  (o) => `Your ${o.name.split(' ')[0]} agent prepares your Premarket campaign.`,
-  () => 'Buyers view the property and share anonymous pricing opinions or register formal interest.',
-  () => 'Your agent reviews the results with you.',
-  () => 'Together, you decide the best next step.',
+  (o) => ({ body: `Your ${o.name.split(' ')[0]} agent prepares your Premarket campaign.` }),
+  (o) => ({
+    title: 'Connect with active buyers',
+    body: `Your ${o.name} agent shares your property with their established database of warm, active buyers, inviting anonymous pricing opinions and expressions of formal interest.`,
+  }),
+  () => ({ body: 'Your agent reviews the results with you.' }),
+  () => ({ body: 'Together, you decide the best next step.' }),
 ];
 
 const CONCERNS = [
@@ -78,7 +81,22 @@ export default function OfficeLanding({ office }) {
       {/* What it lets you do */}
       <section className="max-w-3xl mx-auto px-5 py-14 sm:py-20">
         <h2 className="text-2xl sm:text-3xl font-semibold text-(--navy) tracking-tight">What Premarket gives you</h2>
-        <ul className="mt-8 grid gap-4 sm:grid-cols-2">
+        <div className="mt-8 rounded-3xl bg-(--navy) p-6 sm:p-8 text-white border-l-8 border-(--blue) shadow-lg">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-(--blue)">A key advantage</p>
+          <h3 className="mt-2 text-2xl sm:text-3xl font-semibold leading-tight tracking-tight text-balance">
+            Test the market without the public footprint
+          </h3>
+          <p className="mt-4 leading-relaxed text-white/90">
+            Explore buyer interest without launching a traditional public advertising campaign. If you
+            decide not to sell, or adjust your pricing strategy, you can avoid the public listing history
+            and advertised price reductions that may come with a conventional campaign.
+          </p>
+          <p className="mt-4 text-xs leading-relaxed text-white/60">
+            This applies when your campaign is shared privately by your agent. It doesn&rsquo;t mean no
+            records exist, and privacy can&rsquo;t be guaranteed.
+          </p>
+        </div>
+        <ul className="mt-4 grid gap-4 sm:grid-cols-2">
           {BENEFITS.map(({ Icon, title, body }) => (
             <li key={title} className="rounded-2xl border border-slate-200 p-5">
               <span className="flex h-10 w-10 items-center justify-center rounded-full bg-(--navy)">
@@ -101,7 +119,10 @@ export default function OfficeLanding({ office }) {
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--navy) text-sm font-semibold text-white">
                   {i + 1}
                 </span>
-                <p className="pt-1 leading-relaxed">{step(office)}</p>
+                <div className="pt-1 leading-relaxed">
+                  {step(office).title && <p className="font-semibold text-(--navy)">{step(office).title}</p>}
+                  <p>{step(office).body}</p>
+                </div>
               </li>
             ))}
           </ol>
