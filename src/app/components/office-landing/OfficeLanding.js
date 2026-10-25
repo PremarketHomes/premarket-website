@@ -49,7 +49,7 @@ export default function OfficeLanding({ office }) {
         <div className="max-w-3xl mx-auto px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-16 sm:pb-24">
           <div className="py-3">
             {logo ? (
-              <Image src={logo} alt={name} width={220} height={56} priority className="h-10 w-auto" />
+              <Image src={logo.src} alt={name} width={logo.width} height={logo.height} priority className="h-20 sm:h-24 w-auto -ml-2" />
             ) : (
               <p className="text-lg sm:text-xl font-semibold tracking-tight">{name}</p>
             )}
@@ -164,6 +164,9 @@ export default function OfficeLanding({ office }) {
       {/* Next steps */}
       <section id="next-steps" className="bg-(--navy) text-white scroll-mt-4">
         <div className="max-w-3xl mx-auto px-5 py-16 sm:py-20 text-center">
+          {logo && (
+            <Image src={logo.src} alt="" width={logo.width} height={logo.height} className="mx-auto mb-6 h-16 w-auto" />
+          )}
           <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-balance">
             Ready to find out more?
           </h2>
