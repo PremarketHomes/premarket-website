@@ -13,7 +13,6 @@ const BENEFITS = [
 const STEPS = [
   (o) => ({ body: `Your ${o.name.split(' ')[0]} agent prepares your Premarket campaign.` }),
   (o) => ({
-    title: 'Connect with active buyers',
     body: `Your ${o.name} agent shares your property with their established database of warm, active buyers, inviting anonymous pricing opinions and expressions of formal interest.`,
   }),
   () => ({ body: 'Your agent reviews the results with you.' }),
@@ -120,7 +119,6 @@ export default function OfficeLanding({ office }) {
                   {i + 1}
                 </span>
                 <div className="pt-1 leading-relaxed">
-                  {step(office).title && <p className="font-semibold text-(--navy)">{step(office).title}</p>}
                   <p>{step(office).body}</p>
                 </div>
               </li>
