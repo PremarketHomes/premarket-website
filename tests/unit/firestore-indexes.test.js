@@ -22,4 +22,7 @@ describe('firestore.indexes.json', () => {
   it('keeps the office invites index', () => {
     expect(find('officeInvites', [['officeId', 'ASCENDING'], ['status', 'ASCENDING']])).toBeTruthy();
   });
+  it('covers the daily property-followup job (properties: active, archived, createdAt ascending)', () => {
+    expect(find('properties', [['active', 'ASCENDING'], ['archived', 'ASCENDING'], ['createdAt', 'ASCENDING']])).toBeTruthy();
+  });
 });

@@ -17,7 +17,7 @@
 import { adminDb } from '../../firebase/adminApp';
 import {
   getInvoicingSettings,
-  resolveBillingEntity,
+  resolveBillingEntityForAgent,
   resolveBillingContact,
   computeChargeAmounts,
 } from './billingService';
@@ -95,11 +95,7 @@ export async function buildAgencyInvoicePreview({ agentUserId }) {
   const invoicePrefix = rawSettings.invoicePrefix || 'PM-';
   const xeroAccountCode = rawSettings.xeroAccountCode || '200';
 
-  const entity = resolveBillingEntity({
-    agentUserId,
-    firstName: agent.firstName,
-    lastName: agent.lastName,
-  });
+  const entity = await resolveBillingEntityForAgent(agentUserId);
 
   const billingContact = (await resolveBillingContact(entity.billingEntityKey))
     || { name: agentName, email: agent.email || '' };

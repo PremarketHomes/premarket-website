@@ -502,3 +502,103 @@ describe('POST .../send — duplicate-invoice protection (Priority 1)', () => {
     expect(mockCreateInvoice).not.toHaveBeenCalled();
   });
 });
+
+
+describe('POST .../send — office (consolidated) invoices', () => {
+  const officeItem = (over = {}) => ({
+    runId: 'run1',
+    agencyName: 'Harcourts Property Hub',
+    agentName: 'HPH Accounts',
+    agentEmail: 'accounts@hph.test',
+    agentUserId: null,
+    officeId: 'hphOffice1',
+    billingEntityType: 'office',
+    billingEntityKey: 'office:hphOffice1',
+    properties: [
+      { propertyId: 'p1', address: '1 Phil St', agentName: 'Phil Agent', subtotalEx: 200, gstAmount: 0, totalInc: 200 },
+      { propertyId: 'p2', address: '2 Sam St', agentName: 'Sam Agent', subtotalEx: 200, gstAmount: 0, totalInc: 200 },
+    ],
+    ...over,
+  });
+  const seedOffice = () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('billingContacts', 'office:hphOffice1', { status: 'confirmed', billingName: 'Harcourts Property Hub', name: 'HPH Accounts', email: 'accounts@hph.test' });
+  };
+
+  it('sends ONE invoice for the office with a separate $200 line per property, to the confirmed office contact', async () => {
+    seedOffice();
+    fakeDb._seed('invoiceRunItems', 'item1', officeItem());
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+
+    expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
+    const call = mockCreateInvoice.mock.calls[0][0];
+    expect(call.lineItems).toHaveLength(2);
+    expect(call.lineItems.map((l) => [l.description, l.unitAmount, l.taxType])).toEqual([
+      ['Premarket listing: 1 Phil St (Phil Agent)', 200, 'NONE'],
+      ['Premarket listing: 2 Sam St (Sam Agent)', 200, 'NONE'],
+    ]);
+    expect(mockFindOrCreateContact.mock.calls[0][0]).toMatchObject({ email: 'accounts@hph.test' });
+  });
+
+  it('Xero contact name is the office billing name with a stable suffix from the OFFICE ID (no "office:" prefix leaking in)', async () => {
+    seedOffice();
+    fakeDb._seed('invoiceRunItems', 'item1', officeItem());
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    expect(mockFindOrCreateContact.mock.calls[0][0].name).toBe('Harcourts Property Hub (hphOffic)');
+  });
+
+  it('an office with NO confirmed contact is blocked — never falls back to an agent\'s email', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('invoiceRunItems', 'item1', officeItem());
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    expect(mockCreateInvoice).not.toHaveBeenCalled();
+    expect(mockFindOrCreateContact).not.toHaveBeenCalled();
+  });
+
+  it('idempotency: an office item that already has a Xero invoice ID never creates a second invoice', async () => {
+    seedOffice();
+    fakeDb._seed('invoiceRunItems', 'item1', officeItem({ xeroInvoiceId: 'inv-existing', xeroInvoiceNumber: 'PM-9', xeroStatus: 'AUTHORISED' }));
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    expect(mockCreateInvoice).not.toHaveBeenCalled();
+  });
+
+  it('idempotency: createInvoice is called with a stable idempotency key and the office reference is checked first', async () => {
+    seedOffice();
+    fakeDb._seed('invoiceRunItems', 'item1', officeItem());
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    expect(mockFindInvoiceByReference).toHaveBeenCalledTimes(1);
+    expect(mockFindInvoiceByReference.mock.calls[0][0]).toContain('Harcourts Property Hub (hphOffic)');
+    expect(mockCreateInvoice.mock.calls[0][0].idempotencyKey).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('never bypasses admin approval for office invoices — a draft run cannot be sent', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'draft', periodStart: new Date('2026-10-01') });
+    fakeDb._seed('billingContacts', 'office:hphOffice1', { status: 'confirmed', name: 'HPH Accounts', email: 'accounts@hph.test' });
+    fakeDb._seed('invoiceRunItems', 'item1', officeItem());
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    const res = await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    expect(res.status).toBe(400);
+    expect(mockCreateInvoice).not.toHaveBeenCalled();
+  });
+
+  it('a mixed run keeps independent invoices exactly as before (original description, no agent suffix)', async () => {
+    seedOffice();
+    fakeDb._seed('billingContacts', 'agent:solo', { status: 'confirmed', name: 'Sol Solo', email: 'sol@solo.test' });
+    fakeDb._seed('invoiceRunItems', 'item1', officeItem());
+    fakeDb._seed('invoiceRunItems', 'item2', {
+      runId: 'run1', agencyName: 'Sol Solo', agentName: 'Sol Solo', agentEmail: 'sol@solo.test',
+      billingEntityType: 'independent', billingEntityKey: 'agent:solo',
+      properties: [{ propertyId: 'p4', address: '4 Solo St', agentName: 'Sol Solo', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+    });
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    expect(mockCreateInvoice).toHaveBeenCalledTimes(2);
+    const descriptions = mockCreateInvoice.mock.calls.flatMap((c) => c[0].lineItems.map((l) => l.description));
+    expect(descriptions).toContain('Premarket listing: 4 Solo St');
+  });
+});

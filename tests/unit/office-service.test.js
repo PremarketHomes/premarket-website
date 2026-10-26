@@ -64,6 +64,9 @@ function makeOfficesCollection() {
 }
 
 const updateUserMock = vi.fn().mockResolvedValue(undefined);
+// Charge settlement on join/leave has its own tests (office-billing.test.js); these suites use strict fakes.
+vi.mock('../../src/app/api/services/billingService', () => ({ settleChargesForAgent: vi.fn(async () => ({})) }));
+
 vi.mock('firebase-admin/auth', () => ({
   getAuth: () => ({ updateUser: updateUserMock }),
 }));

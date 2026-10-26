@@ -231,7 +231,7 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
 
     tx.set(ref, {
       billingEntityKey,
-      billingEntityType: prior.billingEntityType || 'independent',
+      billingEntityType: prior.billingEntityType || (billingEntityKey.startsWith('office:') ? 'office' : 'independent'),
       billingEntityName: prior.billingEntityName || null,
       status: 'confirmed',
       billingName: billingName || prior.changeRequest?.proposedBillingName || prior.proposedBillingName || prior.billingName || '',
@@ -546,29 +546,82 @@ export async function listPendingBillingContacts() {
  */
 export async function resolveBillingEntityForAgent(agentUserId) {
   const agentDoc = await adminDb.collection('users').doc(agentUserId).get();
+  return resolveBillingEntityForAgentDoc(agentUserId, agentDoc.exists ? agentDoc.data() : {});
+}
+
+async function loadActiveOffice(officeId) {
+  if (!officeId) return null;
+  const officeDoc = await adminDb.collection('officeAdminInfo').doc(officeId).get();
+  if (!officeDoc.exists || officeDoc.data().status !== 'active') return null;
+  const data = officeDoc.data();
+  return { officeId, officeName: data.name || '', officeAdminUids: data.officeAdminUids || [] };
+}
+
+/**
+ * Who may view/propose billing details for this agent's billing entity:
+ * an independent agent for their own account, but for an office account
+ * ONLY that office's administrators — individual office agents never
+ * see or edit the office's billing details, and are never invoiced.
+ */
+export async function resolveBillingAccessForAgent(agentUserId) {
+  const agentDoc = await adminDb.collection('users').doc(agentUserId).get();
   const agent = agentDoc.exists ? agentDoc.data() : {};
+  const office = await loadActiveOffice(agent.officeId);
+  const entity = resolveBillingEntity({
+    agentUserId,
+    firstName: agent.firstName,
+    lastName: agent.lastName,
+    ...(office ? { officeId: office.officeId, officeName: office.officeName } : {}),
+  });
+  const canManage = office ? office.officeAdminUids.includes(agentUserId) : true;
+  return { entity, canManage };
+}
+
+/**
+ * Same resolution as resolveBillingEntityForAgent for a caller that has
+ * already loaded the agent's user doc (the charge-creation path), so
+ * both always agree. An agent linked to an ACTIVE office (users.officeId
+ * pointing at a real officeAdminInfo doc) bills through that office;
+ * everyone else — including an agent whose officeId points at a missing
+ * or inactive office — stays an independent `agent:{uid}` account.
+ */
+async function resolveBillingEntityForAgentDoc(agentUserId, agent) {
+  const office = await loadActiveOffice(agent.officeId);
   return resolveBillingEntity({
     agentUserId,
     firstName: agent.firstName,
     lastName: agent.lastName,
+    ...(office || {}),
   });
 }
 
 /**
  * Pure (no Firestore) — resolves which billing entity a property's
- * charge belongs to. Always, unconditionally, `agent:{uid}` — ONE
- * AGENT = ONE BILLING ACCOUNT, by construction, with no exceptions.
+ * charge belongs to:
  *
- * This deliberately ignores agencyName/companyName and agencyBrandId
- * entirely for billing purposes: two agents may share an agency name,
- * branding, or even the exact same billing email address without
- * their charges, invoices, or 30-day billing cycles ever being linked
- * — agency branding (agencyBrands/agencyMemberships) is a completely
- * separate, cosmetic-only system (see brandProfileService.js) that
- * this function never reads. This replaces the earlier agency/brand/
- * company-name grouping model entirely.
+ *   - `office:{officeId}` when the agent is a member of an office
+ *     (`officeId` supplied): every campaign by every agent in that
+ *     office consolidates onto the one office account — one billing
+ *     contact, one 30-day cycle, one invoice with a line per property.
+ *   - `agent:{uid}` otherwise: ONE AGENT = ONE BILLING ACCOUNT,
+ *     exactly as before. Independent agents are completely unchanged.
+ *
+ * Agency/brand/company-name grouping stays removed — only a real,
+ * server-verified office membership ever groups agents together.
+ * Office-keyed results also carry `officeId`/`officeName`, which the
+ * charge snapshots so its attribution survives the agent later leaving
+ * or changing offices.
  */
-export function resolveBillingEntity({ agentUserId, firstName, lastName }) {
+export function resolveBillingEntity({ agentUserId, firstName, lastName, officeId, officeName }) {
+  if (officeId) {
+    return {
+      billingEntityType: 'office',
+      billingEntityKey: `office:${officeId}`,
+      billingEntityName: officeName || 'Office',
+      officeId,
+      officeName: officeName || '',
+    };
+  }
   const agentName = `${firstName || ''} ${lastName || ''}`.trim() || 'Unknown agent';
   return {
     billingEntityType: 'independent',
@@ -630,14 +683,11 @@ async function resolveChargeForAgent({ propertyId, propertyAddress, agentUserId,
     return null;
   }
 
-  // ONE AGENT = ONE BILLING ACCOUNT — always resolves to this agent's
-  // own agent:{uid}, never an agency/brand/company-name grouping. See
-  // resolveBillingEntity's own comment.
-  const entity = resolveBillingEntity({
-    agentUserId,
-    firstName: agent.firstName,
-    lastName: agent.lastName,
-  });
+  // office:{officeId} for an office member, otherwise this agent's own
+  // agent:{uid} — never an agency/brand/company-name grouping. See
+  // resolveBillingEntity's own comment. The result (including the
+  // office) is snapshotted onto the charge, so it never changes later.
+  const entity = await resolveBillingEntityForAgentDoc(agentUserId, agent);
   const amounts = computeChargeAmounts(settings.pricePerListing, settings.gstRate);
 
   return {
@@ -825,6 +875,21 @@ export async function reconcileMissingCharges() {
   const propertiesSnap = await adminDb.collection('properties').get();
   const properties = propertiesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   return ensureChargesForProperties(properties);
+}
+
+/**
+ * Records a charge for every property this agent already owns that
+ * doesn't have one yet, under their CURRENT billing entity. Called just
+ * before an agent joins or leaves an office, so a property they created
+ * (but whose charge the hourly sweep hadn't recorded yet) is attributed
+ * to the entity that was true when it was created, not to wherever the
+ * agent happens to be when the sweep eventually catches up. Charges
+ * already recorded are never touched (idempotent).
+ */
+export async function settleChargesForAgent(agentUserId) {
+  if (!agentUserId) return { created: 0, skipped: 0 };
+  const snap = await adminDb.collection('properties').where('userId', '==', agentUserId).get();
+  return ensureChargesForProperties(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
 }
 
 /**

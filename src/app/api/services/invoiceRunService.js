@@ -36,9 +36,13 @@ function groupChargesByEntity(charges) {
         billingEntityKey: key,
         billingEntityType: charge.billingEntityType,
         agencyName: charge.billingEntityName,
-        agentUserId: charge.agentUserId,
+        // An office item consolidates many agents' campaigns onto one
+        // invoice, so no single agent "owns" it — the confirmed office
+        // billing contact is stamped over name/email below.
+        agentUserId: charge.billingEntityType === 'office' ? null : charge.agentUserId,
         agentName: charge.agentName,
         agentEmail: charge.agentEmail,
+        officeId: charge.officeId || null,
         agencyBrandId: charge.agencyBrandId || null,
         properties: [],
         propertyIds: [],
@@ -57,6 +61,7 @@ function groupChargesByEntity(charges) {
     group.properties.push({
       propertyId: charge.propertyId,
       address: charge.propertyAddress,
+      agentName: charge.agentName || '',
       subtotalEx: charge.subtotalEx || 0,
       gstAmount: charge.gstAmount || 0,
       totalInc: charge.totalInc || 0,

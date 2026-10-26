@@ -42,6 +42,7 @@ export default function BillingDetailsSection() {
   const [proposedEmail, setProposedEmail] = useState(null);
   const [rejectionReason, setRejectionReason] = useState(null);
   const [changeRequest, setChangeRequest] = useState(null);
+  const [officeBillingName, setOfficeBillingName] = useState(null);
 
   const [editing, setEditing] = useState(false);
   const [formBillingName, setFormBillingName] = useState('');
@@ -55,6 +56,8 @@ export default function BillingDetailsSection() {
     try {
       const res = await authFetch('/api/agency/billing-contact-status');
       const data = await res.json();
+      // Office members are billed through their office, not individually.
+      setOfficeBillingName(data.officeBilling ? (data.billingEntityName || 'your office') : null);
       setStatus(data.status || 'unset');
       setBillingName(data.billingName ?? null);
       setContactName(data.name ?? null);
@@ -130,6 +133,21 @@ export default function BillingDetailsSection() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!loading && officeBillingName) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Receipt className="w-4 h-4 text-orange-600" />
+          <h2 className="text-sm font-semibold text-slate-900">Billing Details</h2>
+        </div>
+        <p className="text-sm text-slate-600">
+          Premarket campaigns are billed to {officeBillingName}, not to you personally. Your office
+          administrator manages the billing details.
+        </p>
+      </div>
+    );
   }
 
   if (loading) {

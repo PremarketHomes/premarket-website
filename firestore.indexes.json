@@ -23,6 +23,15 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "periodStart", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "properties",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "archived", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
