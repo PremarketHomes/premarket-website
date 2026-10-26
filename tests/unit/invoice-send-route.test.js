@@ -123,7 +123,13 @@ beforeEach(() => {
   mockResolveBillingContact.mockImplementation(async (billingEntityKey) => {
     const data = fakeDb._store.billingContacts?.[billingEntityKey];
     if (!data || data.status !== 'confirmed' || !data.email) return null;
-    return { name: data.name || '', email: data.email, billingName: data.billingName || '' };
+    return {
+      name: data.name || '',
+      email: data.email,
+      billingName: data.billingName || '',
+      ...(data.abn ? { abn: data.abn } : {}),
+      ...(data.address ? { address: data.address } : {}),
+    };
   });
 });
 
@@ -600,5 +606,20 @@ describe('POST .../send — office (consolidated) invoices', () => {
     expect(mockCreateInvoice).toHaveBeenCalledTimes(2);
     const descriptions = mockCreateInvoice.mock.calls.flatMap((c) => c[0].lineItems.map((l) => l.description));
     expect(descriptions).toContain('Premarket listing: 4 Solo St');
+  });
+
+  it('passes the approved ABN and billing address through to the Xero contact', async () => {
+    seedOffice();
+    fakeDb._seed('billingContacts', 'office:hphOffice1', {
+      status: 'confirmed', billingName: 'Harcourts Property Hub Pty Ltd', name: 'HPH Accounts', email: 'accounts@hph.test',
+      abn: '51 824 753 556', address: { line1: '1 George St', suburb: 'Sydney', state: 'NSW', postcode: '2000' },
+    });
+    fakeDb._seed('invoiceRunItems', 'item1', officeItem());
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
+    expect(mockFindOrCreateContact.mock.calls[0][0]).toMatchObject({
+      taxNumber: '51 824 753 556',
+      address: { line1: '1 George St', suburb: 'Sydney', state: 'NSW', postcode: '2000' },
+    });
   });
 });

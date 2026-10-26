@@ -54,6 +54,10 @@ export async function GET(request) {
       proposedBillingName: statusInfo.proposedBillingName,
       proposedName: statusInfo.proposedName,
       proposedEmail: statusInfo.proposedEmail,
+      abn: statusInfo.abn,
+      address: statusInfo.address,
+      proposedAbn: statusInfo.proposedAbn,
+      proposedAddress: statusInfo.proposedAddress,
       rejectionReason: statusInfo.rejectionReason || null,
       changeRequest: statusInfo.changeRequest || null,
     });

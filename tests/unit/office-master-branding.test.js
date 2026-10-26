@@ -59,8 +59,10 @@ describe('surfaces apply the office brand / hide billing prompts for office agen
 });
 
 describe('remaining branding surfaces + broken-logo fallback (source guards)', () => {
-  it('Settings hides the Billing Details section for office-linked agents only (billing code itself untouched)', () => {
-    expect(read('src/app/dashboard/settings/page.js')).toContain('(userData?.isAgent || userData?.agent) && !officeId && <BillingDetailsSection />');
+  it('Settings renders Billing Details for office-linked agents too — office billing superseded the old per-agent hiding; the section itself shows admins a form and other agents a message', () => {
+    const src = read('src/app/dashboard/settings/page.js');
+    expect(src).toContain('(userData?.isAgent || userData?.agent) && <BillingDetailsSection />');
+    expect(src).not.toContain('!officeId && <BillingDetailsSection />');
   });
 
   it('public homepage resolves agents through the office brand; dashboard sidebar shows the office agency title', () => {

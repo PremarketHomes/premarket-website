@@ -465,8 +465,10 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Billing Details (agents only) */}
-        {(userData?.isAgent || userData?.agent) && !officeId && <BillingDetailsSection />}
+        {/* Billing Details (agents only). Shown to office members too: the section itself
+            decides what they see — a form for the office administrator, a short
+            explanation for ordinary office agents, the individual form for independents. */}
+        {(userData?.isAgent || userData?.agent) && <BillingDetailsSection />}
 
         {/* Personal Info */}
         <div className="bg-white rounded-xl border border-slate-200 p-6">
