@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../../firebase/adminApp';
 import { verifyAuth } from '../../../middleware/auth';
-import { getBuyerProfilesForProperty } from '../../../services/publicProfileService';
+import { getBuyerProfilesForProperty } from '../../../services/propertyAccessService';
 
 /**
  * GET /api/properties/[id]/buyer-profiles

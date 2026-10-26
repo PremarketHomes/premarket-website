@@ -65,20 +65,11 @@ export async function getPublicAgentProfiles(db, ids) {
 }
 
 /**
- * Contact + preference details for the buyers who registered serious interest
- * on one listing. Only the listing's own agent (or a superAdmin) may ask, and
- * only for users who actually appear on that listing's serious offers.
+ * Contact + preference fields for the buyers who registered serious interest on
+ * one listing. Only users who actually appear on that listing's serious offers
+ * are ever returned. Callers MUST have authorised the requester first.
  */
-export async function getBuyerProfilesForProperty(db, { uid, propertyId }) {
-  const propertySnap = await db.collection('properties').doc(propertyId).get();
-  if (!propertySnap.exists) return { status: 404, error: 'Property not found' };
-
-  const requester = await db.collection('users').doc(uid).get();
-  const isSuperAdmin = requester.exists && requester.data().superAdmin === true;
-  if (propertySnap.data().userId !== uid && !isSuperAdmin) {
-    return { status: 403, error: 'Forbidden' };
-  }
-
+export async function loadBuyerProfiles(db, propertyId) {
   const offers = await db.collection('offers').where('propertyId', '==', propertyId).get();
   const buyerIds = [
     ...new Set(
@@ -96,5 +87,5 @@ export async function getBuyerProfilesForProperty(db, { uid, propertyId }) {
       if (snap.exists) buyers[id] = pick(snap.data(), BUYER_PROFILE_FIELDS);
     }),
   );
-  return { status: 200, buyers };
+  return buyers;
 }

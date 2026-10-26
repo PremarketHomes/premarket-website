@@ -1054,6 +1054,9 @@ export default function PropertyReportPage() {
   const [reportEmail, setReportEmail] = useState('');
   const [reportName, setReportName] = useState('');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  // True when an office administrator is viewing a member agent's listing:
+  // full reporting, but no management actions (the server refuses them too).
+  const [readOnly, setReadOnly] = useState(false);
   const [showImageEdit, setShowImageEdit] = useState(false);
   const [editingImageUrl, setEditingImageUrl] = useState(null);
   const [editingImageIndex, setEditingImageIndex] = useState(0);
@@ -1072,39 +1075,52 @@ export default function PropertyReportPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [propertySnap, offersSnap, likesSnap] = await Promise.all([
-          getDoc(doc(db, 'properties', propertyId)),
-          getDocs(query(collection(db, 'offers'), where('propertyId', '==', propertyId))),
-          getDocs(query(collection(db, 'likes'), where('propertyId', '==', propertyId))),
-        ]);
-
-        if (propertySnap.exists()) {
-          const propData = { id: propertySnap.id, ...propertySnap.data() };
-          // Verify ownership
-          if (propData.userId !== user.uid && !userData?.superAdmin) {
-            router.push('/dashboard');
-            return;
-          }
-          setProperty(propData);
-        } else {
+        const propertySnap = await getDoc(doc(db, 'properties', propertyId));
+        if (!propertySnap.exists()) {
           router.push('/dashboard');
           return;
         }
 
-        const rawOffers = offersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-        // Batch-fetch user docs for serious offers with userId
-        const seriousWithUserId = rawOffers.filter(o => o.type === 'opinion' && o.serious === true && o.userId);
-        // Other users' documents are no longer client-readable; the server
-        // returns just the contact/preference fields for this listing's buyers.
+        // The listing agent (and a superAdmin) read their own data directly,
+        // exactly as before. Anyone else — in practice an office administrator
+        // — goes through the server, which only answers for an admin of the
+        // listing agent's CURRENT office and marks the response read-only.
+        const ownListing = propertySnap.data().userId === user.uid || userData?.superAdmin;
+        let rawOffers;
+        let rawLikes;
         let userMap = {};
-        if (seriousWithUserId.length > 0) {
-          try {
-            const res = await authFetch(`/api/properties/${propertyId}/buyer-profiles`);
-            if (res.ok) userMap = (await res.json()).buyers || {};
-          } catch (err) {
-            console.error('Error fetching buyer profiles:', err);
+
+        if (ownListing) {
+          const [offersSnap, likesSnap] = await Promise.all([
+            getDocs(query(collection(db, 'offers'), where('propertyId', '==', propertyId))),
+            getDocs(query(collection(db, 'likes'), where('propertyId', '==', propertyId))),
+          ]);
+          setProperty({ id: propertySnap.id, ...propertySnap.data() });
+          rawOffers = offersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          rawLikes = likesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+          // Other users' documents are no longer client-readable; the server
+          // returns just the contact/preference fields for this listing's buyers.
+          if (rawOffers.some(o => o.type === 'opinion' && o.serious === true && o.userId)) {
+            try {
+              const res = await authFetch(`/api/properties/${propertyId}/buyer-profiles`);
+              if (res.ok) userMap = (await res.json()).buyers || {};
+            } catch (err) {
+              console.error('Error fetching buyer profiles:', err);
+            }
           }
+        } else {
+          const res = await authFetch(`/api/properties/${propertyId}/report`);
+          if (!res.ok) {
+            router.push('/dashboard');
+            return;
+          }
+          const report = await res.json();
+          setReadOnly(report.readOnly === true);
+          setProperty(report.property);
+          rawOffers = report.offers;
+          rawLikes = report.likes;
+          userMap = report.buyers || {};
         }
 
         // Enrich offers with resolved buyer name, contact info, and preferences.
@@ -1139,7 +1155,7 @@ export default function PropertyReportPage() {
         });
 
         setOffers(enrichedOffers);
-        setLikes(likesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLikes(rawLikes);
       } catch (err) {
         console.error('Error fetching report data:', err);
       } finally {
@@ -1148,6 +1164,8 @@ export default function PropertyReportPage() {
     };
     fetchData();
   }, [user, propertyId, router]);
+
+  const VisibilityTag = readOnly ? 'div' : 'button';
 
   const toggleVisibility = async () => {
     if (!property) return;
@@ -1409,7 +1427,7 @@ export default function PropertyReportPage() {
           <div className="flex items-center justify-between gap-3">
             {/* Left: Back + Title */}
             <div className="flex items-center gap-3 min-w-0">
-              <Link href="/dashboard" className="p-2 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
+              <Link href={readOnly ? '/dashboard/office/team' : '/dashboard'} className="p-2 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
                 <ArrowLeft className="w-5 h-5 text-slate-600" />
               </Link>
               <div className="min-w-0">
@@ -1421,9 +1439,8 @@ export default function PropertyReportPage() {
             {/* Right: Key actions */}
             <div className="flex items-center gap-2 shrink-0">
               {/* Visibility toggle */}
-              <button
-                onClick={toggleVisibility}
-                disabled={toggling}
+              <VisibilityTag
+                {...(readOnly ? {} : { onClick: toggleVisibility, disabled: toggling })}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
                   property.visibility
                     ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
@@ -1444,9 +1461,10 @@ export default function PropertyReportPage() {
                     Private
                   </>
                 )}
-              </button>
+              </VisibilityTag>
 
-              {/* Send Report - primary action */}
+              {/* Send Report - primary action (hidden for read-only office admins) */}
+              {!readOnly && (
               <button
                 onClick={() => { setShowSendReport(true); setReportSent(false); setReportEmail(''); setReportName(''); }}
                 className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-orange-500 text-white hover:bg-orange-600 transition-colors"
@@ -1454,6 +1472,7 @@ export default function PropertyReportPage() {
                 <Send className="w-3.5 h-3.5" />
                 Send Report
               </button>
+              )}
 
               {/* More menu */}
               <div className="relative">
@@ -1488,6 +1507,8 @@ export default function PropertyReportPage() {
                         <ExternalLink className="w-4 h-4 text-slate-400" />
                         Preview Listing
                       </a>
+                      {!readOnly && (
+                        <>
                       {/* iPad mode */}
                       <a
                         href={`/find-property?propertyId=${property.id}&mode=ipad`}
@@ -1548,6 +1569,8 @@ export default function PropertyReportPage() {
                         <Trash2 className="w-4 h-4" />
                         Delete Property
                       </button>
+                        </>
+                      )}
                     </div>
                   </>
                 )}
@@ -1558,6 +1581,16 @@ export default function PropertyReportPage() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {readOnly && (
+          <div role="status" className="flex items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+            <Eye className="w-4 h-4 mt-0.5 shrink-0" />
+            <div>
+              <span className="font-semibold">Viewing as office admin</span>
+              <span className="text-indigo-800"> — read-only. You can review this listing&apos;s reporting, but only the listing agent can edit or manage it.</span>
+            </div>
+          </div>
+        )}
+
         {/* Property Header */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* Media Gallery (Video + Images) */}
@@ -1565,7 +1598,7 @@ export default function PropertyReportPage() {
             <MediaGallery
               images={property.imageUrls}
               videoUrl={property.aiVideo?.url || property.videoUrl}
-              onEditImage={(url, idx) => {
+              onEditImage={readOnly ? undefined : (url, idx) => {
                 setEditingImageUrl(url);
                 setEditingImageIndex(idx);
                 setShowImageEdit(true);
@@ -1690,7 +1723,8 @@ export default function PropertyReportPage() {
         {/* Opinions Table */}
         <OpinionsTable opinions={opinions} />
 
-        {/* Sold Status Action — internal agent/admin control, never shown on the public property page */}
+        {/* Sold Status Action — internal agent/admin control, never shown on the public property page; hidden for read-only office admins */}
+        {!readOnly && (
         <div className="bg-white rounded-xl border border-slate-200 p-6">
           {property.archivedReason === 'sold' ? (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -1725,6 +1759,7 @@ export default function PropertyReportPage() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Mark as Sold Confirmation Modal */}
