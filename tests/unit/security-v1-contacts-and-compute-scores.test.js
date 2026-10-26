@@ -139,6 +139,50 @@ describe('SECURITY — GET /api/v1/contacts', () => {
     expect(data.total).toBe(2);
   });
 
+  it('REGRESSION: an x-api-key belonging to a superAdmin account is still scoped to its own linked contacts, never platform-wide', async () => {
+    fakeDb._seed('users', 'evolveLike', { isAgent: true, superAdmin: true, apiAccess: { status: 'approved', apiKey: 'key-superadmin' } });
+    fakeDb._seed('contacts', 'c1', { firstName: 'Mine', email: 'mine@example.com', linkedAgentIds: ['evolveLike'] });
+    fakeDb._seed('contacts', 'c2', { firstName: 'Other', email: 'other@example.com', linkedAgentIds: ['someoneElse'] });
+    fakeDb._seed('contacts', 'c3', { firstName: 'Unlinked', email: 'unlinked@example.com' });
+
+    const { GET } = await import('../../src/app/api/v1/contacts/route.js');
+    const res = await GET(makeGetRequest('http://localhost/api/v1/contacts', { 'x-api-key': 'key-superadmin' }));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.total).toBe(1);
+    expect(data.contacts.map((c) => c.email)).toEqual(['mine@example.com']);
+  });
+
+  it('REGRESSION: a superAdmin key with zero linked contacts gets an empty list (not the platform list) — matches Evolve today', async () => {
+    fakeDb._seed('users', 'evolveLike', { isAgent: true, superAdmin: true, apiAccess: { status: 'approved', apiKey: 'key-superadmin' } });
+    fakeDb._seed('contacts', 'c2', { firstName: 'Other', email: 'other@example.com', linkedAgentIds: ['someoneElse'] });
+
+    const { GET } = await import('../../src/app/api/v1/contacts/route.js');
+    const data = await (await GET(makeGetRequest('http://localhost/api/v1/contacts', { 'x-api-key': 'key-superadmin' }))).json();
+
+    expect(data.total).toBe(0);
+    expect(JSON.stringify(data)).not.toContain('other@example.com');
+  });
+
+  it('REGRESSION: a revoked/unapproved superAdmin key is rejected outright', async () => {
+    fakeDb._seed('users', 'evolveLike', { superAdmin: true, apiAccess: { status: 'revoked', apiKey: 'key-revoked' } });
+    const { GET } = await import('../../src/app/api/v1/contacts/route.js');
+    const res = await GET(makeGetRequest('http://localhost/api/v1/contacts', { 'x-api-key': 'key-revoked' }));
+    expect(res.status).toBe(401);
+  });
+
+  it('REGRESSION: the same superAdmin signing in with a real ID token still sees everything (admin behaviour preserved)', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'evolveLike', email: 'phil@example.com' });
+    fakeDb._seed('users', 'evolveLike', { isAgent: true, superAdmin: true, apiAccess: { status: 'approved', apiKey: 'key-superadmin' } });
+    fakeDb._seed('contacts', 'c1', { firstName: 'A', email: 'a@example.com', linkedAgentIds: ['x'] });
+    fakeDb._seed('contacts', 'c2', { firstName: 'B', email: 'b@example.com', linkedAgentIds: ['y'] });
+
+    const { GET } = await import('../../src/app/api/v1/contacts/route.js');
+    const data = await (await GET(makeGetRequest('http://localhost/api/v1/contacts', { authorization: 'Bearer t' }))).json();
+    expect(data.total).toBe(2);
+  });
+
   it('an approved external integration (x-api-key, not an agent at all) is still scoped to its own linked contacts only', async () => {
     fakeDb._seed('users', 'integrationUser', { superAdmin: false, apiAccess: { status: 'approved', apiKey: 'key-int' } });
     fakeDb._seed('contacts', 'c1', { firstName: 'Mine', email: 'mine@example.com', linkedAgentIds: ['integrationUser'] });
