@@ -37,9 +37,12 @@
  *     allowlist, so it can only ever be set here, via the Admin SDK,
  *     after a real invite was accepted or an office was registered
  *     through the validated signup path.
- *   - Properties, offers, reports and billing (`agent:{uid}`) never
- *     read officeId or office membership at all — ownership of all of
- *     those stays exactly `userId == auth.uid`, completely unchanged.
+ *   - Properties, offers and reports never read officeId or office
+ *     membership at all — ownership of all of those stays exactly
+ *     `userId == auth.uid`, completely unchanged. The ONE exception is
+ *     billing: a member's campaigns are charged to `office:{officeId}`
+ *     (see billingService.resolveBillingEntity); independent agents
+ *     stay `agent:{uid}`.
  *     An office admin's authority is scoped to exactly one thing: the
  *     roster of their own office (invite/resend/remove) — never any
  *     agent's properties, offers, reports or billing, their own
@@ -50,6 +53,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { normalizeAgencyNameExact } from './brandProfileService';
+import { settleChargesForAgent, recordOfficeDeparture } from './billingService';
 
 const OFFICES_COLLECTION = 'offices'; // public: { agencyBrandId }
 const OFFICE_ADMIN_INFO_COLLECTION = 'officeAdminInfo'; // server-only: { name, officeAdminUids, status, createdBy, createdAt, updatedAt }
@@ -378,6 +382,17 @@ export async function removeAgentFromOffice({ officeId, targetUid, actorUid }) {
     }
 
     const neverActivated = targetData.accountStatus === 'invited';
+
+    // Charges for campaigns this agent already created are recorded
+    // under the office BEFORE they leave, so a charge the hourly sweep
+    // hasn't written yet is never attributed to them as an independent
+    // afterwards. Charges already recorded keep their office attribution
+    // regardless (it is snapshotted on the charge).
+    await settleChargesForAgent(targetUid);
+    // Remember they WERE in this office: after unlinking they'd otherwise
+    // look like a genuine independent. Their future campaigns are held
+    // for an admin billing review instead of silently billed individually.
+    await recordOfficeDeparture({ uid: targetUid, officeId, officeName: office.name, removedBy: actorUid });
 
     await Promise.all([
       adminDb.collection('users').doc(targetUid).update({

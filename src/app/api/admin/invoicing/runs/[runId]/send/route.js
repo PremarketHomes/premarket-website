@@ -35,7 +35,8 @@ function stableInvoiceIdempotencyKey(itemId) {
  * who happen to share a personal name, or who both typed (and had
  * confirmed) the exact same agency name as their own billingName,
  * would otherwise collide onto one shared Xero contact — even though
- * Premarket's own billingEntityKey (always agent:{uid}) correctly
+ * Premarket's own billingEntityKey (agent:{uid}, or office:{officeId} for an
+ * office's consolidated invoice) correctly
  * keeps them completely separate. Their invoices would then sit under
  * one shared Xero record, mixing two unrelated agents' history —
  * exactly what "never merge separate agent invoices" forbids.
@@ -50,7 +51,7 @@ function stableInvoiceIdempotencyKey(itemId) {
  */
 function buildXeroContactName(item, confirmedBillingName) {
   const base = confirmedBillingName || item.agencyName;
-  const suffix = String(item.billingEntityKey || '').replace(/^agent:/, '').slice(0, 8);
+  const suffix = String(item.billingEntityKey || '').replace(/^(agent|office):/, '').slice(0, 8);
   return suffix ? `${base} (${suffix})` : base;
 }
 
@@ -195,7 +196,12 @@ export async function POST(request, { params }) {
           // same principle runs/[runId]/route.js's removeProperties
           // already follows when recalculating a run's totals.
           const lineItems = item.properties.map((prop) => ({
-            description: `Premarket listing: ${prop.address}`,
+            // An office invoice covers many agents, so each line names
+            // the agent whose campaign it is (helps the office re-bill
+            // its vendors); independent invoices keep the original text.
+            description: item.billingEntityType === 'office' && prop.agentName
+              ? `Premarket listing: ${prop.address} (${prop.agentName})`
+              : `Premarket listing: ${prop.address}`,
             quantity: 1,
             unitAmount: prop.subtotalEx,
             taxType: prop.gstAmount > 0 ? 'OUTPUT' : 'NONE',

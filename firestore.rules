@@ -437,6 +437,10 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════
     match /officeJoinRequests/{requestId} { allow read, write: if false; }
 
+    // Server-only: records an agent's removal from an office so billing can
+    // hold their later campaigns for review (see billingService.js).
+    match /officeMembershipHistory/{uid} { allow read, write: if false; }
+
     // ═══════════════════════════════════════════════════════════
     // SETTINGS (App configuration)
     // Public read: Flutter reads agentPlans, introSlides,

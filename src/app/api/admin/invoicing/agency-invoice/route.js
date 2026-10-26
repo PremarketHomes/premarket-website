@@ -54,6 +54,10 @@ export async function POST(request) {
       }
 
       const charge = chargeDoc.data();
+      if (charge.billingEntityType === 'review') {
+        skipped.push({ propertyId, reason: 'billing-attribution-needs-review' });
+        continue;
+      }
       if (charge.status !== 'pending') {
         skipped.push({ propertyId, reason: `charge-already-${charge.status}` });
         continue;
@@ -79,7 +83,8 @@ export async function POST(request) {
           billingEntityKey: key,
           billingEntityType: charge.billingEntityType,
           agencyName: charge.billingEntityName,
-          agentUserId: charge.agentUserId,
+          agentUserId: charge.billingEntityType === 'office' ? null : charge.agentUserId,
+          officeId: charge.officeId || null,
           agentName: charge.agentName,
           agentEmail: charge.agentEmail,
           properties: [],
@@ -93,6 +98,7 @@ export async function POST(request) {
       group.properties.push({
         propertyId: charge.propertyId,
         address: charge.propertyAddress,
+        agentName: charge.agentName || '',
         subtotalEx: charge.subtotalEx || 0,
         gstAmount: charge.gstAmount || 0,
         totalInc: charge.totalInc || 0,

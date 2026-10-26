@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyAuth } from '../../middleware/auth';
-import { resolveBillingEntityForAgent, getBillingContactStatus } from '../../services/billingService';
+import { resolveBillingAccessForAgent, getBillingContactStatus } from '../../services/billingService';
 
 /**
  * GET /api/agency/billing-contact-status
@@ -31,10 +31,21 @@ export async function GET(request) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
-    const entity = await resolveBillingEntityForAgent(auth.uid);
+    const { entity, canManage, hold } = await resolveBillingAccessForAgent(auth.uid);
+    // Attribution on hold: an admin is reviewing how this agent is billed.
+    if (hold) {
+      return NextResponse.json({ applicable: false, billingReview: true });
+    }
+    // Office agents are billed through their office, never individually:
+    // only the office's administrators are asked for (or shown) its
+    // billing details.
+    if (!canManage) {
+      return NextResponse.json({ applicable: false, officeBilling: true, billingEntityName: entity.billingEntityName });
+    }
     const statusInfo = await getBillingContactStatus(entity.billingEntityKey);
     return NextResponse.json({
       applicable: true,
+      billingEntityType: entity.billingEntityType,
       billingEntityName: entity.billingEntityName,
       status: statusInfo.status,
       billingName: statusInfo.billingName,

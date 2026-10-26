@@ -40,6 +40,7 @@ import { BASE_URL } from './emailTemplates';
 import { sendOfficeInviteEmail, sendOfficeJoinInviteEmail } from './resendService';
 import { OfficeError } from './officeService';
 import { createActivationLink } from './officeActivationService';
+import { settleChargesForAgent } from './billingService';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_ROWS_PER_IMPORT = 2000;
@@ -518,6 +519,10 @@ export async function acceptOfficeInvite({ token, acceptingUid }) {
   // other. A refusal leaves the invite pending and the user untouched.
   const userRef = adminDb.collection('users').doc(acceptingUid);
   const contactRef = adminDb.collection('officeAgentContacts').doc(acceptingUid);
+  // Campaigns created before joining stay billed to the agent as an
+  // independent: record any not-yet-recorded charge under their CURRENT
+  // (pre-join) billing entity before the office link is written.
+  await settleChargesForAgent(acceptingUid);
   await adminDb.runTransaction(async (tx) => {
     const [userSnap, contactSnap, freshInvite] = await Promise.all([tx.get(userRef), tx.get(contactRef), tx.get(inviteRef)]);
 

@@ -36,9 +36,13 @@ function groupChargesByEntity(charges) {
         billingEntityKey: key,
         billingEntityType: charge.billingEntityType,
         agencyName: charge.billingEntityName,
-        agentUserId: charge.agentUserId,
+        // An office item consolidates many agents' campaigns onto one
+        // invoice, so no single agent "owns" it — the confirmed office
+        // billing contact is stamped over name/email below.
+        agentUserId: charge.billingEntityType === 'office' ? null : charge.agentUserId,
         agentName: charge.agentName,
         agentEmail: charge.agentEmail,
+        officeId: charge.officeId || null,
         agencyBrandId: charge.agencyBrandId || null,
         properties: [],
         propertyIds: [],
@@ -57,6 +61,7 @@ function groupChargesByEntity(charges) {
     group.properties.push({
       propertyId: charge.propertyId,
       address: charge.propertyAddress,
+      agentName: charge.agentName || '',
       subtotalEx: charge.subtotalEx || 0,
       gstAmount: charge.gstAmount || 0,
       totalInc: charge.totalInc || 0,
@@ -105,7 +110,12 @@ export async function createInvoiceRunFromPendingCharges({ createdBy, onlyEntity
   const pendingSnap = await adminDb.collection('propertyCharges').where('status', '==', 'pending').get();
   if (pendingSnap.empty) return null;
 
-  let charges = pendingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Charges held for billing review (ambiguous office attribution — see
+  // billingService.resolveBillingAttribution) are never bundled, whatever
+  // contacts exist, until an admin resolves them. They stay 'pending'.
+  let charges = pendingSnap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((c) => c.billingEntityType !== 'review');
 
   // Every charge's billingEntityKey is exclusively one agent's own
   // (`agent:{uid}` — see billingService.js's resolveBillingEntity).

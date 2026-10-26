@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyAuth } from '../../middleware/auth';
-import { resolveBillingEntityForAgent, proposeBillingContact } from '../../services/billingService';
+import { resolveBillingAccessForAgent, proposeBillingContact } from '../../services/billingService';
 
 /**
  * POST /api/agency/propose-billing-contact
@@ -30,7 +30,19 @@ export async function POST(request) {
 
     const { billingName, contactName, contactEmail } = await request.json();
 
-    const entity = await resolveBillingEntityForAgent(auth.uid);
+    const { entity, canManage, hold } = await resolveBillingAccessForAgent(auth.uid);
+    if (hold) {
+      return NextResponse.json(
+        { error: 'Your billing setup is being reviewed by Premarket. We will be in touch.' },
+        { status: 403 },
+      );
+    }
+    if (!canManage) {
+      return NextResponse.json(
+        { error: 'Billing for your office is managed by your office administrator.' },
+        { status: 403 },
+      );
+    }
     const result = await proposeBillingContact({
       billingEntityKey: entity.billingEntityKey,
       billingEntityType: entity.billingEntityType,

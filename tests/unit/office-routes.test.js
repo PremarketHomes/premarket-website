@@ -55,6 +55,9 @@ function makeCollection(name) {
   };
 }
 
+// Charge settlement on join/leave has its own tests (office-billing.test.js); these suites use strict fakes.
+vi.mock('../../src/app/api/services/billingService', () => ({ settleChargesForAgent: vi.fn(async () => ({})), recordOfficeDeparture: vi.fn(async () => {}) }));
+
 vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: {
     // Minimal transaction: reads pass through, writes apply only if the
