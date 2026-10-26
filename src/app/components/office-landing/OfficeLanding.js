@@ -2,6 +2,8 @@ import Image from 'next/image';
 import { Compass, MessageSquareText, UserCheck, Handshake, ChevronDown } from 'lucide-react';
 
 const PREMARKET_LOGO = 'https://premarketvideos.b-cdn.net/assets/logo.png';
+// White wordmark with the orange mark, for navy backgrounds.
+const PREMARKET_LOGO_ON_DARK = { src: '/brand/premarket-on-dark.png', width: 900, height: 163 };
 
 const BENEFITS = [
   { Icon: Compass, title: 'Explore buyer interest', body: 'See how buyers respond before you commit to a full traditional marketing campaign.' },
@@ -47,15 +49,25 @@ export default function OfficeLanding({ office }) {
       {/* Hero */}
       <section className="bg-(--navy) text-white">
         <div className="max-w-3xl mx-auto px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-16 sm:pb-24">
-          <div className="py-3">
+          {/* Partnership lockup: Premarket × the office */}
+          <div className="py-3 flex items-center gap-4 sm:gap-6">
+            <Image
+              src={PREMARKET_LOGO_ON_DARK.src}
+              alt="Premarket"
+              width={PREMARKET_LOGO_ON_DARK.width}
+              height={PREMARKET_LOGO_ON_DARK.height}
+              priority
+              className="h-7 sm:h-8 w-auto"
+            />
+            <span aria-hidden="true" className="text-xl sm:text-2xl font-light leading-none text-white/50">&times;</span>
             {logo ? (
-              <Image src={logo.src} alt={name} width={logo.width} height={logo.height} priority className="h-20 sm:h-24 w-auto -ml-2" />
+              <Image src={logo.src} alt={name} width={logo.width} height={logo.height} priority className="h-14 sm:h-16 w-auto" />
             ) : (
               <p className="text-lg sm:text-xl font-semibold tracking-tight">{name}</p>
             )}
           </div>
           <p className="mt-14 text-xs font-semibold uppercase tracking-[0.18em] text-(--blue)">
-            An exclusive service for our clients
+            Premarket by {name}
           </p>
           <h1 className="mt-4 text-[2rem] leading-[1.15] sm:text-5xl sm:leading-[1.1] font-semibold tracking-tight text-balance">
             Understand your property&rsquo;s potential before going to market.
@@ -70,10 +82,6 @@ export default function OfficeLanding({ office }) {
           >
             {ctaLabel}
           </a>
-          <p className="mt-10 flex items-center gap-2 text-xs text-white/60">
-            Powered by
-            <Image src={PREMARKET_LOGO} alt="Premarket" width={96} height={24} unoptimized className="h-4 w-auto brightness-0 invert opacity-70" />
-          </p>
         </div>
       </section>
 
