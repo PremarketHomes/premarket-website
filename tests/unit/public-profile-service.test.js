@@ -118,4 +118,35 @@ describe('notification user copies', () => {
     expect(JSON.stringify(plan)).not.toContain(SECRET);
     expect(scrub.scrubUser({ firstName: 'A', xeroAuth: 1, uid: 'u' })).toEqual({ uid: 'u', firstName: 'A' });
   });
+
+  it('apply rewrites only notifications.user, keeps every notification, and is idempotent', async () => {
+    const data = {
+      n1: { type: 'newProspect', read: false, property: { id: 'p' }, user: { uid: 'u1', firstName: 'A', email: 'a@x.test', xeroAuth: { t: SECRET }, apiAccess: { apiKey: SECRET }, fcmToken: SECRET } },
+      n2: { type: 'newLike', user: { firstName: 'B', subscription: { customerId: SECRET } } },
+      n3: { type: 'newLike', user: { firstName: 'C' } },
+    };
+    const store = { notifications: JSON.parse(JSON.stringify(data)) };
+    const db = {
+      collection: (name) => ({
+        doc: (id) => ({ id, async get() { const d = store[name][id]; return { exists: !!d, data: () => d }; } }),
+        async get() { const rows = Object.entries(store[name]); return { size: rows.length, docs: rows.map(([id, d]) => ({ id, data: () => d })) }; },
+      }),
+      batch: () => {
+        const ops = [];
+        return {
+          update: (ref, patch) => ops.push(() => { store.notifications[ref.id] = { ...store.notifications[ref.id], ...patch }; }),
+          commit: async () => ops.forEach((f) => f()),
+        };
+      },
+    };
+    const plan = await scrub.planNotificationScrub(db);
+    expect(plan.toScrub.sort()).toEqual(['n1', 'n2']);
+    expect((await scrub.applyNotificationScrub(db, { notificationIds: plan.toScrub })).scrubbed).toBe(2);
+
+    expect(Object.keys(store.notifications).sort()).toEqual(['n1', 'n2', 'n3']);       // nothing deleted
+    expect(store.notifications.n1).toMatchObject({ type: 'newProspect', read: false, property: { id: 'p' } }); // other fields intact
+    expect(store.notifications.n1.user).toEqual({ uid: 'u1', firstName: 'A', email: 'a@x.test' });
+    expect(JSON.stringify(store)).not.toContain(SECRET);
+    expect((await scrub.planNotificationScrub(db)).toScrub).toEqual([]);                // re-run is a no-op
+  });
 });
