@@ -13,6 +13,7 @@ import BrandMark from '../components/BrandMark';
 import { SkeletonCard, Spinner } from '../components/marketing/Loading';
 import { Sparkles, ShieldCheck, Heart, MessageSquare } from 'lucide-react';
 import { withOfficeBrand } from '../utils/officeBrand';
+import { fetchAgentProfiles } from '../utils/fetchAgentProfiles';
 
 function ShimmerImage({ src, alt, ...props }) {
   const [loaded, setLoaded] = useState(false);
@@ -320,12 +321,12 @@ function ListingsContent() {
       // Fetch agent data for all unique userIds
       const userIds = [...new Set(docs.map(p => p.userId).filter(Boolean))];
       const agentData = {};
+      const agentProfiles = await fetchAgentProfiles(userIds);
       await Promise.all(
         userIds.map(async (userId) => {
           try {
-            const userDoc = await getDoc(doc(db, 'users', userId));
-            if (userDoc.exists()) {
-              const userData = userDoc.data();
+            const userData = agentProfiles[userId];
+            if (userData) {
               agentData[userId] = await withOfficeBrand({
                 firstName: userData.firstName,
                 lastName: userData.lastName,

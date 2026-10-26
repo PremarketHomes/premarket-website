@@ -50,6 +50,7 @@ import {
 import { onSnapshot, query, where } from 'firebase/firestore';
 import AgentSelector from '../../components/AgentSelector';
 import AgentModal from '../../components/AgentModal';
+import { pickNotificationUser } from '../../utils/notificationUser';
 
 const STEPS = {
   ADDRESS: 1,
@@ -729,7 +730,7 @@ export default function AddPropertyPage() {
         createdAt: new Date(),
         read: false,
         type: 'newProspect',
-        user: userSnap.data(),
+        user: pickNotificationUser(userSnap.data(), user.uid),
       });
 
       // Kick off media upload in background — don't await (only for files, not URLs)

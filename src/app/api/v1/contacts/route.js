@@ -16,7 +16,14 @@ export async function GET(request) {
   // agent, buyer, or an x-api-key caller — must have genuinely
   // approved API access, matching what the x-api-key path has always
   // required (the bearer path previously skipped this check entirely).
-  const isSuperAdmin = auth.user.superAdmin === true;
+  //
+  // The superAdmin bypass applies ONLY to a signed-in administrator (Firebase
+  // ID token). An x-api-key caller is always account-scoped, even if the
+  // account that owns the key happens to be a superAdmin: API keys are
+  // long-lived, get pasted into third-party systems, and one was exposed
+  // through a publicly readable user document — a leaked key must never
+  // inherit platform-wide contact access.
+  const isSuperAdmin = auth.authType === 'bearer' && auth.user.superAdmin === true;
   if (!isSuperAdmin && auth.user.apiAccess?.status !== 'approved') {
     return NextResponse.json({ error: 'This endpoint requires approved API access' }, { status: 403 });
   }

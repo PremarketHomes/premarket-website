@@ -8,6 +8,7 @@ import { db } from '../firebase/clientApp';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import {
 import { withOfficeBrand } from '../utils/officeBrand';
+import { fetchAgentProfiles } from '../utils/fetchAgentProfiles';
   GradientMesh,
   PulseBadge,
   GlowButton,
@@ -375,12 +376,12 @@ function FeaturedProperties() {
         // Fetch agent data
         const userIds = [...new Set(docs.map(p => p.userId).filter(Boolean))];
         const agentData = {};
+        const agentProfiles = await fetchAgentProfiles(userIds);
         await Promise.all(
           userIds.map(async (userId) => {
             try {
-              const userDoc = await getDoc(doc(db, 'users', userId));
-              if (userDoc.exists()) {
-                const userData = userDoc.data();
+              const userData = agentProfiles[userId];
+              if (userData) {
                 agentData[userId] = await withOfficeBrand({
                   firstName: userData.firstName,
                   lastName: userData.lastName,

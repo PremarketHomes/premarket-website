@@ -3,8 +3,9 @@ import {
   getTestEnv, getAuthedDb, getUnauthDb, getSuperAdminDb, seedDoc,
   cleanup, teardown,
   assertSucceeds, assertFails,
-  doc, getDoc, setDoc, updateDoc, deleteDoc,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs,
 } from './helpers.js';
+import { query, where } from 'firebase/firestore';
 
 beforeAll(async () => { await getTestEnv(); });
 afterAll(async () => { await teardown(); });
@@ -12,24 +13,36 @@ beforeEach(async () => { await cleanup(); });
 
 describe('users collection', () => {
   // --- read ---
-  it('allows unauthenticated read', async () => {
-    const ownerDb = getAuthedDb('user1');
-    await setDoc(doc(ownerDb, 'users', 'user1'), { name: 'Alice' });
+  it('denies unauthenticated read of a user doc', async () => {
+    await seedDoc('users/user1', { firstName: 'Alice', email: 'a@example.com' });
+    await assertFails(getDoc(doc(getUnauthDb(), 'users', 'user1')));
+  });
+
+  it('denies unauthenticated listing and querying of users', async () => {
+    await seedDoc('users/user1', { firstName: 'Alice', agent: true });
     const db = getUnauthDb();
-    await assertSucceeds(getDoc(doc(db, 'users', 'user1')));
+    await assertFails(getDocs(collection(db, 'users')));
+    await assertFails(getDocs(query(collection(db, 'users'), where('agent', '==', true))));
+    await assertFails(getDocs(query(collection(db, 'users'), where('email', '==', 'a@example.com'))));
   });
 
   it('allows authenticated read of own doc', async () => {
-    const db = getAuthedDb('user1');
-    await setDoc(doc(db, 'users', 'user1'), { name: 'Alice' });
-    await assertSucceeds(getDoc(doc(db, 'users', 'user1')));
+    await seedDoc('users/user1', { firstName: 'Alice' });
+    await assertSucceeds(getDoc(doc(getAuthedDb('user1'), 'users', 'user1')));
   });
 
-  it('allows authenticated read of another user', async () => {
-    const ownerDb = getAuthedDb('user1');
-    await setDoc(doc(ownerDb, 'users', 'user1'), { name: 'Alice' });
+  it('denies an authenticated user reading another user (incl. credential fields)', async () => {
+    await seedDoc('users/user1', { firstName: 'Alice', apiAccess: { apiKey: 'redacted-test-value' } });
     const db = getAuthedDb('user2');
+    await assertFails(getDoc(doc(db, 'users', 'user1')));
+    await assertFails(getDocs(collection(db, 'users')));
+  });
+
+  it('allows a superAdmin to read and list users', async () => {
+    await seedDoc('users/user1', { firstName: 'Alice', agent: true });
+    const db = await getSuperAdminDb();
     await assertSucceeds(getDoc(doc(db, 'users', 'user1')));
+    await assertSucceeds(getDocs(query(collection(db, 'users'), where('agent', '==', true))));
   });
 
   // --- create ---

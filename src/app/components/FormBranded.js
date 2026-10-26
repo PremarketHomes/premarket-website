@@ -8,6 +8,7 @@ import { LoadScript, Autocomplete } from '@react-google-maps/api';
 import { useModal } from '../context/ModalContext';
 import { useSearchParams } from 'next/navigation';
 import { storage, db } from '../firebase/clientApp';
+import { pickNotificationUser } from '../utils/notificationUser';
 
 import {
   collection,
@@ -445,15 +446,24 @@ export default function PropertyFormModal() {
       await updateDoc(doc(db, 'properties', propertyId), propertyData);
       await setDoc(doc(db, 'draftProperties', propertyId), { ...propertyData, override: true });
 
-      const userRef = doc(db, 'users', userId);
-      const userSnap = await getDoc(userRef);
+      // Only a small allowlist of contact fields is copied into the
+      // notification — never the whole user document (see pickNotificationUser).
+      // The agent's document may not be readable from this session, in which
+      // case the notification just carries the uid.
+      let notificationUser = pickNotificationUser({}, userId);
+      try {
+        const userSnap = await getDoc(doc(db, 'users', userId));
+        if (userSnap.exists()) notificationUser = pickNotificationUser(userSnap.data(), userId);
+      } catch (err) {
+        console.warn('Could not read agent for notification; using uid only');
+      }
 
       await addDoc(collection(db, 'notifications'), {
         property: propertyData,
         createdAt: new Date(),
         read: false,
         type: 'newProspect',
-        user: userSnap.data(),
+        user: notificationUser,
       });
 
       setStep(STEPS.COMPLETE);

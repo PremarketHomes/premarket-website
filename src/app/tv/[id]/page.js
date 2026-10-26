@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import PriceOpinionSlider, { roundToStep } from '../../components/PriceOpinionSlider';
 import { withOfficeBrand } from '../../utils/officeBrand';
+import { fetchAgentProfiles } from '../../utils/fetchAgentProfiles';
 
 /* ─────────── helpers ─────────── */
 
@@ -215,18 +216,17 @@ function TvDisplayPage() {
     const missing = userIds.filter((uid) => !agents[uid]);
     if (!missing.length) return;
 
-    Promise.all(
+    fetchAgentProfiles(missing).then((profiles) => Promise.all(
       missing.map(async (uid) => {
         try {
-          const snap = await getDoc(doc(db, 'users', uid));
-          if (snap.exists()) {
-            const d = snap.data();
+          const d = profiles[uid];
+          if (d) {
             return [uid, await withOfficeBrand({ firstName: d.firstName, lastName: d.lastName, companyName: d.companyName, avatar: d.avatar, logoUrl: d.logoUrl, officeId: d.officeId || null })];
           }
         } catch {}
         return null;
       })
-    ).then((results) => {
+    )).then((results) => {
       const next = { ...agents };
       results.filter(Boolean).forEach(([uid, data]) => { next[uid] = data; });
       setAgents(next);
