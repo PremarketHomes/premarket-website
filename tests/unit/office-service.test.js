@@ -65,7 +65,7 @@ function makeOfficesCollection() {
 
 const updateUserMock = vi.fn().mockResolvedValue(undefined);
 // Charge settlement on join/leave has its own tests (office-billing.test.js); these suites use strict fakes.
-vi.mock('../../src/app/api/services/billingService', () => ({ settleChargesForAgent: vi.fn(async () => ({})) }));
+vi.mock('../../src/app/api/services/billingService', () => ({ settleChargesForAgent: vi.fn(async () => ({})), recordOfficeDeparture: vi.fn(async () => {}) }));
 
 vi.mock('firebase-admin/auth', () => ({
   getAuth: () => ({ updateUser: updateUserMock }),
@@ -252,6 +252,24 @@ describe('removeAgentFromOffice', () => {
     expect(state.users.agent1.officeId).toBeUndefined();
     expect(state.users.agent1.firstName).toBe('Jo'); // untouched
     expect(state.users.agent1.companyName).toBe('X'); // untouched — billing/properties never keyed off this
+  });
+
+  it('settles unrecorded charges and records the departure BEFORE unlinking, so later campaigns are held for billing review', async () => {
+    const billing = await import('../../src/app/api/services/billingService');
+    const { removeAgentFromOffice } = await import('../../src/app/api/services/officeService');
+    seedOffice('office1', { name: 'Harcourts Property Hub', officeAdminUids: ['admin1'] });
+    state.users.agent1 = { officeId: 'office1', accountStatus: 'active', firstName: 'Jo' };
+    const order = [];
+    billing.settleChargesForAgent.mockImplementationOnce(async () => { order.push(['settle', state.users.agent1.officeId]); });
+    billing.recordOfficeDeparture.mockImplementationOnce(async () => { order.push(['departure', state.users.agent1.officeId]); });
+
+    await removeAgentFromOffice({ officeId: 'office1', targetUid: 'agent1', actorUid: 'admin1' });
+
+    expect(order).toEqual([['settle', 'office1'], ['departure', 'office1']]); // both ran while still linked
+    expect(billing.recordOfficeDeparture).toHaveBeenCalledWith({
+      uid: 'agent1', officeId: 'office1', officeName: 'Harcourts Property Hub', removedBy: 'admin1',
+    });
+    expect(state.users.agent1.officeId).toBeUndefined();
   });
 
   it('also drops a removed agent from officeAdminUids if they were an admin', async () => {

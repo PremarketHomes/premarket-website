@@ -119,13 +119,7 @@ describe('resolveBillingEntity', () => {
     });
   });
 
-  it('an agent whose officeId points at a missing or inactive office stays independent', async () => {
-    db.seed('users', 'orphan', { firstName: 'Or', lastName: 'Phan', officeId: 'ghostOffice' });
-    expect((await billing.resolveBillingEntityForAgent('orphan')).billingEntityKey).toBe('agent:orphan');
-    db.seed('officeAdminInfo', 'closedOffice', { name: 'Closed', status: 'disabled' });
-    db.seed('users', 'ex', { firstName: 'Ex', lastName: 'Member', officeId: 'closedOffice' });
-    expect((await billing.resolveBillingEntityForAgent('ex')).billingEntityKey).toBe('agent:ex');
-  });
+  // (agents with a missing/inactive office or a former membership are HELD — see the review tests below)
 });
 
 describe('resolveBillingAccessForAgent', () => {
@@ -362,5 +356,136 @@ describe('agent billing routes with office accounts', () => {
     const { POST } = await import('../../src/app/api/agency/propose-billing-contact/route.js');
     await POST(asUser('solo'));
     expect(db._store.billingContacts['agent:solo']).toMatchObject({ status: 'pending', billingEntityType: 'independent' });
+  });
+});
+
+
+// ── Hold for review: ambiguous attribution is never silently individual billing ──
+describe('hold for billing review', () => {
+  it('an agent whose office is missing is held under review:{uid}, NOT billed individually', async () => {
+    db.seed('users', 'orphan', { firstName: 'Or', lastName: 'Phan', officeId: 'ghostOffice' });
+    await billing.recordPropertyCharge(prop('p1', 'orphan', '1 Orphan St'));
+    expect(db._store.propertyCharges.p1).toMatchObject({
+      billingEntityType: 'review',
+      billingEntityKey: 'review:orphan',
+      agentUserId: 'orphan',
+      status: 'pending',
+      totalInc: 200,
+      billingReview: { reason: 'office-missing-or-inactive', formerOfficeId: 'ghostOffice' },
+    });
+  });
+
+  it('an agent whose office has become INACTIVE is held (the HPH office being disabled never turns its agents into individual accounts)', async () => {
+    db._store.officeAdminInfo[HPH].status = 'disabled';
+    await billing.recordPropertyCharge(prop('p1', 'phil', '1 Phil St'));
+    expect(db._store.propertyCharges.p1).toMatchObject({ billingEntityKey: 'review:phil', billingReview: { reason: 'office-missing-or-inactive', formerOfficeId: HPH } });
+  });
+
+  it('an agent REMOVED from an office is held for review on their next campaign — not silently independent', async () => {
+    await billing.recordOfficeDeparture({ uid: 'phil', officeId: HPH, officeName: 'Harcourts Property Hub', removedBy: 'hphAdmin' });
+    delete db._store.users.phil.officeId; // what removeAgentFromOffice does
+    await billing.recordPropertyCharge(prop('p9', 'phil', '9 After St'));
+    expect(db._store.propertyCharges.p9).toMatchObject({
+      billingEntityType: 'review',
+      billingEntityKey: 'review:phil',
+      billingReview: { reason: 'former-office-member', formerOfficeId: HPH, formerOfficeName: 'Harcourts Property Hub' },
+    });
+  });
+
+  it('genuine independent agents are completely unaffected — no hold, normal agent:{uid} billing', async () => {
+    await billing.recordPropertyCharge(prop('p2', 'solo', '2 Solo St'));
+    const c = db._store.propertyCharges.p2;
+    expect(c).toMatchObject({ billingEntityType: 'independent', billingEntityKey: 'agent:solo' });
+    expect(c).not.toHaveProperty('billingReview');
+  });
+
+  it('held charges are NEVER bundled into a run — not even when every possible contact is confirmed', async () => {
+    await billing.recordOfficeDeparture({ uid: 'phil', officeId: HPH, officeName: 'Harcourts Property Hub' });
+    delete db._store.users.phil.officeId;
+    await billing.recordPropertyCharge(prop('p9', 'phil', '9 After St'));
+    await billing.recordPropertyCharge(prop('p4', 'solo', '4 Solo St'));
+    for (const key of ['review:phil', 'agent:phil', `office:${HPH}`]) {
+      db.seed('billingContacts', key, { status: 'confirmed', name: 'X', email: 'x@x.test' });
+    }
+    db.seed('billingContacts', 'agent:solo', { status: 'confirmed', name: 'Sol', email: 'sol@solo.test' });
+    const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin' });
+    expect(result).toMatchObject({ totalProperties: 1 }); // only the genuine independent
+    expect(db._store.propertyCharges.p9).toMatchObject({ status: 'pending', runId: null });
+    expect(Object.values(db._store.invoiceRunItems).map((i) => i.billingEntityKey)).toEqual(['agent:solo']);
+  });
+
+  it('charges recorded BEFORE the removal keep their office attribution (settled first) and still invoice with the office', async () => {
+    db.seed('properties', 'p1', { userId: 'phil', address: '1 Phil St', createdAt: new Date('2026-10-01') });
+    await billing.settleChargesForAgent('phil');
+    await billing.recordOfficeDeparture({ uid: 'phil', officeId: HPH, officeName: 'Harcourts Property Hub' });
+    delete db._store.users.phil.officeId;
+    await billing.reconcileMissingCharges();
+    expect(db._store.propertyCharges.p1.billingEntityKey).toBe(`office:${HPH}`);
+  });
+
+  it('rejoining an active office ends the hold: the agent is attributed to the office again', async () => {
+    await billing.recordOfficeDeparture({ uid: 'phil', officeId: HPH, officeName: 'Harcourts Property Hub' });
+    // phil still has officeId (re-linked): office wins over history
+    await billing.recordPropertyCharge(prop('p1', 'phil', '1 Phil St'));
+    expect(db._store.propertyCharges.p1.billingEntityKey).toBe(`office:${HPH}`);
+  });
+
+  it('agent-facing routes: a held agent is not prompted and cannot submit billing details', async () => {
+    db.seed('users', 'orphan', { firstName: 'Or', lastName: 'Phan', officeId: 'ghostOffice' });
+    const status = await import('../../src/app/api/agency/billing-contact-status/route.js');
+    expect(await (await status.GET(asUser('orphan'))).json()).toEqual({ applicable: false, billingReview: true });
+    const propose = await import('../../src/app/api/agency/propose-billing-contact/route.js');
+    const res = await propose.POST(asUser('orphan'));
+    expect(res.status).toBe(403);
+    expect(db._store.billingContacts).toBeUndefined();
+  });
+
+  describe('admin resolution', () => {
+    async function heldCharge() {
+      await billing.recordOfficeDeparture({ uid: 'phil', officeId: HPH, officeName: 'Harcourts Property Hub' });
+      delete db._store.users.phil.officeId;
+      await billing.recordPropertyCharge(prop('p9', 'phil', '9 After St'));
+    }
+
+    it('assign to the office: charge joins the office key with an audit trail, then bundles normally', async () => {
+      await heldCharge();
+      await billing.resolveBillingReview({ chargeId: 'p9', assignTo: 'office', officeId: HPH, adminUid: 'luke', reason: 'Still HPH' });
+      expect(db._store.propertyCharges.p9).toMatchObject({
+        billingEntityType: 'office', billingEntityKey: `office:${HPH}`, officeId: HPH,
+        billingReviewResolution: { assignedTo: 'office', by: 'luke', previousKey: 'review:phil', reason: 'Still HPH' },
+      });
+      db.seed('billingContacts', `office:${HPH}`, { status: 'confirmed', name: 'HPH', email: 'a@hph.test' });
+      expect(await createInvoiceRunFromPendingCharges({ createdBy: 'luke' })).toMatchObject({ totalProperties: 1 });
+    });
+
+    it('assign to independent: charge becomes agent:{uid} and the hold is cleared so FUTURE campaigns bill individually', async () => {
+      await heldCharge();
+      await billing.resolveBillingReview({ chargeId: 'p9', assignTo: 'independent', adminUid: 'luke', reason: 'Left HPH' });
+      expect(db._store.propertyCharges.p9).toMatchObject({ billingEntityType: 'independent', billingEntityKey: 'agent:phil' });
+      expect(db._store.officeMembershipHistory.phil.clearedBy).toBe('luke');
+      await billing.recordPropertyCharge(prop('p10', 'phil', '10 Later St'));
+      expect(db._store.propertyCharges.p10).toMatchObject({ billingEntityType: 'independent', billingEntityKey: 'agent:phil' });
+    });
+
+    it('refuses to assign to an inactive or unknown office', async () => {
+      await heldCharge();
+      await expect(billing.resolveBillingReview({ chargeId: 'p9', assignTo: 'office', officeId: 'nope', adminUid: 'luke' })).rejects.toThrow(/not active|does not exist/);
+      expect(db._store.propertyCharges.p9.billingEntityKey).toBe('review:phil');
+    });
+
+    it('only resolves a charge that is held, pending and unattached — never an office, invoiced or queued charge', async () => {
+      await billing.recordPropertyCharge(prop('p1', 'phil', '1 Phil St')); // office charge
+      await expect(billing.resolveBillingReview({ chargeId: 'p1', assignTo: 'independent', adminUid: 'luke' })).rejects.toThrow(/not held/);
+      await heldCharge();
+      db._store.propertyCharges.p9.status = 'invoiced';
+      await expect(billing.resolveBillingReview({ chargeId: 'p9', assignTo: 'independent', adminUid: 'luke' })).rejects.toThrow(/Cannot resolve/);
+      expect(db._store.propertyCharges.p1.billingEntityKey).toBe(`office:${HPH}`);
+    });
+
+    it('requires a valid outcome and an admin', async () => {
+      await heldCharge();
+      await expect(billing.resolveBillingReview({ chargeId: 'p9', assignTo: 'whatever', adminUid: 'luke' })).rejects.toThrow(/assignTo/);
+      await expect(billing.resolveBillingReview({ chargeId: 'p9', assignTo: 'office', officeId: HPH })).rejects.toThrow(/adminUid/);
+    });
   });
 });

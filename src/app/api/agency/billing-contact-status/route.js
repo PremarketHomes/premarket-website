@@ -31,7 +31,11 @@ export async function GET(request) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
-    const { entity, canManage } = await resolveBillingAccessForAgent(auth.uid);
+    const { entity, canManage, hold } = await resolveBillingAccessForAgent(auth.uid);
+    // Attribution on hold: an admin is reviewing how this agent is billed.
+    if (hold) {
+      return NextResponse.json({ applicable: false, billingReview: true });
+    }
     // Office agents are billed through their office, never individually:
     // only the office's administrators are asked for (or shown) its
     // billing details.

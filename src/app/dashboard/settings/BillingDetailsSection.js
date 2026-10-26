@@ -43,6 +43,7 @@ export default function BillingDetailsSection() {
   const [rejectionReason, setRejectionReason] = useState(null);
   const [changeRequest, setChangeRequest] = useState(null);
   const [officeBillingName, setOfficeBillingName] = useState(null);
+  const [underReview, setUnderReview] = useState(false);
 
   const [editing, setEditing] = useState(false);
   const [formBillingName, setFormBillingName] = useState('');
@@ -57,6 +58,7 @@ export default function BillingDetailsSection() {
       const res = await authFetch('/api/agency/billing-contact-status');
       const data = await res.json();
       // Office members are billed through their office, not individually.
+      setUnderReview(!!data.billingReview);
       setOfficeBillingName(data.officeBilling ? (data.billingEntityName || 'your office') : null);
       setStatus(data.status || 'unset');
       setBillingName(data.billingName ?? null);
@@ -133,6 +135,20 @@ export default function BillingDetailsSection() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!loading && underReview) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Receipt className="w-4 h-4 text-orange-600" />
+          <h2 className="text-sm font-semibold text-slate-900">Billing Details</h2>
+        </div>
+        <p className="text-sm text-slate-600">
+          Your billing setup is being reviewed by Premarket. Nothing is needed from you right now.
+        </p>
+      </div>
+    );
   }
 
   if (!loading && officeBillingName) {

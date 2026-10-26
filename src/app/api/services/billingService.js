@@ -557,42 +557,108 @@ async function loadActiveOffice(officeId) {
   return { officeId, officeName: data.name || '', officeAdminUids: data.officeAdminUids || [] };
 }
 
+// Server-only record (default-deny in firestore.rules) of an agent being
+// removed from an office. officeId on `users` is deleted at removal, so
+// without this an ex-member would be indistinguishable from a genuinely
+// independent agent. Cleared only by an admin's explicit review decision.
+const OFFICE_HISTORY_COLLECTION = 'officeMembershipHistory';
+
+export async function recordOfficeDeparture({ uid, officeId, officeName, removedBy }) {
+  await adminDb.collection(OFFICE_HISTORY_COLLECTION).doc(uid).set({
+    uid,
+    officeId,
+    officeName: officeName || '',
+    leftAt: FieldValue.serverTimestamp(),
+    removedBy: removedBy || null,
+    clearedAt: null,
+    clearedBy: null,
+  });
+}
+
+/**
+ * The single place that decides what an agent's campaigns are billed to.
+ * Returns `{ entity }` for an unambiguous answer, or `{ entity, hold }`
+ * when the attribution can't be trusted without a human look:
+ *
+ *   - `office-missing-or-inactive`: the agent still points at an office
+ *     that is gone or no longer active (e.g. the office was disabled).
+ *   - `former-office-member`: the agent was removed from an office and an
+ *     admin hasn't yet confirmed how they should be billed from now on.
+ *
+ * A held agent is NEVER silently billed as an independent: the charge is
+ * recorded (so nothing is lost) but keyed `review:{uid}`, which no invoice
+ * run will ever pick up until an admin resolves it. Agents with no office
+ * link and no unresolved office history — genuine independents — are
+ * entirely unaffected.
+ */
+async function resolveBillingAttribution(agentUserId, agent) {
+  if (agent.officeId) {
+    const office = await loadActiveOffice(agent.officeId);
+    if (office) {
+      return {
+        entity: resolveBillingEntity({
+          agentUserId,
+          firstName: agent.firstName,
+          lastName: agent.lastName,
+          officeId: office.officeId,
+          officeName: office.officeName,
+        }),
+        office,
+      };
+    }
+    return heldAttribution(agentUserId, agent, 'office-missing-or-inactive', { officeId: agent.officeId });
+  }
+
+  const history = await adminDb.collection(OFFICE_HISTORY_COLLECTION).doc(agentUserId).get();
+  if (history.exists && !history.data().clearedAt) {
+    const h = history.data();
+    return heldAttribution(agentUserId, agent, 'former-office-member', { officeId: h.officeId, officeName: h.officeName });
+  }
+
+  return {
+    entity: resolveBillingEntity({ agentUserId, firstName: agent.firstName, lastName: agent.lastName }),
+    office: null,
+  };
+}
+
+function heldAttribution(agentUserId, agent, reason, { officeId, officeName }) {
+  const agentName = `${agent.firstName || ''} ${agent.lastName || ''}`.trim() || 'Unknown agent';
+  return {
+    office: null,
+    hold: { reason, officeId: officeId || null, officeName: officeName || null },
+    entity: {
+      billingEntityType: 'review',
+      billingEntityKey: `review:${agentUserId}`,
+      billingEntityName: agentName,
+      billingReview: {
+        reason,
+        formerOfficeId: officeId || null,
+        formerOfficeName: officeName || null,
+        flaggedAt: new Date().toISOString(),
+      },
+    },
+  };
+}
+
+async function resolveBillingEntityForAgentDoc(agentUserId, agent) {
+  return (await resolveBillingAttribution(agentUserId, agent)).entity;
+}
+
 /**
  * Who may view/propose billing details for this agent's billing entity:
  * an independent agent for their own account, but for an office account
  * ONLY that office's administrators — individual office agents never
  * see or edit the office's billing details, and are never invoiced.
+ * An agent whose attribution is on hold can't manage anything until an
+ * admin resolves it (`hold` is set).
  */
 export async function resolveBillingAccessForAgent(agentUserId) {
   const agentDoc = await adminDb.collection('users').doc(agentUserId).get();
   const agent = agentDoc.exists ? agentDoc.data() : {};
-  const office = await loadActiveOffice(agent.officeId);
-  const entity = resolveBillingEntity({
-    agentUserId,
-    firstName: agent.firstName,
-    lastName: agent.lastName,
-    ...(office ? { officeId: office.officeId, officeName: office.officeName } : {}),
-  });
+  const { entity, office, hold } = await resolveBillingAttribution(agentUserId, agent);
+  if (hold) return { entity, canManage: false, hold };
   const canManage = office ? office.officeAdminUids.includes(agentUserId) : true;
   return { entity, canManage };
-}
-
-/**
- * Same resolution as resolveBillingEntityForAgent for a caller that has
- * already loaded the agent's user doc (the charge-creation path), so
- * both always agree. An agent linked to an ACTIVE office (users.officeId
- * pointing at a real officeAdminInfo doc) bills through that office;
- * everyone else — including an agent whose officeId points at a missing
- * or inactive office — stays an independent `agent:{uid}` account.
- */
-async function resolveBillingEntityForAgentDoc(agentUserId, agent) {
-  const office = await loadActiveOffice(agent.officeId);
-  return resolveBillingEntity({
-    agentUserId,
-    firstName: agent.firstName,
-    lastName: agent.lastName,
-    ...(office || {}),
-  });
 }
 
 /**
@@ -890,6 +956,78 @@ export async function settleChargesForAgent(agentUserId) {
   if (!agentUserId) return { created: 0, skipped: 0 };
   const snap = await adminDb.collection('properties').where('userId', '==', agentUserId).get();
   return ensureChargesForProperties(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+}
+
+/**
+ * Admin decision on a charge held for billing review (`review:{uid}`).
+ * Only a still-pending charge not attached to any run can be resolved, and
+ * only to one of two explicit outcomes:
+ *
+ *   - `assignTo: 'office'` with an `officeId` that is currently ACTIVE:
+ *     the charge joins that office's consolidated invoice.
+ *   - `assignTo: 'independent'`: the charge becomes the agent's own
+ *     `agent:{uid}` charge, and the agent's office history is marked
+ *     cleared so their future campaigns are billed individually without
+ *     being held again.
+ *
+ * The original hold reason is kept on the charge with who/when/why.
+ */
+export async function resolveBillingReview({ chargeId, assignTo, officeId, adminUid, reason }) {
+  if (!adminUid) throw new Error('adminUid is required');
+  if (assignTo !== 'office' && assignTo !== 'independent') throw new Error('assignTo must be "office" or "independent"');
+
+  const ref = adminDb.collection('propertyCharges').doc(chargeId);
+  return adminDb.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw Object.assign(new Error('Charge not found'), { status: 404 });
+    const charge = snap.data();
+    if (charge.billingEntityType !== 'review') {
+      throw Object.assign(new Error('This charge is not held for billing review'), { status: 409 });
+    }
+    if (charge.status !== 'pending' || charge.runId) {
+      throw Object.assign(new Error(`Cannot resolve a charge with status "${charge.status}"`), { status: 409 });
+    }
+
+    const resolution = {
+      assignedTo: assignTo,
+      by: adminUid,
+      at: FieldValue.serverTimestamp(),
+      reason: reason || null,
+      previousKey: charge.billingEntityKey,
+    };
+
+    if (assignTo === 'office') {
+      const officeSnap = officeId ? await tx.get(adminDb.collection('officeAdminInfo').doc(officeId)) : null;
+      if (!officeSnap || !officeSnap.exists || officeSnap.data().status !== 'active') {
+        throw Object.assign(new Error('That office does not exist or is not active'), { status: 400 });
+      }
+      const officeName = officeSnap.data().name || '';
+      tx.update(ref, {
+        billingEntityType: 'office',
+        billingEntityKey: `office:${officeId}`,
+        billingEntityName: officeName || 'Office',
+        officeId,
+        officeName,
+        billingReview: { ...charge.billingReview, resolved: true },
+        billingReviewResolution: resolution,
+      });
+      return { chargeId, billingEntityKey: `office:${officeId}` };
+    }
+
+    tx.update(ref, {
+      billingEntityType: 'independent',
+      billingEntityKey: `agent:${charge.agentUserId}`,
+      billingEntityName: charge.agentName || 'Unknown agent',
+      billingReview: { ...charge.billingReview, resolved: true },
+      billingReviewResolution: resolution,
+    });
+    const historyRef = adminDb.collection(OFFICE_HISTORY_COLLECTION).doc(charge.agentUserId);
+    const history = await tx.get(historyRef);
+    if (history.exists && !history.data().clearedAt) {
+      tx.update(historyRef, { clearedAt: FieldValue.serverTimestamp(), clearedBy: adminUid });
+    }
+    return { chargeId, billingEntityKey: `agent:${charge.agentUserId}` };
+  });
 }
 
 /**

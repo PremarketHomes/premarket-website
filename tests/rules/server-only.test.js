@@ -32,6 +32,7 @@ const SERVER_ONLY_COLLECTIONS = [
   'officeAgentContacts',
   'officeInvites',
   'officeJoinRequests',
+  'officeMembershipHistory',
   'officeAdminInfo',
 ];
 

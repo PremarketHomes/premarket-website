@@ -63,6 +63,33 @@ export default function ChargesPanel() {
     }
   }
 
+  async function handleResolveReview(charge, assignTo) {
+    const target = assignTo === 'office'
+      ? `office "${charge.billingReview?.formerOfficeName || charge.billingReview?.formerOfficeId}"`
+      : 'an independent (individual) account';
+    const reason = window.prompt(`Assign this charge to ${target}? Enter a reason (required)`);
+    if (!reason || !reason.trim()) return;
+    setActioningId(charge.id);
+    try {
+      const res = await authFetch(`/api/admin/invoicing/charges/${charge.id}/resolve-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignTo, officeId: charge.billingReview?.formerOfficeId, reason }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || 'Failed to resolve billing review');
+        return;
+      }
+      await fetchCharges();
+    } catch (err) {
+      console.error('Resolve billing review error:', err);
+      alert('Failed to resolve billing review');
+    } finally {
+      setActioningId(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-500">
@@ -111,13 +138,19 @@ export default function ChargesPanel() {
                   <td className="px-4 py-2.5 text-slate-700">{charge.propertyAddress}</td>
                   <td className="px-4 py-2.5 text-slate-600">
                     <span className="inline-flex items-center gap-1.5">
-                      {charge.billingEntityType === 'independent' ? (
+                      {charge.billingEntityType === 'independent' || charge.billingEntityType === 'review' ? (
                         <User className="w-3.5 h-3.5 text-slate-400" />
                       ) : (
                         <Building2 className="w-3.5 h-3.5 text-slate-400" />
                       )}
                       {charge.billingEntityName}
                     </span>
+                    {charge.billingEntityType === 'review' && (
+                      <span className="mt-1 block text-[10px] font-semibold text-amber-700">
+                        Held for billing review
+                        {charge.billingReview?.formerOfficeName ? ` — formerly ${charge.billingReview.formerOfficeName}` : ''}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-right font-medium text-slate-900">
                     ${charge.totalInc?.toLocaleString()}
@@ -132,7 +165,27 @@ export default function ChargesPanel() {
                     )}
                   </td>
                   {tab === 'pending' && (
-                    <td className="px-4 py-2.5 text-right">
+                    <td className="px-4 py-2.5 text-right space-x-3 whitespace-nowrap">
+                      {charge.billingEntityType === 'review' && (
+                        <>
+                          {charge.billingReview?.formerOfficeId && (
+                            <button
+                              onClick={() => handleResolveReview(charge, 'office')}
+                              disabled={actioningId === charge.id}
+                              className="text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                            >
+                              Bill to office
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleResolveReview(charge, 'independent')}
+                            disabled={actioningId === charge.id}
+                            className="text-xs font-semibold text-slate-600 hover:text-slate-800 disabled:opacity-50"
+                          >
+                            Bill individually
+                          </button>
+                        </>
+                      )}
                       <button
                         onClick={() => handleExclude(charge.id)}
                         disabled={actioningId === charge.id}

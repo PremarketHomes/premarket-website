@@ -30,7 +30,13 @@ export async function POST(request) {
 
     const { billingName, contactName, contactEmail } = await request.json();
 
-    const { entity, canManage } = await resolveBillingAccessForAgent(auth.uid);
+    const { entity, canManage, hold } = await resolveBillingAccessForAgent(auth.uid);
+    if (hold) {
+      return NextResponse.json(
+        { error: 'Your billing setup is being reviewed by Premarket. We will be in touch.' },
+        { status: 403 },
+      );
+    }
     if (!canManage) {
       return NextResponse.json(
         { error: 'Billing for your office is managed by your office administrator.' },

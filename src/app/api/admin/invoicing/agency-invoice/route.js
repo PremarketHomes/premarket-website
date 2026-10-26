@@ -54,6 +54,10 @@ export async function POST(request) {
       }
 
       const charge = chargeDoc.data();
+      if (charge.billingEntityType === 'review') {
+        skipped.push({ propertyId, reason: 'billing-attribution-needs-review' });
+        continue;
+      }
       if (charge.status !== 'pending') {
         skipped.push({ propertyId, reason: `charge-already-${charge.status}` });
         continue;

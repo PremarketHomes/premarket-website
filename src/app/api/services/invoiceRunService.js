@@ -110,7 +110,12 @@ export async function createInvoiceRunFromPendingCharges({ createdBy, onlyEntity
   const pendingSnap = await adminDb.collection('propertyCharges').where('status', '==', 'pending').get();
   if (pendingSnap.empty) return null;
 
-  let charges = pendingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Charges held for billing review (ambiguous office attribution — see
+  // billingService.resolveBillingAttribution) are never bundled, whatever
+  // contacts exist, until an admin resolves them. They stay 'pending'.
+  let charges = pendingSnap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((c) => c.billingEntityType !== 'review');
 
   // Every charge's billingEntityKey is exclusively one agent's own
   // (`agent:{uid}` — see billingService.js's resolveBillingEntity).

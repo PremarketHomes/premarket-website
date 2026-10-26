@@ -53,7 +53,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { normalizeAgencyNameExact } from './brandProfileService';
-import { settleChargesForAgent } from './billingService';
+import { settleChargesForAgent, recordOfficeDeparture } from './billingService';
 
 const OFFICES_COLLECTION = 'offices'; // public: { agencyBrandId }
 const OFFICE_ADMIN_INFO_COLLECTION = 'officeAdminInfo'; // server-only: { name, officeAdminUids, status, createdBy, createdAt, updatedAt }
@@ -389,6 +389,10 @@ export async function removeAgentFromOffice({ officeId, targetUid, actorUid }) {
     // afterwards. Charges already recorded keep their office attribution
     // regardless (it is snapshotted on the charge).
     await settleChargesForAgent(targetUid);
+    // Remember they WERE in this office: after unlinking they'd otherwise
+    // look like a genuine independent. Their future campaigns are held
+    // for an admin billing review instead of silently billed individually.
+    await recordOfficeDeparture({ uid: targetUid, officeId, officeName: office.name, removedBy: actorUid });
 
     await Promise.all([
       adminDb.collection('users').doc(targetUid).update({
