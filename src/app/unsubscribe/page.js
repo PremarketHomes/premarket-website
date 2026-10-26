@@ -2,8 +2,6 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { db } from '../firebase/clientApp';
-import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 
 function UnsubscribeContent() {
@@ -31,27 +29,13 @@ function UnsubscribeContent() {
     setStatus(null);
 
     try {
-      // Find user by email
-      const usersQuery = query(
-        collection(db, 'users'),
-        where('email', '==', email.trim().toLowerCase())
-      );
-
-      const snapshot = await getDocs(usersQuery);
-
-      if (snapshot.empty) {
-        // No user found with this email
-        setStatus('error');
-        setLoading(false);
-        return;
-      }
-
-      // Update the user doc with unsubscribed: true
-      const userDoc = snapshot.docs[0];
-      await updateDoc(doc(db, 'users', userDoc.id), {
-        unsubscribed: true,
-        unsubscribedAt: new Date(),
+      // Handled server-side: user documents are not readable from the browser.
+      const res = await fetch('/api/unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
+      if (!res.ok) throw new Error('Unsubscribe request failed');
 
       setStatus('success');
     } catch (error) {

@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { useEffect, useState, useRef } from 'react';
 import { getAuth } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
+import { fetchAgentProfiles } from '../utils/fetchAgentProfiles';
 import { db } from '../firebase/clientApp';
 import { doc, getDoc, addDoc, collection, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Image from 'next/image';
@@ -276,9 +277,9 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
 
     const fetchAgentData = async () => {
       try {
-        const userDoc = await getDoc(doc(db, 'users', property.userId));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
+        const profiles = await fetchAgentProfiles([property.userId]);
+        const userData = profiles[property.userId];
+        if (userData) {
           const data = {
             firstName: userData.firstName,
             lastName: userData.lastName,

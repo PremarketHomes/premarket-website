@@ -1095,15 +1095,16 @@ export default function PropertyReportPage() {
 
         // Batch-fetch user docs for serious offers with userId
         const seriousWithUserId = rawOffers.filter(o => o.type === 'opinion' && o.serious === true && o.userId);
-        const uniqueUserIds = [...new Set(seriousWithUserId.map(o => o.userId))];
-        const userMap = {};
-        if (uniqueUserIds.length > 0) {
-          const userSnaps = await Promise.all(
-            uniqueUserIds.map(uid => getDoc(doc(db, 'users', uid)))
-          );
-          userSnaps.forEach(snap => {
-            if (snap.exists()) userMap[snap.id] = snap.data();
-          });
+        // Other users' documents are no longer client-readable; the server
+        // returns just the contact/preference fields for this listing's buyers.
+        let userMap = {};
+        if (seriousWithUserId.length > 0) {
+          try {
+            const res = await authFetch(`/api/properties/${propertyId}/buyer-profiles`);
+            if (res.ok) userMap = (await res.json()).buyers || {};
+          } catch (err) {
+            console.error('Error fetching buyer profiles:', err);
+          }
         }
 
         // Enrich offers with resolved buyer name, contact info, and preferences.

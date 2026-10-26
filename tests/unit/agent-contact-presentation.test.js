@@ -37,16 +37,17 @@ describe('Removing public email presentation never touches authentication', () =
     expect(source).not.toMatch(/updateEmail|getAuth|signInWith/);
   });
 
-  it('the agent-data fetch in PropertyPageClient.js still reads the users collection normally (email presentation change is display-only)', () => {
+  it('the agent-data fetch in PropertyPageClient.js loads the agent through the public profiles route and never copies an email', () => {
     const source = fs.readFileSync(
       new URL('../../src/app/components/PropertyPageClient.js', import.meta.url),
       'utf-8'
     );
-    // The underlying Firestore user document / auth email itself is
-    // untouched — this file just no longer copies `userData.email` into
-    // the local agentData object used for public display.
+    // User documents are no longer publicly readable; the page gets the
+    // allowlisted public fields (which exclude email) from the server route
+    // and never copies `userData.email` into the local agentData object.
     expect(source).not.toContain('email: userData.email');
-    expect(source).toContain("doc(db, 'users', property.userId)");
+    expect(source).toContain('fetchAgentProfiles([property.userId])');
+    expect(source).not.toContain("doc(db, 'users'");
   });
 });
 

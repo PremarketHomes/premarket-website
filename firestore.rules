@@ -35,11 +35,12 @@ service cloud.firestore {
 
     // ═══════════════════════════════════════════════════════════
     // USERS
-    // Public read: listings page fetches agent profiles (name,
-    //   avatar, company) for property cards without auth.
+    // Read: the account owner or a superAdmin only. Public agent
+    //   profiles (name, avatar, company) are served by
+    //   /api/public/agent-profiles, not by this collection.
     // Write: own document only.
     //
-    // SECURITY: this document is read by ANYONE, with no auth and no
+    // SECURITY: this document used to be read by ANYONE, with no auth and no
     // field-level restriction — Firestore rules cannot hide individual
     // fields on an otherwise-readable document. The since-removed SMS
     // Shortcuts feature briefly stored each enrolled agent's personal
@@ -54,7 +55,13 @@ service cloud.firestore {
     // for the existing pattern) — never merge it into `users`/`agents`.
     // ═══════════════════════════════════════════════════════════
     match /users/{userId} {
-      allow read: if true;
+      // Owner or superAdmin only. This document holds contact details, push
+      // tokens, billing ids and (for API customers) credentials, so it must
+      // never be publicly readable. Public pages get agent name/avatar/logo
+      // from GET /api/public/agent-profiles (Admin SDK + field allowlist);
+      // an agent reading their buyers goes through
+      // GET /api/properties/[id]/buyer-profiles.
+      allow read: if isUser(userId) || isSuperAdmin();
       // superAdmin must never be settable by the account itself — it's
       // the one field isSuperAdmin() and verifyAdmin() (middleware/auth.js)
       // both trust completely, with no secondary check. Without this,
