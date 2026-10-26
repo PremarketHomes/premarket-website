@@ -159,10 +159,67 @@ export async function resolveBillingContact(billingEntityKey) {
   // send ultimately trusts, so it never returns a contact on anything
   // less than an explicit admin confirmation.
   if (data.status !== 'confirmed' || !data.email) return null;
-  return { name: data.name || '', email: data.email, billingName: data.billingName || '' };
+  // abn/address are only present when approved, so contacts without them
+  // keep exactly the original shape.
+  return {
+    name: data.name || '',
+    email: data.email,
+    billingName: data.billingName || '',
+    ...(data.abn ? { abn: data.abn } : {}),
+    ...(data.address ? { address: data.address } : {}),
+  };
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const AU_STATES = ['ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA'];
+
+/** Australian Business Number check (11 digits, official weighted checksum). */
+export function isValidAbn(raw) {
+  const digits = String(raw || '').replace(/\s+/g, '');
+  if (!/^\d{11}$/.test(digits)) return false;
+  const weights = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
+  const nums = digits.split('').map(Number);
+  nums[0] -= 1;
+  return nums.reduce((sum, n, i) => sum + n * weights[i], 0) % 89 === 0;
+}
+
+/**
+ * Validates and normalises the optional ABN and billing address that
+ * ride along with a billing contact (and are passed to Xero as the
+ * contact's TaxNumber and street address). Both are optional; a partial
+ * address is rejected rather than stored half-filled. Returns clean
+ * values ('' / null when not given) or throws a client-safe Error.
+ */
+export function normalizeBillingExtras({ abn, address } = {}) {
+  const out = { abn: '', address: null };
+
+  const abnDigits = String(abn || '').replace(/\s+/g, '');
+  if (abnDigits) {
+    if (!isValidAbn(abnDigits)) throw new Error('That ABN is not valid — please check it and try again');
+    out.abn = abnDigits.replace(/^(\d{2})(\d{3})(\d{3})(\d{3})$/, '$1 $2 $3 $4');
+  }
+
+  if (address && typeof address === 'object') {
+    const clean = (v, max) => String(v || '').trim().slice(0, max);
+    const a = {
+      line1: clean(address.line1, 120),
+      suburb: clean(address.suburb, 80),
+      state: clean(address.state, 3).toUpperCase(),
+      postcode: clean(address.postcode, 4),
+    };
+    const any = Object.values(a).some(Boolean);
+    if (any) {
+      if (!a.line1 || !a.suburb || !a.state || !a.postcode) {
+        throw new Error('Please complete the billing address (street, suburb, state and postcode) or leave it blank');
+      }
+      if (!AU_STATES.includes(a.state)) throw new Error('Please choose a valid Australian state or territory');
+      if (!/^\d{4}$/.test(a.postcode)) throw new Error('Postcode must be 4 digits');
+      out.address = a;
+    }
+  }
+  return out;
+}
 
 /**
  * Admin action — designates who THIS INDIVIDUAL AGENT's invoices get
@@ -214,9 +271,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * before deciding again. Omit it only for a direct admin-initiated
  * set with no proposal being reviewed at all.
  */
-export async function setBillingContact({ billingEntityKey, billingName, name, email, adminUid, expectedVersion }) {
+export async function setBillingContact({ billingEntityKey, billingName, name, email, abn, address, adminUid, expectedVersion }) {
   if (!billingEntityKey) throw new Error('billingEntityKey is required');
   if (!email || !EMAIL_RE.test(email)) throw new Error('A valid email is required');
+  // Only validated when the admin supplies them; otherwise the agent's own
+  // (already validated) proposal is carried through below.
+  const suppliedExtras = abn !== undefined || address !== undefined ? normalizeBillingExtras({ abn, address }) : null;
 
   const ref = adminDb.collection('billingContacts').doc(billingEntityKey);
   await adminDb.runTransaction(async (tx) => {
@@ -237,6 +297,8 @@ export async function setBillingContact({ billingEntityKey, billingName, name, e
       billingName: billingName || prior.changeRequest?.proposedBillingName || prior.proposedBillingName || prior.billingName || '',
       name: name || '',
       email,
+      abn: suppliedExtras && abn !== undefined ? suppliedExtras.abn : (prior.changeRequest?.proposedAbn ?? prior.proposedAbn ?? prior.abn ?? ''),
+      address: suppliedExtras && address !== undefined ? suppliedExtras.address : (prior.changeRequest?.proposedAddress ?? prior.proposedAddress ?? prior.address ?? null),
       setBy: adminUid,
       setAt: FieldValue.serverTimestamp(),
       proposedBy: prior.proposedBy ?? null,
@@ -302,10 +364,13 @@ export async function proposeBillingContact({
   proposedBillingName,
   proposedName,
   proposedEmail,
+  proposedAbn,
+  proposedAddress,
   agentUserId,
 }) {
   if (!billingEntityKey) throw new Error('billingEntityKey is required');
   if (!proposedEmail || !EMAIL_RE.test(proposedEmail)) throw new Error('A valid email is required');
+  const extras = normalizeBillingExtras({ abn: proposedAbn, address: proposedAddress });
 
   const ref = adminDb.collection('billingContacts').doc(billingEntityKey);
 
@@ -322,6 +387,8 @@ export async function proposeBillingContact({
           proposedBillingName: proposedBillingName || '',
           proposedName: proposedName || '',
           proposedEmail,
+          proposedAbn: extras.abn,
+          proposedAddress: extras.address,
           proposedBy: agentUserId,
           proposedAt: FieldValue.serverTimestamp(),
           status: 'pending',
@@ -340,6 +407,8 @@ export async function proposeBillingContact({
       proposedBillingName: proposedBillingName || '',
       proposedName: proposedName || '',
       proposedEmail,
+      proposedAbn: extras.abn,
+      proposedAddress: extras.address,
       proposedBy: agentUserId,
       proposedAt: FieldValue.serverTimestamp(),
     });
@@ -461,11 +530,15 @@ export async function getBillingContactStatus(billingEntityKey) {
     proposedBillingName: data.proposedBillingName || null,
     proposedName: data.proposedName || null,
     proposedEmail: data.proposedEmail || null,
+    proposedAbn: data.proposedAbn || null,
+    proposedAddress: data.proposedAddress || null,
     proposedBy: data.proposedBy || null,
     proposedAt: data.proposedAt || null,
     billingName: data.status === 'confirmed' ? data.billingName || null : null,
     name: data.status === 'confirmed' ? data.name || null : null,
     email: data.status === 'confirmed' ? data.email || null : null,
+    abn: data.status === 'confirmed' ? data.abn || null : null,
+    address: data.status === 'confirmed' ? data.address || null : null,
     rejectionReason: data.status === 'rejected' ? data.rejectionReason || null : null,
     changeRequest: data.status === 'confirmed' && data.changeRequest ? data.changeRequest : null,
   };
@@ -523,6 +596,8 @@ export async function listPendingBillingContacts() {
         proposedBillingName: data.changeRequest.proposedBillingName,
         proposedName: data.changeRequest.proposedName,
         proposedEmail: data.changeRequest.proposedEmail,
+        proposedAbn: data.changeRequest.proposedAbn || null,
+        proposedAddress: data.changeRequest.proposedAddress || null,
         proposedBy: data.changeRequest.proposedBy,
         proposedAt: data.changeRequest.proposedAt,
       });

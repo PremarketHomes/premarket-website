@@ -524,7 +524,8 @@ function BillingContactPrompt() {
       .then((res) => res.json())
       .then((data) => {
         if (!active) return;
-        setApplicable(!!data.applicable);
+        // Office billing is managed in Settings → Billing Details, never via this prompt.
+        setApplicable(!!data.applicable && data.billingEntityType !== 'office');
         setStatus(data.status || 'unset');
         setRejectionReason(data.rejectionReason || null);
         setBillingName((prev) => prev || data.billingEntityName || '');

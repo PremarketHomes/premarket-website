@@ -179,6 +179,8 @@ export async function POST(request, { params }) {
             email: contactEmail,
             firstName: nameParts[0] || '',
             lastName: nameParts.slice(1).join(' ') || '',
+            taxNumber: confirmed.abn || undefined,
+            address: confirmed.address || undefined,
           });
 
           if (!contact?.ContactID) {

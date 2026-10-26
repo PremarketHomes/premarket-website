@@ -28,7 +28,7 @@ export async function POST(request) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
-    const { billingName, contactName, contactEmail } = await request.json();
+    const { billingName, contactName, contactEmail, abn, address } = await request.json();
 
     const { entity, canManage, hold } = await resolveBillingAccessForAgent(auth.uid);
     if (hold) {
@@ -43,6 +43,11 @@ export async function POST(request) {
         { status: 403 },
       );
     }
+    // An office's invoices go to a business, so its legal/billing name is
+    // required (independent agents keep their existing optional field).
+    if (entity.billingEntityType === 'office' && !String(billingName || '').trim()) {
+      return NextResponse.json({ error: 'The legal business / billing entity name is required' }, { status: 400 });
+    }
     const result = await proposeBillingContact({
       billingEntityKey: entity.billingEntityKey,
       billingEntityType: entity.billingEntityType,
@@ -50,6 +55,8 @@ export async function POST(request) {
       proposedBillingName: billingName,
       proposedName: contactName,
       proposedEmail: contactEmail,
+      proposedAbn: abn,
+      proposedAddress: address,
       agentUserId: auth.uid,
     });
     return NextResponse.json({ success: true, ...result });

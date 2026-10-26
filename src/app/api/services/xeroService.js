@@ -163,7 +163,7 @@ export async function makeXeroRequest(method, path, body = null, retry = true, e
 // XERO API: Contacts
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function findOrCreateContact({ name, email, firstName, lastName }) {
+export async function findOrCreateContact({ name, email, firstName, lastName, taxNumber, address }) {
   // Search for existing contact by name
   const searchName = name.replace(/"/g, '\\"');
   const searchResult = await makeXeroRequest('GET', `/Contacts?where=Name=="${searchName}"`);
@@ -179,6 +179,24 @@ export async function findOrCreateContact({ name, email, firstName, lastName }) 
     FirstName: firstName || '',
     LastName: lastName || '',
   };
+  // Optional, admin-approved details (billingService.normalizeBillingExtras):
+  // the ABN goes in Xero's TaxNumber, and the address as the contact's
+  // street address. Only sent when present, so contacts without them are
+  // created exactly as before. An existing contact (matched by name above)
+  // is never modified.
+  if (taxNumber) newContact.TaxNumber = taxNumber;
+  if (address?.line1) {
+    newContact.Addresses = [
+      {
+        AddressType: 'STREET',
+        AddressLine1: address.line1,
+        City: address.suburb,
+        Region: address.state,
+        PostalCode: address.postcode,
+        Country: 'Australia',
+      },
+    ];
+  }
 
   const result = await makeXeroRequest('POST', '/Contacts', { Contacts: [newContact] });
   return result.Contacts?.[0] || null;

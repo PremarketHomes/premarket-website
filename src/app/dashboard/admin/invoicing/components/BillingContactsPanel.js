@@ -161,6 +161,8 @@ export default function BillingContactsPanel() {
                 )}
                 <p className="text-xs text-slate-500">
                   {item.isChangeRequest ? 'Requested' : 'Agency'}: {item.proposedBillingName || '—'} · Accounts contact: {item.proposedName || '—'} · Billing email: {item.proposedEmail}
+                  {item.proposedAbn ? ` · ABN: ${item.proposedAbn}` : ''}
+                  {item.proposedAddress ? ` · Address: ${item.proposedAddress.line1}, ${item.proposedAddress.suburb} ${item.proposedAddress.state} ${item.proposedAddress.postcode}` : ''}
                 </p>
               </div>
             </div>

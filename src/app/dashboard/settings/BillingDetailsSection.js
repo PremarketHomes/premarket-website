@@ -31,6 +31,12 @@ import { authFetch } from '../../utils/authFetch';
  *     are never affected either way — this only ever changes who
  *     FUTURE invoices go to.
  */
+const EMPTY_ADDRESS = { line1: '', suburb: '', state: '', postcode: '' };
+const AU_STATES = ['ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA'];
+const formatAddress = (a) => (a?.line1 ? `${a.line1}, ${a.suburb} ${a.state} ${a.postcode}` : '');
+const INPUT_CLASS =
+  'w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-base sm:text-sm text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400 transition-all';
+
 export default function BillingDetailsSection() {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('unset');
@@ -44,11 +50,21 @@ export default function BillingDetailsSection() {
   const [changeRequest, setChangeRequest] = useState(null);
   const [officeBillingName, setOfficeBillingName] = useState(null);
   const [underReview, setUnderReview] = useState(false);
+  // Office administrators bill on behalf of their office: the same endpoints
+  // and approval flow, with a business-oriented form (legal name, ABN, address).
+  const [isOffice, setIsOffice] = useState(false);
+  const [entityName, setEntityName] = useState('');
+  const [abn, setAbn] = useState(null);
+  const [address, setAddress] = useState(null);
+  const [proposedAbn, setProposedAbn] = useState(null);
+  const [proposedAddress, setProposedAddress] = useState(null);
 
   const [editing, setEditing] = useState(false);
   const [formBillingName, setFormBillingName] = useState('');
   const [formContactName, setFormContactName] = useState('');
   const [formContactEmail, setFormContactEmail] = useState('');
+  const [formAbn, setFormAbn] = useState('');
+  const [formAddress, setFormAddress] = useState(EMPTY_ADDRESS);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [justSubmitted, setJustSubmitted] = useState(false);
@@ -60,6 +76,12 @@ export default function BillingDetailsSection() {
       // Office members are billed through their office, not individually.
       setUnderReview(!!data.billingReview);
       setOfficeBillingName(data.officeBilling ? (data.billingEntityName || 'your office') : null);
+      setIsOffice(data.billingEntityType === 'office');
+      setEntityName(data.billingEntityName || '');
+      setAbn(data.abn ?? null);
+      setAddress(data.address ?? null);
+      setProposedAbn(data.proposedAbn ?? null);
+      setProposedAddress(data.proposedAddress ?? null);
       setStatus(data.status || 'unset');
       setBillingName(data.billingName ?? null);
       setContactName(data.name ?? null);
@@ -88,14 +110,20 @@ export default function BillingDetailsSection() {
       setFormBillingName(changeRequest.proposedBillingName || '');
       setFormContactName(changeRequest.proposedName || '');
       setFormContactEmail(changeRequest.proposedEmail || '');
+      setFormAbn(changeRequest.proposedAbn || '');
+      setFormAddress(changeRequest.proposedAddress || EMPTY_ADDRESS);
     } else if (status === 'confirmed') {
       setFormBillingName(billingName || '');
       setFormContactName(contactName || '');
       setFormContactEmail(contactEmail || '');
+      setFormAbn(abn || '');
+      setFormAddress(address || EMPTY_ADDRESS);
     } else {
       setFormBillingName(proposedBillingName || '');
       setFormContactName(proposedName || '');
       setFormContactEmail(proposedEmail || '');
+      setFormAbn(proposedAbn || '');
+      setFormAddress(proposedAddress || EMPTY_ADDRESS);
     }
     setEditing(true);
   }
@@ -111,6 +139,10 @@ export default function BillingDetailsSection() {
       setSubmitError('A billing email address is required');
       return;
     }
+    if (isOffice && !formBillingName.trim()) {
+      setSubmitError('The legal business / billing entity name is required');
+      return;
+    }
     setSubmitting(true);
     setSubmitError('');
     try {
@@ -121,6 +153,8 @@ export default function BillingDetailsSection() {
           billingName: formBillingName.trim(),
           contactName: formContactName.trim(),
           contactEmail: formContactEmail.trim(),
+          // Independent agents' form is unchanged: ABN/address are office-only.
+          ...(isOffice && { abn: formAbn.trim(), address: formAddress }),
         }),
       });
       const data = await res.json();
@@ -187,21 +221,21 @@ export default function BillingDetailsSection() {
     if (status === 'confirmed' && !hasPendingChange) {
       return (
         <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[11px] font-semibold px-2 py-1 rounded-full">
-          <CheckCircle2 className="w-3 h-3" /> Verified
+          <CheckCircle2 className="w-3 h-3" /> {isOffice ? 'Approved' : 'Verified'}
         </span>
       );
     }
     if (status === 'confirmed' && hasPendingChange) {
       return (
         <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-[11px] font-semibold px-2 py-1 rounded-full">
-          <Clock className="w-3 h-3" /> Verified — change pending
+          <Clock className="w-3 h-3" /> {isOffice ? 'Approved' : 'Verified'} — change pending
         </span>
       );
     }
     if (status === 'pending') {
       return (
         <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-[11px] font-semibold px-2 py-1 rounded-full">
-          <Clock className="w-3 h-3" /> Pending review
+          <Clock className="w-3 h-3" /> {isOffice ? 'Pending approval' : 'Pending review'}
         </span>
       );
     }
@@ -227,6 +261,8 @@ export default function BillingDetailsSection() {
   const displayBillingName = status === 'confirmed' ? billingName : proposedBillingName;
   const displayContactName = status === 'confirmed' ? contactName : proposedName;
   const displayContactEmail = status === 'confirmed' ? contactEmail : proposedEmail;
+  const displayAbn = status === 'confirmed' ? abn : proposedAbn;
+  const displayAddress = status === 'confirmed' ? address : proposedAddress;
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -238,12 +274,14 @@ export default function BillingDetailsSection() {
         <StatusBadge />
       </div>
       <p className="text-xs text-slate-500 mb-4">
-        Premarket invoices are issued to you individually. These details — not necessarily your login email — are used as your billing contact.
+        {isOffice
+          ? `Premarket invoices for all of ${entityName || 'your office'}'s campaigns are issued to these details as one consolidated invoice. Submitting them sends them to Premarket for approval; no invoice is created until they're approved.`
+          : 'Premarket invoices are issued to you individually. These details — not necessarily your login email — are used as your billing contact.'}
       </p>
 
       {status === 'pending' && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-          Awaiting Premarket&apos;s review.
+          {isOffice ? 'Awaiting Premarket\'s approval. No invoice is created until your details are approved.' : 'Awaiting Premarket\'s review.'}
         </p>
       )}
       {status === 'rejected' && (
@@ -255,7 +293,7 @@ export default function BillingDetailsSection() {
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
           A change is awaiting Premarket&apos;s review — your current, verified details below remain active until it&apos;s approved:
           <br />
-          <span className="font-medium">{changeRequest.proposedBillingName || '—'} · {changeRequest.proposedName || '—'} · {changeRequest.proposedEmail}</span>
+          <span className="font-medium">{changeRequest.proposedBillingName || '—'} · {changeRequest.proposedName || '—'} · {changeRequest.proposedEmail}{changeRequest.proposedAbn ? ` · ABN ${changeRequest.proposedAbn}` : ''}</span>
         </p>
       )}
       {hasRejectedChange && (
@@ -273,7 +311,7 @@ export default function BillingDetailsSection() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
             <div>
-              <p className="text-xs font-semibold text-slate-600 mb-1">Agency Name</p>
+              <p className="text-xs font-semibold text-slate-600 mb-1">{isOffice ? 'Legal business / billing entity name' : 'Agency Name'}</p>
               <p className="text-sm text-slate-900">{displayBillingName || <span className="text-slate-400">Not provided</span>}</p>
             </div>
             <div>
@@ -281,10 +319,22 @@ export default function BillingDetailsSection() {
               <p className="text-sm text-slate-900">{displayContactName || <span className="text-slate-400">Not provided</span>}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-600 mb-1">Billing Email</p>
-              <p className="text-sm text-slate-900">{displayContactEmail || <span className="text-slate-400">Not provided</span>}</p>
+              <p className="text-xs font-semibold text-slate-600 mb-1">{isOffice ? 'Accounts email' : 'Billing Email'}</p>
+              <p className="text-sm text-slate-900 break-words">{displayContactEmail || <span className="text-slate-400">Not provided</span>}</p>
             </div>
           </div>
+          {isOffice && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+              <div>
+                <p className="text-xs font-semibold text-slate-600 mb-1">ABN</p>
+                <p className="text-sm text-slate-900">{displayAbn || <span className="text-slate-400">Not provided</span>}</p>
+              </div>
+              <div className="sm:col-span-2">
+                <p className="text-xs font-semibold text-slate-600 mb-1">Billing address</p>
+                <p className="text-sm text-slate-900">{formatAddress(displayAddress) || <span className="text-slate-400">Not provided</span>}</p>
+              </div>
+            </div>
+          )}
           <button
             onClick={startEdit}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
@@ -299,13 +349,14 @@ export default function BillingDetailsSection() {
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Agency Name</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{isOffice ? 'Legal business / billing entity name' : 'Agency Name'}</label>
               <input
                 type="text"
                 value={formBillingName}
                 onChange={(e) => setFormBillingName(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400 transition-all"
-                placeholder="e.g. Ray White, LJ Hooker"
+                required={isOffice}
+                placeholder={isOffice ? 'The name invoices should be issued to' : 'e.g. Ray White, LJ Hooker'}
               />
             </div>
             <div>
@@ -320,16 +371,71 @@ export default function BillingDetailsSection() {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Billing Email</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">{isOffice ? 'Accounts email address' : 'Billing Email'}</label>
             <input
               type="email"
               required
               value={formContactEmail}
               onChange={(e) => setFormContactEmail(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400 transition-all"
-              placeholder="This can be different from your login email"
+              placeholder={isOffice ? 'Where invoices should be sent' : 'This can be different from your login email'}
             />
           </div>
+          {isOffice && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">ABN (optional)</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={formAbn}
+                  onChange={(e) => setFormAbn(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-base sm:text-sm text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400 transition-all"
+                  placeholder="11 digits, e.g. 12 345 678 901"
+                />
+              </div>
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold text-slate-600">Billing address (optional)</label>
+                <input
+                  type="text"
+                  value={formAddress.line1}
+                  onChange={(e) => setFormAddress((a) => ({ ...a, line1: e.target.value }))}
+                  className={INPUT_CLASS}
+                  placeholder="Street address"
+                  autoComplete="address-line1"
+                />
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <input
+                    type="text"
+                    value={formAddress.suburb}
+                    onChange={(e) => setFormAddress((a) => ({ ...a, suburb: e.target.value }))}
+                    className={`${INPUT_CLASS} col-span-2`}
+                    placeholder="Suburb"
+                    autoComplete="address-level2"
+                  />
+                  <select
+                    value={formAddress.state}
+                    onChange={(e) => setFormAddress((a) => ({ ...a, state: e.target.value }))}
+                    className={INPUT_CLASS}
+                    aria-label="State or territory"
+                  >
+                    <option value="">State</option>
+                    {AU_STATES.map((st) => <option key={st} value={st}>{st}</option>)}
+                  </select>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={formAddress.postcode}
+                    onChange={(e) => setFormAddress((a) => ({ ...a, postcode: e.target.value }))}
+                    className={INPUT_CLASS}
+                    placeholder="Postcode"
+                    autoComplete="postal-code"
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
           {submitError && <p className="text-xs text-red-600">{submitError}</p>}
 
