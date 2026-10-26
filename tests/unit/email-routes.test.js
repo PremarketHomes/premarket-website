@@ -10,7 +10,9 @@ vi.mock('firebase-admin/auth', () => ({
 vi.mock('../../src/app/firebase/adminApp', () => ({
   adminDb: {
     collection: () => ({
-      doc: () => ({ get: vi.fn().mockResolvedValue({ exists: true, data: () => ({}) }) }),
+      // Every document is owned by 'user123' (the user setupValidAuth signs in as),
+      // which send-report needs: only the listing owner / a superAdmin may send.
+      doc: () => ({ get: vi.fn().mockResolvedValue({ exists: true, data: () => ({ userId: 'user123' }) }) }),
     }),
   },
 }));
@@ -91,6 +93,15 @@ describe('POST /api/send-report', () => {
       'Bearer valid-token',
     ));
     expect(res.status).toBe(200);
+  });
+
+  it('returns 403 when the caller does not own the property (see office-admin-property-reports.test.js for the full matrix)', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'someone-else', email: 'x@example.com' });
+    const res = await handler(makeRequest(
+      { email: 'a@b.com', propertyId: 'p1', name: 'Test' },
+      'Bearer valid-token',
+    ));
+    expect(res.status).toBe(403);
   });
 });
 

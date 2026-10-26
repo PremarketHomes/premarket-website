@@ -16,8 +16,10 @@ export function propertyStatus(p) {
 
 const toIso = (t) => (t && typeof t.toDate === 'function' ? t.toDate().toISOString() : null);
 
-/** Read-only, deliberately minimal view of one property for an office admin.
- * No offers, buyer/contact data, phone numbers, billing or agent contact details. */
+/** Read-only, deliberately minimal LIST row for an office admin: no offers,
+ * buyer/contact data, phone numbers, billing or agent contact details. The full
+ * report (opinions, buyer interest) is opened separately through the
+ * authorised, read-only property report (propertyAccessService.js). */
 export function toOfficeTeamProperty(id, p) {
   return {
     id,

@@ -4,8 +4,8 @@ import {
   pickPublicProfile,
   parseProfileIds,
   getPublicAgentProfiles,
-  getBuyerProfilesForProperty,
 } from '../../src/app/api/services/publicProfileService';
+import { getBuyerProfilesForProperty } from '../../src/app/api/services/propertyAccessService';
 import { pickNotificationUser, NOTIFICATION_USER_FIELDS } from '../../src/app/utils/notificationUser';
 
 const require_ = (await import('node:module')).createRequire(import.meta.url);

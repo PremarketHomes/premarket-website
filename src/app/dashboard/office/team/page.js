@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Eye, ExternalLink, Search, Building2, Bed, Bath, Car } from 'lucide-react';
+import { ArrowLeft, Eye, ExternalLink, Search, Building2, Bed, Bath, Car, BarChart3 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
@@ -36,7 +36,8 @@ function Centered({ children }) {
 
 /**
  * Office Team — office administrators see every member of THEIR office and,
- * read-only, each linked member's properties. Source of truth is the existing
+ * read-only, each linked member's properties and (via the existing property report, in
+ * read-only mode) their reporting. Source of truth is the existing
  * office membership system (/api/offices/*); nothing here writes anything.
  */
 export default function OfficeTeamPage() {
@@ -231,9 +232,14 @@ export default function OfficeTeamPage() {
                               {p.bedrooms != null && <span className="inline-flex items-center gap-1"><Bed className="w-3.5 h-3.5" />{p.bedrooms}</span>}
                               {p.bathrooms != null && <span className="inline-flex items-center gap-1"><Bath className="w-3.5 h-3.5" />{p.bathrooms}</span>}
                               {p.carSpaces != null && <span className="inline-flex items-center gap-1"><Car className="w-3.5 h-3.5" />{p.carSpaces}</span>}
-                              <Link href={`/find-property?propertyId=${p.id}`} target="_blank" className="ml-auto inline-flex items-center gap-1 text-orange-600 hover:text-orange-700 font-semibold">
-                                View page <ExternalLink className="w-3 h-3" />
-                              </Link>
+                              <span className="ml-auto inline-flex items-center gap-3">
+                                <Link href={`/dashboard/property/${p.id}`} className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-semibold">
+                                  View report <BarChart3 className="w-3 h-3" />
+                                </Link>
+                                <Link href={`/find-property?propertyId=${p.id}`} target="_blank" className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-700 font-semibold">
+                                  View page <ExternalLink className="w-3 h-3" />
+                                </Link>
+                              </span>
                             </div>
                           </div>
                         </li>
