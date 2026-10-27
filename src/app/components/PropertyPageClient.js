@@ -19,6 +19,7 @@ import { getSwipeDirection } from '../utils/swipeGesture';
 import { computePriceOpinionRange } from '../utils/priceOpinionRange';
 import { shouldShowPersistentSlider } from '../utils/persistentSliderVisibility';
 import PreviewModeBanner from './property-page/PreviewModeBanner';
+import OpenHomeKiosk from './kiosk/OpenHomeKiosk';
 import { playfairDisplay } from './property-page/fonts';
 import PropertyHeader from './property-page/PropertyHeader';
 import PropertyHero from './property-page/PropertyHero';
@@ -79,13 +80,11 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
   const { user: currentAuthUser } = useAuth();
 
   const [isIpadMode, setIsIpadMode] = useState(initialMode === 'ipad');
-  const [ipadThankYou, setIpadThankYou] = useState(false);
 
   const [showQualificationModal, setShowQualificationModal] = useState(false);
-  // seriousnessLevel is iPad-kiosk-mode only now (see handleQualificationSubmit
-  // and the iPad-mode qualification modal below) — the web register-interest
-  // flow replaced that question with nextAction/timeframe, below, since
-  // "how serious are you" never actually changed what the agent received.
+  // The web register-interest flow asks nextAction/timeframe (below); the old
+  // "how serious are you" question never changed what the agent received. The
+  // iPad open-home mode has its own one-page flow (components/kiosk/OpenHomeKiosk.js).
   const [qualificationData, setQualificationData] = useState({
     isFirstHomeBuyer: false,
     isInvestor: false,
@@ -151,7 +150,6 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
   // exactly why this is a count only, never an average or a range.
   const [opinionCount, setOpinionCount] = useState(null);
   const [isSliding, setIsSliding] = useState(false);
-  const [ipadContactStep, setIpadContactStep] = useState(false);
   const [phone, setPhone] = useState('');
 
   // Signup form state
@@ -208,11 +206,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
 
   const confirmPriceOpinion = () => {
     setShowConfirmOpinionModal(false);
-    if (isIpadMode) {
-      saveIpadPriceOpinion();
-    } else {
-      savePriceOpinion();
-    }
+    savePriceOpinion();
   };
 
   // The buyer's first genuine touch of the slider — not mount, not a
@@ -524,87 +518,6 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
     }
   };
 
-  // iPad mode: always create new opinion, increment view, show register interest
-  const saveIpadPriceOpinion = () => {
-    // Show modal immediately — don't wait for Firestore
-    setRegisterInterest(true);
-    setShowQualificationModal(true);
-
-    // Preview deployments share production Firestore — never create a
-    // real opinion record from a preview build (see
-    // utils/previewEnvironment.js). The modal flow above already runs
-    // identically either way.
-    if (isPreviewDeployment()) {
-      trackEvent('ipad_price_opinion_created', {
-        property_id: propertyId,
-        opinion_amount: Math.round(priceOpinion),
-      });
-      return;
-    }
-
-    // Save in the background
-    const ipadSessionId = `ipad_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    const visitorId = localStorage.getItem('pm_visitor_id') || null;
-
-    const offerData = {
-      type: 'opinion',
-      propertyId: propertyId,
-      sessionId: ipadSessionId,
-      visitorId,
-      offerAmount: Math.round(priceOpinion),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      fromWeb: true,
-      fromIpadMode: true,
-    };
-
-    addDoc(collection(db, 'offers'), offerData)
-      .then((docRef) => {
-        setSavedOfferId(docRef.id);
-        incrementPropertyViews(propertyId);
-        trackEvent('ipad_price_opinion_created', {
-          property_id: propertyId,
-          opinion_amount: Math.round(priceOpinion),
-        });
-      })
-      .catch((error) => {
-        console.error('Error saving iPad price opinion:', error);
-      });
-  };
-
-  // Reset iPad mode to fresh state for next person
-  const resetIpadMode = () => {
-    setSavedOfferId(null);
-    setShowQualificationModal(false);
-    setShowSignupModal(false);
-    setShowPriceOpinionModal(false);
-    setShowConfirmOpinionModal(false);
-    setShowThankYou(false);
-    setIpadThankYou(false);
-    setRegisterInterest(false);
-    setIpadContactStep(false);
-    setPhone('');
-    setQualificationData({
-      isFirstHomeBuyer: false,
-      isInvestor: false,
-      buyerType: '',
-      seriousnessLevel: '',
-      nextAction: 'contact',
-      timeframe: '',
-    });
-    setShowMoreDetails(false);
-    setEmail('');
-    setFirstName('');
-    setLastName('');
-    setSignupError('');
-    // Reset for the next walk-in visitor: same de-anchored starting
-    // state as a fresh page load — a sensible thumb position, but not
-    // treated as a real opinion until they actually drag.
-    const mid = roundToStep((minPrice + maxPrice) / 2);
-    setPriceOpinion(mid);
-    setHasInteracted(false);
-  };
-
   // Explicit en-AU/AUD formatting rather than a bare `$` + toLocaleString()
   // concatenation — that relied on the runtime's default locale for digit
   // grouping, which is fine on most servers but not guaranteed.
@@ -681,91 +594,6 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
     const direction = getSwipeDirection(dx, dy);
     if (direction === 'next') nextImage();
     else if (direction === 'prev') prevImage();
-  };
-
-  const handleQualificationSubmit = async () => {
-    if (!qualificationData.buyerType || !qualificationData.seriousnessLevel) {
-      alert('Please complete all required fields');
-      return;
-    }
-
-    // Track qualification form submission
-    trackEvent('qualification_form_submitted', {
-      property_id: propertyId,
-      is_first_home_buyer: qualificationData.isFirstHomeBuyer,
-      is_investor: qualificationData.isInvestor,
-      buyer_type: qualificationData.buyerType,
-      seriousness_level: qualificationData.seriousnessLevel
-    });
-
-    if (isIpadMode) {
-      // In iPad mode: move to contact details step
-      setIpadContactStep(true);
-      return;
-    }
-
-    // If user is already logged in, skip signup - just save interest data
-    if (currentAuthUser) {
-      setShowQualificationModal(false);
-
-      if (savedOfferId) {
-        try {
-          await updateDoc(doc(db, 'offers', savedOfferId), {
-            userId: currentAuthUser.uid,
-            serious: true,
-            isFirstHomeBuyer: qualificationData.isFirstHomeBuyer,
-            isInvestor: qualificationData.isInvestor,
-            buyerType: qualificationData.buyerType,
-            seriousnessLevel: qualificationData.seriousnessLevel,
-            updatedAt: serverTimestamp(),
-          });
-        } catch (err) {
-          console.error('Error updating offer:', err);
-        }
-      }
-
-      trackEvent('registered_interest_existing_user', {
-        property_id: propertyId,
-        user_id: currentAuthUser.uid,
-        seriousness_level: qualificationData.seriousnessLevel,
-      });
-
-      setShowSignupModal(true);
-      setShowThankYou(true);
-      return;
-    }
-
-    setShowQualificationModal(false);
-    setShowSignupModal(true);
-  };
-
-  const handleIpadContactSubmit = () => {
-    // Registered buyers must provide name, email, and phone.
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !phone.trim()) return;
-
-    // Save qualification + contact info to the offer
-    setShowQualificationModal(false);
-    setIpadThankYou(true);
-    setTimeout(() => resetIpadMode(), 3000);
-
-    if (savedOfferId) {
-      updateDoc(doc(db, 'offers', savedOfferId), {
-        serious: true,
-        isFirstHomeBuyer: qualificationData.isFirstHomeBuyer,
-        isInvestor: qualificationData.isInvestor,
-        buyerType: qualificationData.buyerType,
-        seriousnessLevel: qualificationData.seriousnessLevel,
-        buyerName: `${firstName.trim()} ${lastName.trim()}`.trim(),
-        buyerEmail: email.trim().toLowerCase(),
-        buyerPhone: phone.trim(),
-        updatedAt: serverTimestamp(),
-      }).catch((err) => console.error('Error updating iPad offer:', err));
-    }
-
-    trackEvent('ipad_registered_interest', {
-      property_id: propertyId,
-      seriousness_level: qualificationData.seriousnessLevel,
-    });
   };
 
   const handleContactSubmit = async (e) => {
@@ -989,390 +817,33 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
   const displayLogoUrl = computeDisplayLogoUrl({ brand, agentData, previewBrand });
 
   // ═══════════════════════════════════════════════════════════════
-  // iPad Open Home Mode - Fullscreen price opinion kiosk
+  // iPad Open Home Mode - one full-screen page (see components/kiosk/OpenHomeKiosk.js).
+  // `&demo=1` runs the full flow with nothing saved or sent, on any host — handy
+  // for reviewing the design without creating live opinions or registrations.
   // ═══════════════════════════════════════════════════════════════
   if (isIpadMode) {
     return (
-      <div style={brandStyle} className="fixed inset-0 bg-gradient-to-b from-slate-50 to-white flex flex-col items-center justify-between overflow-hidden z-50">
-        <div className="absolute top-0 left-0 right-0 z-30">
-          <PreviewModeBanner />
-        </div>
-        {/* Background decoration */}
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          <div className="absolute top-0 left-1/4 w-96 h-96 bg-orange-100 rounded-full blur-3xl opacity-60" />
-          <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-amber-50 rounded-full blur-3xl opacity-60" />
-        </div>
-
-        {/* Desktop mode button */}
-        <button
-          onClick={() => setIsIpadMode(false)}
-          className="absolute top-6 right-6 z-20 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-500 text-sm font-medium rounded-lg transition-colors"
-        >
-          Desktop View
-        </button>
-
-        {/* Thank you overlay */}
-        {ipadThankYou && (
-          <div className="absolute inset-0 bg-white/90 backdrop-blur-sm flex items-center justify-center z-30">
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="text-center"
-            >
-              <div className="w-24 h-24 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
-                <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <h2 className="text-3xl font-bold text-slate-900 mb-2">Thank You!</h2>
-              <p className="text-slate-500 text-lg">Your interest has been registered</p>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Top: Agent info */}
-        <div className="relative z-10 w-full pt-8 pb-4 px-8 text-center pointer-events-auto">
-          {agentData ? (
-            <div className="flex flex-col items-center gap-3">
-              <div className="flex items-center gap-3">
-                {agentData.avatar ? (
-                  <Image
-                    src={agentData.avatar}
-                    alt={`${agentData.firstName || 'Agent'} ${agentData.lastName || ''}`}
-                    width={80}
-                    height={80}
-                    className="rounded-xl object-cover border-2 border-white shadow-lg w-[80px] h-[80px]"
-                    unoptimized
-                  />
-                ) : (
-                  <div className="w-[80px] h-[80px] bg-gradient-to-br from-slate-100 to-slate-200 rounded-xl flex items-center justify-center border-2 border-white shadow-lg">
-                    <svg className="w-10 h-10 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                )}
-                {displayLogoUrl && (
-                  <Image
-                    src={displayLogoUrl}
-                    alt="Agency logo"
-                    width={56}
-                    height={56}
-                    className="w-14 h-14 rounded-xl object-contain bg-white shadow-md border border-slate-200"
-                    unoptimized
-                  />
-                )}
-              </div>
-              <div>
-                <p className="font-bold text-slate-900 text-lg">
-                  {agentData.firstName} {agentData.lastName}
-                </p>
-                {agentData.companyName && (
-                  <p className="text-sm text-slate-500 font-medium">{agentData.companyName}</p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="h-[72px]" />
-          )}
-        </div>
-
-        {/* Middle: Property info + slider */}
-        <div className="relative z-10 w-full max-w-xl mx-auto px-8 text-center flex-1 flex flex-col justify-center">
-          {/* Property info */}
-          <div className="mb-8">
-            <span className="px-3 py-1 bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white text-xs font-bold rounded-full mb-4 inline-block">
-              OPEN HOME
-            </span>
-            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{title}</h1>
-            <p className="text-slate-500 text-sm">
-              {property?.showSuburbOnly
-                ? (address || 'Suburb')
-                : (formattedAddress || address)}
-            </p>
-          </div>
-
-          {/* Price display */}
-          <div className="mb-8 min-h-[72px] md:min-h-[84px] flex items-center justify-center">
-            {hasInteracted ? (
-              <div>
-                <p className="text-slate-400 text-sm font-medium mb-3 uppercase tracking-wider">
-                  What&apos;s your price opinion?
-                </p>
-                <motion.div
-                  className="text-6xl md:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)]"
-                  key={isSliding ? 'dragging' : priceOpinion}
-                  initial={{ scale: 1.05 }}
-                  animate={{ scale: 1 }}
-                  transition={{ duration: 0.15 }}
-                >
-                  {formatMoney(priceOpinion)}
-                </motion.div>
-              </div>
-            ) : (
-              <p className="text-2xl md:text-3xl font-semibold text-slate-400">
-                Have a go &mdash; what&apos;s it worth?
-              </p>
-            )}
-          </div>
-
-          {/* Slider */}
-          <div className="mb-6 px-2">
-            <PriceOpinionSlider
-              min={minPrice}
-              max={maxPrice}
-              value={priceOpinion}
-              onChange={setPriceOpinion}
-              onSlideStart={handleSlideStart}
-              onSlideEnd={() => setIsSliding(false)}
-              className="w-full h-4 bg-gradient-to-r from-orange-400 via-yellow-400 to-green-500 rounded-lg appearance-none cursor-pointer ipad-slider"
-              trackFill={false}
-            />
-            <div className="flex justify-between mt-3 text-sm text-slate-400 font-medium">
-              <span>{formatCompact(minPrice)}</span>
-              <span>{formatCompact(maxPrice)}</span>
-            </div>
-          </div>
-
-          {/* Lock in — explicit trigger (dragging no longer auto-confirms
-              on release, since that effect punished ordinary mid-drag
-              re-grips on the web page; this kiosk needs its own explicit
-              control instead of relying on that removed behaviour) */}
-          <button
-            onClick={() => setShowConfirmOpinionModal(true)}
-            disabled={!hasInteracted}
-            className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-4 rounded-xl shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-          >
-            Lock in my opinion
-          </button>
-        </div>
-
-        {/* Bottom: Powered by Premarket */}
-        <div className="relative z-20 w-full pb-8 pt-4 flex flex-col items-center gap-2">
-          <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Powered by</p>
-          <Image
-            src="https://premarketvideos.b-cdn.net/assets/logo.png"
-            alt="Premarket"
-            width={130}
-            height={32}
-            className="mx-auto opacity-60"
-            unoptimized
-          />
-        </div>
-
-        {confirmOpinionModal}
-
-        {/* Qualification Modal for iPad mode */}
-        {showQualificationModal && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 relative max-h-[90vh] overflow-y-auto"
-            >
-              <button
-                onClick={() => {
-                  setShowQualificationModal(false);
-                  setRegisterInterest(false);
-                  resetIpadMode();
-                }}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-
-              {!ipadContactStep ? (
-                <>
-                  <div className="text-center mb-6">
-                    <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-8 h-8 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                    <h3 className="text-2xl font-bold text-slate-800 mb-1">
-                      Opinion: {formatMoney(priceOpinion)}
-                    </h3>
-                    <p className="text-slate-600">
-                      Tell us a bit about yourself
-                    </p>
-                  </div>
-
-                  <div className="space-y-5">
-                    {/* First Home Buyer Toggle */}
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                      <label className="flex items-center justify-between cursor-pointer">
-                        <span className="text-sm font-semibold text-slate-800">First home buyer?</span>
-                        <input
-                          type="checkbox"
-                          checked={qualificationData.isFirstHomeBuyer}
-                          onChange={(e) => setQualificationData({ ...qualificationData, isFirstHomeBuyer: e.target.checked })}
-                          className="w-5 h-5 text-orange-600 rounded focus:ring-2 focus:ring-orange-500"
-                        />
-                      </label>
-                    </div>
-
-                    {/* Investor Toggle */}
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                      <label className="flex items-center justify-between cursor-pointer">
-                        <span className="text-sm font-semibold text-slate-800">Are you an investor?</span>
-                        <input
-                          type="checkbox"
-                          checked={qualificationData.isInvestor}
-                          onChange={(e) => setQualificationData({ ...qualificationData, isInvestor: e.target.checked })}
-                          className="w-5 h-5 text-orange-600 rounded focus:ring-2 focus:ring-orange-500"
-                        />
-                      </label>
-                    </div>
-
-                    {/* Buyer Type */}
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-800 mb-3">Finance status *</label>
-                      <div className="grid grid-cols-2 gap-3">
-                        {[
-                          { value: 'cash', label: 'Cash Buyer' },
-                          { value: 'approved_finance', label: 'Approved Finance' },
-                          { value: 'pre_approval', label: 'Pre-Approval' },
-                          { value: 'not_yet', label: 'Not Yet' },
-                        ].map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => setQualificationData({ ...qualificationData, buyerType: option.value })}
-                            className={`px-4 py-3 rounded-lg border-2 text-sm font-semibold transition-all ${
-                              qualificationData.buyerType === option.value
-                                ? 'border-orange-600 bg-orange-50 text-orange-600'
-                                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                            }`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Seriousness */}
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-800 mb-3">Interest level *</label>
-                      <select
-                        value={qualificationData.seriousnessLevel}
-                        onChange={(e) => setQualificationData({ ...qualificationData, seriousnessLevel: e.target.value })}
-                        className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all text-slate-800"
-                      >
-                        <option value="">Select your interest level</option>
-                        <option value="just_browsing">Just Browsing</option>
-                        <option value="interested">Interested</option>
-                        <option value="very_interested">Very Interested</option>
-                        <option value="ready_to_buy">Ready to Buy</option>
-                      </select>
-                    </div>
-
-                    {/* Submit */}
-                    <button
-                      onClick={handleQualificationSubmit}
-                      disabled={!qualificationData.buyerType || !qualificationData.seriousnessLevel}
-                      className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-4 rounded-xl transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Next
-                    </button>
-
-                    {/* Skip */}
-                    <button
-                      onClick={() => {
-                        setShowQualificationModal(false);
-                        setIpadThankYou(true);
-                        setTimeout(() => resetIpadMode(), 2500);
-                      }}
-                      className="w-full py-3 text-slate-500 hover:text-slate-700 font-medium transition-colors text-sm"
-                    >
-                      Skip — just submit my price opinion
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="text-center mb-6">
-                    <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-8 h-8 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
-                    </div>
-                    <h3 className="text-2xl font-bold text-slate-800 mb-1">
-                      Register Your Interest
-                    </h3>
-                    <p className="text-slate-600">
-                      Enter your details so the agent can get in touch
-                    </p>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-semibold text-slate-800 mb-2">First name *</label>
-                        <input
-                          type="text"
-                          value={firstName}
-                          onChange={(e) => setFirstName(e.target.value)}
-                          placeholder="First name"
-                          className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all text-slate-800"
-                          autoFocus
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-slate-800 mb-2">Last name *</label>
-                        <input
-                          type="text"
-                          value={lastName}
-                          onChange={(e) => setLastName(e.target.value)}
-                          placeholder="Last name"
-                          className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all text-slate-800"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-800 mb-2">Email *</label>
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="your@email.com"
-                        className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all text-slate-800"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-800 mb-2">Phone *</label>
-                      <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="0400 000 000"
-                        className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all text-slate-800"
-                      />
-                    </div>
-
-                    <button
-                      onClick={handleIpadContactSubmit}
-                      disabled={!firstName.trim() || !lastName.trim() || !email.trim() || !phone.trim()}
-                      className="w-full bg-gradient-to-r from-[var(--brand-primary,#e48900)] to-[var(--brand-primary-dark,#c64500)] text-white font-bold py-4 rounded-xl transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed mt-2"
-                    >
-                      Register Interest
-                    </button>
-
-                    <button
-                      onClick={() => setIpadContactStep(false)}
-                      className="w-full py-3 text-slate-500 hover:text-slate-700 font-medium transition-colors text-sm"
-                    >
-                      Back
-                    </button>
-                  </div>
-                </>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </div>
+      <OpenHomeKiosk
+        propertyId={propertyId}
+        title={title}
+        addressLine={property?.showSuburbOnly ? (address || 'Suburb') : (formattedAddress || address)}
+        imageUrl={imageUrls[0]}
+        agentName={[agentData?.firstName, agentData?.lastName].filter(Boolean).join(' ')}
+        companyName={agentData?.companyName}
+        logoUrl={displayLogoUrl}
+        avatarUrl={agentData?.avatar}
+        brandStyle={brandStyle}
+        minPrice={minPrice}
+        maxPrice={maxPrice}
+        demoMode={isPreviewDeployment() || searchParams.get('demo') === '1'}
+        getVisitorId={() => { try { return localStorage.getItem('pm_visitor_id'); } catch { return null; } }}
+        onExit={() => setIsIpadMode(false)}
+        onOpinionPersisted={() => {
+          incrementPropertyViews(propertyId);
+          trackEvent('ipad_price_opinion_created', { property_id: propertyId });
+        }}
+        onRegistrationPersisted={() => trackEvent('ipad_registered_interest', { property_id: propertyId })}
+      />
     );
   }
 
