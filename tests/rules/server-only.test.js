@@ -34,6 +34,7 @@ const SERVER_ONLY_COLLECTIONS = [
   'officeJoinRequests',
   'officeMembershipHistory',
   'officeAdminInfo',
+  'xeroContacts',   // billing entity -> Xero contact id link (written only by the invoice send route)
 ];
 
 describe.each(
