@@ -31,9 +31,9 @@ function fakeXero(overrides = {}) {
     const json = (data, status = 200) => ({ ok: status < 400, status, json: async () => data, text: async () => JSON.stringify(data) });
     if (u === TOKEN_URL) return json({ access_token: 'NEW_ACCESS', refresh_token: 'NEW_REFRESH', expires_in: 1800 });
     if (overrides[u]) return overrides[u]();
-    if (u.startsWith(`${API}/Organisation`)) return json({ Organisations: [{ Name: 'Premarket Group Pty Ltd', IsDemoCompany: false, CountryCode: 'AU' }] });
-    if (u.startsWith(`${API}/Accounts`)) return json({ Accounts: [{ Code: '200', Name: 'Sales', Type: 'REVENUE', Class: 'REVENUE', Status: 'ACTIVE' }] });
-    if (u.startsWith(`${API}/TaxRates`)) return json({ TaxRates: [{ Name: 'BAS Excluded', TaxType: 'NONE', Status: 'ACTIVE', CanApplyToRevenue: true }] });
+    if (u.startsWith(`${API}/Organisation`)) return json({ Organisations: [{ Name: 'Premarket Group Pty Ltd', IsDemoCompany: false, CountryCode: 'AU', PaysTax: false, SalesTaxBasis: 'NONE' }] });
+    if (u.startsWith(`${API}/Accounts`)) return json({ Accounts: [{ Code: '200', Name: 'Sales', Type: 'REVENUE', Class: 'REVENUE', Status: 'ACTIVE', TaxType: 'BASEXCLUDED' }] });
+    if (u.startsWith(`${API}/TaxRates`)) return json({ TaxRates: [{ Name: 'BAS Excluded', TaxType: 'BASEXCLUDED', Status: 'ACTIVE', EffectiveRate: 0, CanApplyToRevenue: true }] });
     if (u.startsWith(`${API}/Contacts`)) return json({ Contacts: [] });
     if (u.startsWith(`${API}/Invoices`)) return json({ Invoices: [] });
     return json({}, 404);
@@ -165,5 +165,43 @@ describe('readiness check on the wire (real service, fake Xero server)', () => {
     const c = await xeroService.findOrCreateContact({ name: 'Evolve Sales & Management', email: 'a@b.c' });
     expect(c.ContactID).toBe('existing1');                                       // found, so no duplicate is created
     expect(requests.every((r) => r.method === 'GET')).toBe(true);                // and so no POST was needed
+  });
+
+  it('REPLAY of our real Xero organisation: no NONE rate, BAS Excluded default, GST not registered, two DELETED test invoices, active test contact -> READY, nothing to clean up but an optional archive', async () => {
+    const rate = (Name, TaxType, Status, EffectiveRate, rev) => ({ Name, TaxType, Status, EffectiveRate, CanApplyToRevenue: rev });
+    const realRates = [
+      rate('BAS Excluded', 'BASEXCLUDED', 'ACTIVE', 0, true), rate('GST Free Capital', 'EXEMPTCAPITAL', 'ARCHIVED', 0, false),
+      rate('GST Free Expenses', 'EXEMPTEXPENSES', 'ACTIVE', 0, false), rate('GST Free Exports', 'EXEMPTEXPORT', 'ARCHIVED', 0, true),
+      rate('GST Free Income', 'EXEMPTOUTPUT', 'ACTIVE', 0, true), rate('GST on Capital', 'CAPEXINPUT', 'ARCHIVED', 10, false),
+      rate('GST on Capital Imports', 'GSTONCAPIMPORTS', 'ARCHIVED', 0, false), rate('GST on Expenses', 'INPUT', 'ACTIVE', 10, false),
+      rate('GST on Imports', 'GSTONIMPORTS', 'ACTIVE', 0, false), rate('GST on Income', 'OUTPUT', 'ACTIVE', 10, true),
+      rate('Input Taxed', 'INPUTTAXED', 'ARCHIVED', 0, true),
+    ];
+    expect(realRates.some((r) => r.TaxType === 'NONE')).toBe(false);          // exactly what the live org returned
+    const TEST_CONTACT = 'PREMARKET DIAGNOSTIC TEST — DO NOT USE';
+    const del = (n, ref, total) => ({ InvoiceID: n, InvoiceNumber: n, Status: 'DELETED', Reference: ref, Total: total });
+    const j = (data) => () => ({ ok: true, status: 200, json: async () => data, text: async () => '' });
+    vi.stubGlobal('fetch', fakeXero({
+      [`${API}/TaxRates`]: j({ TaxRates: realRates }),
+      [`${API}/Contacts?where=${encodeURIComponent(`Name=="${TEST_CONTACT}"`)}`]: j({ Contacts: [{ ContactID: 'tc1', Name: TEST_CONTACT, ContactStatus: 'ACTIVE', EmailAddress: 'xero-diagnostic-test@premarket.homes' }] }),
+      [`${API}/Invoices?where=${encodeURIComponent('Reference=="TEST — Premarket Xero connection diagnostic — safe to delete"')}`]: j({ Invoices: [del('INV-0001', 'TEST — Premarket Xero connection diagnostic — safe to delete', 200)] }),
+      [`${API}/Invoices?where=${encodeURIComponent('Reference=="TEST ONLY — DO NOT AUTHORISE OR SEND"')}`]: j({ Invoices: [del('INV-0002', 'TEST ONLY — DO NOT AUTHORISE OR SEND', 1000)] }),
+      [`${API}/Invoices?ContactIDs=tc1`]: j({ Invoices: [del('INV-0001', 'x', 200), del('INV-0002', 'y', 1000)] }),
+    }));
+    const r = await runXeroReadinessCheck({ xero: readers(), accountCode: '200', officeContacts });
+    const by = (id) => r.checks.find((c) => c.id === id);
+    expect(r.ready).toBe(true);
+    expect(r.blockers).toEqual([]);
+    expect(r.warnings).toEqual([]);
+    expect(by('organisation').status).toBe('pass');
+    expect(by('gstRegistration').status).toBe('pass');
+    expect(by('account').status).toBe('pass');
+    expect(by('taxType').status).toBe('pass');
+    expect(by('accountTax').status).toBe('pass');
+    expect(by('leftovers').status).toBe('pass');
+    expect(by('leftovers').detail).toMatch(/INV-0001, INV-0002/);
+    expect(by('testContact').status).toBe('info');
+    expect(r.optionalTasks).toHaveLength(1);
+    expect(requests.every((x) => x.method === 'GET')).toBe(true);
   });
 });

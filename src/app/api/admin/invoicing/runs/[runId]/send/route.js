@@ -19,6 +19,7 @@ import {
   resolveXeroContact,
 } from '../../../../../services/xeroInvoiceIdentity';
 import { markChargesInvoiced, markChargesFailed, resolveBillingContact } from '../../../../../services/billingService';
+import { taxTypeForGstAmount } from '../../../../../services/xeroTaxTypes';
 import { verifyAdmin } from '../../../../../middleware/auth';
 
 /**
@@ -196,7 +197,7 @@ export async function POST(request, { params }) {
               : `Premarket listing: ${prop.address}`,
             quantity: 1,
             unitAmount: prop.subtotalEx,
-            taxType: prop.gstAmount > 0 ? 'OUTPUT' : 'NONE',
+            taxType: taxTypeForGstAmount(prop.gstAmount),
           }));
 
           const dueDate = new Date();

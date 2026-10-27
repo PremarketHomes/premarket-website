@@ -70,9 +70,9 @@ beforeEach(() => {
   fakeDb._seed('billingContacts', 'agent:solo', { billingEntityType: 'independent', billingEntityKey: 'agent:solo', status: 'confirmed', billingName: 'Solo Realty', email: 's@x.test' });
   fakeDb._seed('billingContacts', 'office:pending', { billingEntityType: 'office', billingEntityKey: 'office:pending', status: 'pending', billingName: 'Pending Co' });
   reads.isXeroConnected.mockResolvedValue(true);
-  reads.getOrganisation.mockResolvedValue({ Name: 'Premarket Group Pty Ltd', IsDemoCompany: false });
-  reads.getAccountByCode.mockResolvedValue({ Code: '200', Name: 'Sales', Type: 'REVENUE', Class: 'REVENUE', Status: 'ACTIVE' });
-  reads.getTaxRates.mockResolvedValue([{ Name: 'BAS Excluded', TaxType: 'NONE', Status: 'ACTIVE', CanApplyToRevenue: true }]);
+  reads.getOrganisation.mockResolvedValue({ Name: 'Premarket Group Pty Ltd', IsDemoCompany: false, PaysTax: false, SalesTaxBasis: 'NONE' });
+  reads.getAccountByCode.mockResolvedValue({ Code: '200', Name: 'Sales', Type: 'REVENUE', Class: 'REVENUE', Status: 'ACTIVE', TaxType: 'BASEXCLUDED' });
+  reads.getTaxRates.mockResolvedValue([{ Name: 'BAS Excluded', TaxType: 'BASEXCLUDED', Status: 'ACTIVE', EffectiveRate: 0, CanApplyToRevenue: true }]);
   reads.searchContactByName.mockResolvedValue(null);
   reads.getContactById.mockResolvedValue(null);
   reads.listInvoicesByReference.mockResolvedValue([]);

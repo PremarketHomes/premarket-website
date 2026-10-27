@@ -78,6 +78,7 @@ export default function XeroReadinessPanel() {
           <p className={`text-sm font-semibold ${result.ready ? 'text-emerald-700' : 'text-red-700'}`}>
             {result.ready ? 'Ready: no blockers found.' : `Not ready: ${result.blockers.length} blocker${result.blockers.length === 1 ? '' : 's'}.`}
             {result.warnings?.length ? ` ${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'}.` : ''}
+            {result.optionalTasks?.length ? ` ${result.optionalTasks.length} optional tidy-up${result.optionalTasks.length === 1 ? '' : 's'}.` : ''}
           </p>
           <ul className="space-y-2">
             {result.checks.map((c) => (

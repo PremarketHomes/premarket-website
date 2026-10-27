@@ -277,7 +277,7 @@ describe('Invoicing end-to-end — safe, fully mocked at the Xero HTTP boundary 
     expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
     const invoiceCall = mockCreateInvoice.mock.calls[0][0];
     expect(invoiceCall.lineItems).toHaveLength(3); // itemised — one line per property
-    expect(invoiceCall.lineItems.every((li) => li.taxType === 'NONE')).toBe(true);
+    expect(invoiceCall.lineItems.every((li) => li.taxType === 'BASEXCLUDED')).toBe(true);
     expect(invoiceCall.lineItems.every((li) => li.unitAmount === 200)).toBe(true);
 
     // Every property charge actually invoiced — not just queued.

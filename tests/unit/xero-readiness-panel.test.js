@@ -89,4 +89,17 @@ describe('XeroReadinessPanel', () => {
     const src = fs.readFileSync('src/app/dashboard/admin/invoicing/components/InvoicingSettings.js', 'utf-8');
     expect(src).toContain('{xeroConnected && <XeroReadinessPanel />}');
   });
+
+  it('shows optional tidy-ups (such as archiving the old test contact) without calling them blockers or warnings', async () => {
+    respond(200, {
+      ...okResult, warnings: [], optionalTasks: ['Old diagnostic test contact: Optional tidy-up: archive it'],
+      checks: [{ id: 'testContact', label: 'Old diagnostic test contact', status: 'info', optional: true, detail: 'Optional tidy-up: the test contact is still active.', cleanup: ['In Xero: Contacts > find the test contact > Archive it.'] }],
+    });
+    render(React.createElement(XeroReadinessPanel));
+    fireEvent.click(screen.getByRole('button', { name: /run check/i }));
+    expect(await screen.findByText(/Ready: no blockers found/)).toBeTruthy();
+    expect(screen.getByText(/1 optional tidy-up/)).toBeTruthy();
+    expect(screen.queryByText(/warning/)).toBeNull();
+    expect(screen.getByText(/Archive it/)).toBeTruthy();
+  });
 });

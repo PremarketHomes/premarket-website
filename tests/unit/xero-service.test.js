@@ -88,7 +88,7 @@ describe('createInvoice — tax type is never assumed', () => {
     });
   });
 
-  it('defaults to NONE (no GST) when the caller passes no taxType', async () => {
+  it('defaults to the explicit zero-GST type BASEXCLUDED (never the placeholder NONE) when the caller passes no taxType', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ Invoices: [{ InvoiceID: 'inv1' }] }),
@@ -98,7 +98,7 @@ describe('createInvoice — tax type is never assumed', () => {
 
     const [, options] = global.fetch.mock.calls[0];
     const body = JSON.parse(options.body);
-    expect(body.Invoices[0].LineItems[0].TaxType).toBe('NONE');
+    expect(body.Invoices[0].LineItems[0].TaxType).toBe('BASEXCLUDED');
   });
 
   it('uses OUTPUT only when explicitly passed (gstRate > 0 path)', async () => {
