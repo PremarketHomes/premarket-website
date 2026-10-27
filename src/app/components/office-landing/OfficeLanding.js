@@ -37,9 +37,7 @@ const faqs = (o) => [
 ];
 
 export default function OfficeLanding({ office }) {
-  const { name, agentLabel, navy, blue, logo, contactHref } = office;
-  const cta = contactHref || '#next-steps';
-  const ctaLabel = `Speak to your ${agentLabel}`;
+  const { name, navy, blue, logo } = office;
 
   return (
     <main
@@ -67,21 +65,15 @@ export default function OfficeLanding({ office }) {
             )}
           </div>
           <p className="mt-14 text-xs font-semibold uppercase tracking-[0.18em] text-(--blue)">
-            Premarket by {name}
+            In partnership with Premarket
           </p>
           <h1 className="mt-4 text-[2rem] leading-[1.15] sm:text-5xl sm:leading-[1.1] font-semibold tracking-tight text-balance">
             Understand your property&rsquo;s potential before going to market.
           </h1>
           <p className="mt-5 text-base sm:text-lg text-white/80 leading-relaxed">
-            {name} now offers Premarket, a private way to see how buyers respond to your home
-            before you commit to a full marketing campaign.
+            {name} has partnered with Premarket to offer a private way to see how buyers respond
+            to your home before you commit to a full marketing campaign.
           </p>
-          <a
-            href={cta}
-            className="mt-8 flex sm:inline-flex items-center justify-center rounded-full bg-(--blue) px-7 py-4 text-base font-semibold text-(--navy) active:opacity-90"
-          >
-            {ctaLabel}
-          </a>
         </div>
       </section>
 
@@ -182,12 +174,6 @@ export default function OfficeLanding({ office }) {
             Reply to the message your agent sent you, or get in touch with them directly. They&rsquo;ll
             talk you through how Premarket could work for your property.
           </p>
-          <a
-            href={cta}
-            className="mt-8 flex sm:inline-flex items-center justify-center rounded-full bg-(--blue) px-7 py-4 text-base font-semibold text-(--navy) active:opacity-90"
-          >
-            {ctaLabel}
-          </a>
         </div>
       </section>
 

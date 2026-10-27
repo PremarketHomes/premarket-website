@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { OFFICES } from '../components/office-landing/offices';
 
-export const alt = 'Premarket by Harcourts Property Hub';
+export const alt = 'Harcourts Property Hub × Premarket';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -30,7 +30,7 @@ export default async function Image() {
             Understand your property&apos;s potential before going to market.
           </div>
         </div>
-        <div style={{ fontSize: 28, color: 'rgba(255,255,255,0.65)' }}>Premarket by Harcourts Property Hub</div>
+        <div style={{ fontSize: 28, color: 'rgba(255,255,255,0.65)' }}>Harcourts Property Hub × Premarket</div>
       </div>
     ),
     size

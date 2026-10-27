@@ -4,7 +4,7 @@ import { OFFICES } from '../components/office-landing/offices';
 const office = OFFICES.hph;
 const title = `${office.name} | Understand your property’s potential`;
 const description =
-  `${office.name} now offers Premarket: explore buyer interest and anonymous pricing opinions before you go to market. Speak to your ${office.agentLabel}.`;
+  `${office.name} has partnered with Premarket so you can explore buyer interest and anonymous pricing opinions before you go to market.`;
 
 export const metadata = {
   title: { absolute: title },
