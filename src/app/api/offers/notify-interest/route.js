@@ -123,6 +123,7 @@ export async function POST(req) {
       agentFirstName: agent.firstName,
       propertyAddress,
       propertyId,
+      offerId,
       buyerName: offer.buyerName,
       buyerEmail: offer.buyerEmail,
       buyerPhone: offer.buyerPhone,

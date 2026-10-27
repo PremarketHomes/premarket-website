@@ -22,6 +22,7 @@ import ImagePositioner from '../../components/ImagePositioner';
 import { getCroppedImageBlob, blobToFile } from '../../utils/imageCrop';
 import BillingDetailsSection from './BillingDetailsSection';
 import { useOfficeBrand } from '../../utils/officeBrand';
+import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
 
 const ROLES = [
   { id: 'homeowner', label: 'Home Owner / Investor' },
@@ -94,7 +95,7 @@ export default function SettingsPage() {
   }
 
   if (!user) {
-    router.push('/join');
+    router.replace(loginUrlForCurrentPage());
     return null;
   }
 

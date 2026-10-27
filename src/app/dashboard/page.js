@@ -50,6 +50,7 @@ import {
   Clock,
   Building,
 } from 'lucide-react';
+import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 
 // --- Shimmer Image Wrapper ---
 function ShimmerImage({ src, alt, ...props }) {
@@ -1156,7 +1157,7 @@ function DashboardPage() {
   // Redirect if not logged in
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.replace(loginUrlForCurrentPage());
     }
   }, [user, loading, router]);
 

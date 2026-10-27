@@ -51,6 +51,7 @@ import { onSnapshot, query, where } from 'firebase/firestore';
 import AgentSelector from '../../components/AgentSelector';
 import AgentModal from '../../components/AgentModal';
 import { pickNotificationUser } from '../../utils/notificationUser';
+import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
 
 const STEPS = {
   ADDRESS: 1,
@@ -162,7 +163,7 @@ export default function AddPropertyPage() {
   // Redirect if not logged in
   useEffect(() => {
     if (!authLoading && !user) {
-      router.push('/join');
+      router.replace(loginUrlForCurrentPage());
     }
   }, [user, authLoading, router]);
 

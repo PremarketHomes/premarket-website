@@ -1,3 +1,4 @@
+import { buildRegistrationPath } from '../../utils/registrationLink';
 import { Resend } from 'resend';
 import { wrapEmail, ctaButton, ctaButtonDark, infoBox, greeting, p, signature, eyebrow, heading, lead, divider, detailList, steps, esc, toPlainText, COLORS, BASE_URL } from './emailTemplates';
 
@@ -210,6 +211,7 @@ export async function sendNewBuyerInterestEmail({
   agentFirstName,
   propertyAddress,
   propertyId,
+  offerId,
   buyerName,
   buyerEmail,
   buyerPhone,
@@ -249,7 +251,8 @@ export async function sendNewBuyerInterestEmail({
     buyerTypeTags.length > 0 ? detailRow('Buyer type', buyerTypeTags.join(' &middot; ')) : '',
   ].filter(Boolean).join('');
 
-  const dashboardUrl = `${BASE_URL}/dashboard/property/${propertyId}`;
+  // Deep-links to this exact registration (offerId) inside the property report.
+  const dashboardUrl = `${BASE_URL}${buildRegistrationPath(propertyId, offerId)}`;
 
   const bodyHTML = `
     <p style="margin:0 0 6px 0; font-size:12px; font-weight:700; color:#ea580c; text-transform:uppercase; letter-spacing:0.8px;">New buyer registration</p>

@@ -21,6 +21,7 @@ import {
   CheckCircle,
   HelpCircle,
 } from 'lucide-react';
+import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
 
 /* ─── Sidebar Navigation Structure ─── */
 const NAV_SECTIONS = [
@@ -72,7 +73,7 @@ export default function UserManualPage() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/join');
+      router.replace(loginUrlForCurrentPage());
     }
   }, [loading, user, router]);
 

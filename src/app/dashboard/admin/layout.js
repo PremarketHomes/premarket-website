@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { isBuyerOnly } from '../../utils/roles';
 import { ToastProvider } from './components/ToastProvider';
 import { AdminSidebar, MobileTopBarSpacer } from './components/AdminSidebar';
+import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
 
 function AdminShell({ children }) {
   const { user, userData, loading } = useAuth();
@@ -13,7 +14,7 @@ function AdminShell({ children }) {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.replace(loginUrlForCurrentPage());
       return;
     }
     if (!loading && userData && isBuyerOnly(userData)) {

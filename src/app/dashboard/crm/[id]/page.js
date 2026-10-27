@@ -27,6 +27,7 @@ import {
   DollarSign,
 } from 'lucide-react';
 import { formatDate, formatRelative, formatPrice } from '../../../utils/formatters';
+import { loginUrlForCurrentPage } from '../../../utils/loginRedirect';
 
 function scoreColor(score) {
   if (score >= 61) return 'text-emerald-600';
@@ -121,7 +122,7 @@ export default function ContactProfile() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/join');
+      router.replace(loginUrlForCurrentPage());
       return;
     }
     if (!loading && userData && userData.superAdmin !== true) {
