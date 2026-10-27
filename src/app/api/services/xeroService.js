@@ -163,10 +163,13 @@ export async function makeXeroRequest(method, path, body = null, retry = true, e
 // XERO API: Contacts
 // ═══════════════════════════════════════════════════════════════════════════
 
+// NOTE: the contact name goes into a URL query string, so it is URL-encoded. Unencoded, a name
+// containing '&' (e.g. "Evolve Sales & Management") was cut off at the ampersand, Xero searched for a
+// DIFFERENT name, found nothing, and a duplicate contact would be created on every run.
 export async function findOrCreateContact({ name, email, firstName, lastName, taxNumber, address }) {
   // Search for existing contact by name
   const searchName = name.replace(/"/g, '\\"');
-  const searchResult = await makeXeroRequest('GET', `/Contacts?where=Name=="${searchName}"`);
+  const searchResult = await makeXeroRequest('GET', `/Contacts?where=${encodeURIComponent(`Name=="${searchName}"`)}`);
 
   if (searchResult.Contacts?.length > 0) {
     return searchResult.Contacts[0];
@@ -219,7 +222,7 @@ export async function getContactById(contactId) {
  * ever causing a side effect itself. */
 export async function searchContactByName(name) {
   const searchName = name.replace(/"/g, '\\"');
-  const result = await makeXeroRequest('GET', `/Contacts?where=Name=="${searchName}"`);
+  const result = await makeXeroRequest('GET', `/Contacts?where=${encodeURIComponent(`Name=="${searchName}"`)}`);
   return result.Contacts?.[0] || null;
 }
 
@@ -230,6 +233,27 @@ export async function searchContactByName(name) {
 export async function getOrganisation() {
   const result = await makeXeroRequest('GET', '/Organisation');
   return result.Organisations?.[0] || null;
+}
+
+/** Read-only. The organisation's tax rates, so a caller can confirm a tax type (e.g. 'NONE')
+ * exists and can be applied to revenue before anything invoices with it. */
+export async function getTaxRates() {
+  const result = await makeXeroRequest('GET', '/TaxRates');
+  return result.TaxRates || [];
+}
+
+/** Read-only. EVERY invoice carrying exactly this Reference (any status), unlike
+ * findInvoiceByReference which returns only the first. */
+export async function listInvoicesByReference(reference) {
+  const safeReference = String(reference || '').replace(/"/g, '\\"');
+  const result = await makeXeroRequest('GET', `/Invoices?where=${encodeURIComponent(`Reference=="${safeReference}"`)}`);
+  return result.Invoices || [];
+}
+
+/** Read-only. Every invoice for one contact (any status). */
+export async function listInvoicesForContact(contactId) {
+  const result = await makeXeroRequest('GET', `/Invoices?ContactIDs=${encodeURIComponent(contactId)}`);
+  return result.Invoices || [];
 }
 
 /** Read-only. Confirms a given account code actually exists in the
