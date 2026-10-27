@@ -7,7 +7,7 @@ const PREMARKET_LOGO_ON_DARK = { src: '/brand/premarket-on-dark.png', width: 900
 
 const BENEFITS = [
   { Icon: Compass, title: 'Explore buyer interest', body: 'See how buyers respond before you commit to a full traditional marketing campaign.' },
-  { Icon: MessageSquareText, title: 'Anonymous pricing opinions', body: 'Gather buyers’ honest views on price, shared without their names attached.' },
+  { Icon: MessageSquareText, title: 'Anonymous pricing opinions', body: 'Gather buyers’ honest views on price, shared without their names attached, and keep hearing them right through to your live campaign.' },
   { Icon: UserCheck, title: 'Formal expressions of interest', body: 'Receive formal interest from buyers who are serious about your property.' },
   { Icon: Handshake, title: 'Decide with your agent', body: 'Review the feedback together and make a more informed decision about what comes next.' },
 ];
@@ -17,7 +17,7 @@ const STEPS = [
   (o) => ({
     body: `Your ${o.name} agent shares your property with their established database of warm, active buyers, inviting anonymous pricing opinions and expressions of formal interest.`,
   }),
-  () => ({ body: 'Your agent reviews the results with you.' }),
+  () => ({ body: 'Your agent reviews the results with you, and stays connected to what buyers are thinking as your campaign moves to market.' }),
   () => ({ body: 'Together, you decide the best next step.' }),
 ];
 
