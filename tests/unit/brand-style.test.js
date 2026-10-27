@@ -121,15 +121,27 @@ describe('PropertyPageClient.js / PriceOpinionSlider.js — default fallback val
     expect(source).not.toContain('from-[#e48900] to-[#c64500]');
     // The premium redesign (default, non-iPad branch) intentionally moved
     // off this old two-tone orange gradient to a single, more restrained
-    // accent colour (see the redesigned-page assertion below). The 6
-    // remaining references are the iPad open-home kiosk mode's own JSX
-    // (5, including its explicit "Lock in my opinion" button — added
-    // when the shared auto-confirm-on-release effect was removed, since
-    // the kiosk had no other way to trigger the confirm modal) plus the
-    // confirmOpinionModal variable it alone still uses (1) — both
-    // deliberately left untouched by the redesign.
+    // accent colour (see the redesigned-page assertion below). The iPad
+    // open-home kiosk used to own five more references; it is now its own
+    // component (components/kiosk/OpenHomeKiosk.js, covered below), so only
+    // the confirmOpinionModal variable (1) still uses it here.
     const matches = source.match(/from-\[var\(--brand-primary,#e48900\)\] to-\[var\(--brand-primary-dark,#c64500\)\]/g) || [];
-    expect(matches.length).toBe(6);
+    expect(matches.length).toBe(1);
+  });
+
+  it('the iPad kiosk components inherit office/agent branding via var() and keep the original Premarket hex as the fallback', async () => {
+    const fs = await import('node:fs');
+    for (const file of ['OpenHomeKiosk.js', 'KioskSlider.js']) {
+      const source = fs.readFileSync(new URL(`../../src/app/components/kiosk/${file}`, import.meta.url), 'utf-8');
+      // never a bare brand literal: every use goes through the branding variables
+      expect(source).not.toMatch(/from-\[#e48900\] to-\[#c64500\]/);
+      for (const m of source.matchAll(/var\(--brand-primary(?:-dark)?,\s*(#[0-9a-fA-F]{3,8})\)/g)) {
+        expect(['#e48900', '#c64500', '#c2410c', '#334155', '#0f172a']).toContain(m[1]);
+      }
+    }
+    const kiosk = fs.readFileSync(new URL('../../src/app/components/kiosk/OpenHomeKiosk.js', import.meta.url), 'utf-8');
+    expect(kiosk).toContain('var(--brand-primary');
+    expect(kiosk).toContain('brandStyle');
   });
 
   it('the redesigned (non-iPad) property page uses a single restrained brand-primary accent, with the original orange as its own distinct default fallback', async () => {
