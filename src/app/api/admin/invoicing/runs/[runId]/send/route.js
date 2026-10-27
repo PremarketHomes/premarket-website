@@ -4,11 +4,20 @@ import { adminDb } from '../../../../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import {
   findOrCreateContact,
+  getContactById,
+  searchContactByName,
   createInvoice,
   sendInvoice,
   isXeroConnected,
   findInvoiceByReference,
 } from '../../../../../services/xeroService';
+import {
+  buildInvoiceReference,
+  expectedInvoiceTotal,
+  invoiceMatchesItem,
+  InvoiceReferenceConflictError,
+  resolveXeroContact,
+} from '../../../../../services/xeroInvoiceIdentity';
 import { markChargesInvoiced, markChargesFailed, resolveBillingContact } from '../../../../../services/billingService';
 import { verifyAdmin } from '../../../../../middleware/auth';
 
@@ -27,32 +36,6 @@ import { verifyAdmin } from '../../../../../middleware/auth';
  */
 function stableInvoiceIdempotencyKey(itemId) {
   return createHash('sha256').update(`premarket-invoice-run-item:${itemId}`).digest('hex');
-}
-
-/**
- * The exact name used to find-or-create this item's Xero contact.
- * findOrCreateContact matches purely by name, so two DIFFERENT agents
- * who happen to share a personal name, or who both typed (and had
- * confirmed) the exact same agency name as their own billingName,
- * would otherwise collide onto one shared Xero contact — even though
- * Premarket's own billingEntityKey (agent:{uid}, or office:{officeId} for an
- * office's consolidated invoice) correctly
- * keeps them completely separate. Their invoices would then sit under
- * one shared Xero record, mixing two unrelated agents' history —
- * exactly what "never merge separate agent invoices" forbids.
- *
- * Fixed by ALWAYS appending a short, stable suffix derived from the
- * billingEntityKey itself (unique by construction), on top of
- * whichever display name applies — the admin-confirmed billingName
- * when one was set, otherwise the agent's own name. This only changes
- * what the XERO contact is named — it never changes item.agencyName
- * itself, so nothing in Premarket's own admin dashboard display
- * changes.
- */
-function buildXeroContactName(item, confirmedBillingName) {
-  const base = confirmedBillingName || item.agencyName;
-  const suffix = String(item.billingEntityKey || '').replace(/^(agent|office):/, '').slice(0, 8);
-  return suffix ? `${base} (${suffix})` : base;
 }
 
 /**
@@ -166,25 +149,32 @@ export async function POST(request, { params }) {
               stage: 'contact',
             });
             await itemRef.update({ status: 'contact_required', lastError: 'Billing details required' });
-            await markChargesFailed(item.properties.map((p) => p.propertyId).filter(Boolean));
+            await markChargesFailed(item.properties.map((p) => p.propertyId).filter(Boolean), { runId });
             continue;
           }
-          const contactName = confirmed.name;
-          const contactEmail = confirmed.email;
-          const xeroContactName = buildXeroContactName(item, confirmed.billingName);
-
-          const nameParts = contactName?.split(' ') || [];
-          const contact = await findOrCreateContact({
-            name: xeroContactName,
-            email: contactEmail,
-            firstName: nameParts[0] || '',
-            lastName: nameParts.slice(1).join(' ') || '',
-            taxNumber: confirmed.abn || undefined,
-            address: confirmed.address || undefined,
+          // The Xero contact is the confirmed LEGAL billing name (no technical suffix on the
+          // customer-facing name). The entity -> contact link is remembered by id in a server-only
+          // `xeroContacts` record, so later runs never depend on name matching; see
+          // xeroInvoiceIdentity.resolveXeroContact for the (rare) same-name-different-entity case.
+          const contactLinkRef = adminDb.collection('xeroContacts').doc(item.billingEntityKey);
+          const storedLink = (await contactLinkRef.get()).data();
+          const { contact } = await resolveXeroContact({
+            item,
+            confirmed,
+            storedContactId: storedLink?.xeroContactId || null,
+            xero: { getContactById, searchContactByName, findOrCreateContact },
           });
 
           if (!contact?.ContactID) {
             throw new Error(`Failed to create Xero contact for ${item.agencyName}`);
+          }
+          if (storedLink?.xeroContactId !== contact.ContactID) {
+            await contactLinkRef.set({
+              billingEntityKey: item.billingEntityKey,
+              xeroContactId: contact.ContactID,
+              xeroContactName: contact.Name || null,
+              linkedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
           }
 
           // Build line items — one per property, using THAT property's
@@ -213,28 +203,29 @@ export async function POST(request, { params }) {
           dueDate.setDate(dueDate.getDate() + paymentTermsDays);
           const dueDateStr = dueDate.toISOString().split('T')[0];
 
-          const periodStart = runData.periodStart?.toDate?.() || new Date(runData.periodStart);
-          const periodStr = periodStart.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
-          // Same disambiguated name as the Xero contact above — two
-          // different independent agents sharing a personal name
-          // would otherwise also produce an IDENTICAL reference
-          // string for the same period, which could make the
-          // pre-flight reconciliation check below match the wrong
-          // person's invoice, not just the wrong contact.
-          const reference = `${invoicePrefix}${periodStr} - ${xeroContactName}`;
+          // A unique, stable reference per run item (see xeroInvoiceIdentity.js): two runs or billing
+          // periods for the same office can never share one, and a retry of THIS item gets the same
+          // reference back, so it finds the invoice its own earlier attempt created.
+          const reference = buildInvoiceReference({
+            prefix: invoicePrefix,
+            periodStart: runData.periodStart,
+            itemId: itemDoc.id,
+          });
 
-          // Pre-flight reconciliation — never assume a reference or an
-          // idempotency key alone is enough. This specifically guards
-          // the case a prior attempt's request actually reached Xero
-          // and succeeded, but this process never received that
-          // response (a timeout, a dropped connection) and so never
-          // got the chance to store xeroInvoiceId at all. Checked
-          // BEFORE calling createInvoice, not instead of the
-          // Idempotency-Key below — the two are complementary (see
-          // findInvoiceByReference's own comment for why neither one
-          // alone closes every race).
+          // Pre-flight reconciliation — never assume a reference or an idempotency key alone is
+          // enough. Guards the case where a prior attempt's request reached Xero and succeeded but
+          // this process never received the response, so xeroInvoiceId was never stored. Checked
+          // BEFORE calling createInvoice. An invoice found by reference is only reused after it is
+          // verified to be this item's (same contact, same total); otherwise nothing is created or
+          // marked invoiced and the item is flagged for a human to resolve.
           const existing = await findInvoiceByReference(reference);
           if (existing?.InvoiceID) {
+            const verdict = invoiceMatchesItem(existing, {
+              contactId: contact.ContactID,
+              total: expectedInvoiceTotal(item.properties),
+              lineCount: lineItems.length,
+            });
+            if (!verdict.ok) throw new InvoiceReferenceConflictError(reference, verdict.reason);
             invoice = existing;
           } else {
             invoice = await createInvoice({
@@ -251,10 +242,10 @@ export async function POST(request, { params }) {
             throw new Error(`Failed to create Xero invoice for ${item.agencyName}`);
           }
 
-          // Record the real invoice immediately, and flip these
-          // charges to invoiced NOW — a real, authorised Xero invoice
-          // exists for them from this exact point on, regardless of
-          // whether the email below succeeds.
+          // Record the real invoice immediately — a real, authorised Xero invoice exists for
+          // these charges from this exact point on, regardless of whether the email below
+          // succeeds. (The charges themselves are flipped to invoiced just below, for BOTH a
+          // freshly created invoice and a retry, by one idempotent step.)
           await itemRef.update({
             xeroContactId: contact.ContactID,
             xeroInvoiceId: invoice.InvoiceID,
@@ -264,7 +255,6 @@ export async function POST(request, { params }) {
             status: 'invoice_created',
             lastSyncedAt: FieldValue.serverTimestamp(),
           });
-          await markChargesInvoiced(item.properties.map((p) => p.propertyId).filter(Boolean));
         }
       } catch (err) {
         // Only a genuine creation failure reaches here — no real Xero
@@ -274,8 +264,34 @@ export async function POST(request, { params }) {
         console.error(`Error creating invoice for ${item.agencyName}:`, err);
         errors.push({ agencyName: item.agencyName, error: err.message, stage: 'create' });
         await itemRef.update({ status: 'error', lastError: err.message });
-        await markChargesFailed(item.properties.map((p) => p.propertyId).filter(Boolean));
+        if (err instanceof InvoiceReferenceConflictError) {
+          // An invoice with this reference already exists in Xero but is not this item's. Retrying
+          // cannot fix that, and releasing the charges would let another run bill them again —
+          // leave them queued in this run for a human to resolve.
+        } else {
+          await markChargesFailed(item.properties.map((p) => p.propertyId).filter(Boolean), { runId });
+        }
         continue;
+      }
+
+      // ── Step 1b: flip THIS run's queued charges to invoiced (idempotent) ──
+      // Runs for a freshly created invoice AND for a retry of an item whose invoice already
+      // existed, so "invoice created but charges never marked" cannot persist. Only charges still
+      // queued in this run change; anything else is left alone and reported. A failure here is
+      // never a reason to release the charges (a real invoice exists for them).
+      try {
+        const { skipped } = await markChargesInvoiced(
+          item.properties.map((p) => p.propertyId).filter(Boolean),
+          { runId },
+        );
+        const problems = skipped.filter((x) => x.status !== 'invoiced');
+        if (problems.length > 0) {
+          console.error(`Invoice ${invoice.InvoiceNumber || invoice.InvoiceID}: ${problems.length} charge(s) were not in this run's queue`, problems);
+          await itemRef.update({ unmarkedCharges: problems.map((x) => ({ propertyId: x.id, status: x.status })) });
+        }
+      } catch (markErr) {
+        console.error(`Invoice ${invoice.InvoiceNumber || invoice.InvoiceID} exists but its charges could not be marked invoiced:`, markErr);
+        await itemRef.update({ chargeMarkError: markErr.message });
       }
 
       // ── Step 2: attempt to email the (now definitely existing) invoice ──

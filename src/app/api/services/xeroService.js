@@ -202,6 +202,18 @@ export async function findOrCreateContact({ name, email, firstName, lastName, ta
   return result.Contacts?.[0] || null;
 }
 
+/** Read-only. A contact by its Xero ContactID, or null if it no longer exists (404). Any other failure throws. */
+export async function getContactById(contactId) {
+  if (!contactId) return null;
+  try {
+    const result = await makeXeroRequest('GET', `/Contacts/${encodeURIComponent(contactId)}`);
+    return result.Contacts?.[0] || null;
+  } catch (err) {
+    if (/\(404\)/.test(err?.message || '')) return null;
+    throw err;
+  }
+}
+
 /** Read-only — never creates. Used by the Xero connection diagnostic
  * to check whether its dedicated test contact already exists, without
  * ever causing a side effect itself. */

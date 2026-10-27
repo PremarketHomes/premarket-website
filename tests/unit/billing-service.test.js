@@ -439,6 +439,68 @@ describe('releaseCharges / markChargesInvoiced / markChargesFailed', () => {
   });
 });
 
+describe('markChargesInvoiced / markChargesFailed are scoped to THIS run\'s queued charges', () => {
+  const charge = async (id) => (await fakeDb.collection('propertyCharges').doc(id).get()).data();
+  const seed = (id, data) => fakeDb.collection('propertyCharges').doc(id).set(data);
+
+  it('REGRESSION: only charges still queued in the given run are marked invoiced — a charge from another run or already settled is left exactly as it is', async () => {
+    const { markChargesInvoiced } = await import('../../src/app/api/services/billingService.js');
+    await seed('mine', { status: 'queued', runId: 'run1' });
+    await seed('otherRun', { status: 'queued', runId: 'run2' });
+    await seed('stillPending', { status: 'pending', runId: null });
+    await seed('alreadyDone', { status: 'invoiced', runId: 'run1' });
+
+    const result = await markChargesInvoiced(['mine', 'otherRun', 'stillPending', 'alreadyDone', 'ghost'], { runId: 'run1' });
+
+    expect((await charge('mine')).status).toBe('invoiced');
+    expect((await charge('otherRun')).status).toBe('queued');          // a different run's invoice does not cover it
+    expect((await charge('stillPending')).status).toBe('pending');     // never marked invoiced without being queued for this run
+    expect((await charge('alreadyDone')).status).toBe('invoiced');
+    expect(result.changed).toEqual(['mine']);
+    expect(result.skipped).toEqual([
+      { id: 'otherRun', status: 'queued', runId: 'run2' },
+      { id: 'stillPending', status: 'pending', runId: null },
+      { id: 'alreadyDone', status: 'invoiced', runId: 'run1' },
+      { id: 'ghost', status: 'missing', runId: null },
+    ]);
+  });
+
+  it('is idempotent: a retry marks nothing twice and changes nothing', async () => {
+    const { markChargesInvoiced } = await import('../../src/app/api/services/billingService.js');
+    await seed('p1', { status: 'queued', runId: 'run1' });
+    expect((await markChargesInvoiced(['p1'], { runId: 'run1' })).changed).toEqual(['p1']);
+    const again = await markChargesInvoiced(['p1'], { runId: 'run1' });
+    expect(again.changed).toEqual([]);
+    expect(again.skipped).toEqual([{ id: 'p1', status: 'invoiced', runId: 'run1' }]);
+  });
+
+  it('REGRESSION: a failed send can never revert a charge that is already invoiced back to pending (which would bill it twice)', async () => {
+    const { markChargesFailed } = await import('../../src/app/api/services/billingService.js');
+    await seed('invoiced1', { status: 'invoiced', runId: 'run1' });
+    await seed('queuedMine', { status: 'queued', runId: 'run1' });
+    await seed('queuedOther', { status: 'queued', runId: 'run2' });
+
+    await markChargesFailed(['invoiced1', 'queuedMine', 'queuedOther'], { runId: 'run1' });
+
+    expect((await charge('invoiced1')).status).toBe('invoiced');
+    expect((await charge('queuedMine')).status).toBe('pending');
+    expect((await charge('queuedMine')).runId).toBeNull();
+    expect((await charge('queuedOther')).status).toBe('queued');       // another run's charge is not ours to release
+  });
+
+  it('duplicate ids in one call are handled once', async () => {
+    const { markChargesInvoiced } = await import('../../src/app/api/services/billingService.js');
+    await seed('p1', { status: 'queued', runId: 'run1' });
+    expect((await markChargesInvoiced(['p1', 'p1', 'p1'], { runId: 'run1' })).changed).toEqual(['p1']);
+  });
+
+  it('handles an empty list', async () => {
+    const { markChargesInvoiced, markChargesFailed } = await import('../../src/app/api/services/billingService.js');
+    expect(await markChargesInvoiced([], { runId: 'run1' })).toEqual({ changed: [], skipped: [] });
+    expect(await markChargesFailed(undefined, { runId: 'run1' })).toEqual({ changed: [], skipped: [] });
+  });
+});
+
 describe('createPropertyAndChargeAtomically', () => {
   async function setup() {
     const svc = await import('../../src/app/api/services/billingService.js');

@@ -1189,29 +1189,43 @@ export async function releaseCharges(propertyIds) {
 }
 
 /** Flips queued charges to invoiced once their Xero invoice send succeeds. */
-export async function markChargesInvoiced(propertyIds) {
-  if (!propertyIds?.length) return;
-  const batch = adminDb.batch();
-  for (const propertyId of propertyIds) {
-    batch.update(adminDb.collection('propertyCharges').doc(propertyId), {
-      status: 'invoiced',
-      invoicedAt: FieldValue.serverTimestamp(),
+/**
+ * Flips the given charges to a new status — but only those that are still
+ * `queued` in THIS run (when `runId` is given). A charge that is already
+ * invoiced, was released, or belongs to a different run is left exactly as it
+ * is, so neither "invoiced" nor "release for retry" can ever be applied to a
+ * charge this run's invoice does not actually cover. Returns the ids it changed and,
+ * for each it left alone, why — so a caller can notice a mismatch.
+ */
+async function transitionQueuedCharges(propertyIds, runId, patchFor) {
+  const changed = [];
+  const skipped = [];
+  const ids = [...new Set((propertyIds || []).filter(Boolean))];
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    await adminDb.runTransaction(async (tx) => {
+      const refs = chunk.map((id) => adminDb.collection('propertyCharges').doc(id));
+      const snaps = await Promise.all(refs.map((r) => tx.get(r)));
+      snaps.forEach((snap, idx) => {
+        const data = snap.exists ? snap.data() : null;
+        const eligible = data && data.status === 'queued' && (runId == null || data.runId === runId);
+        if (eligible) { tx.update(refs[idx], patchFor()); changed.push(chunk[idx]); }
+        else skipped.push({ id: chunk[idx], status: data ? data.status : 'missing', runId: data ? (data.runId ?? null) : null });
+      });
     });
   }
-  await batch.commit();
+  return { changed, skipped };
 }
 
-/** Reverts queued charges back to pending if their Xero send fails —
- * so they're automatically picked up by a future run instead of being
- * stranded attached to a failed run forever. */
-export async function markChargesFailed(propertyIds) {
-  if (!propertyIds?.length) return;
-  const batch = adminDb.batch();
-  for (const propertyId of propertyIds) {
-    batch.update(adminDb.collection('propertyCharges').doc(propertyId), {
-      status: 'pending',
-      runId: null,
-    });
-  }
-  await batch.commit();
+export async function markChargesInvoiced(propertyIds, { runId } = {}) {
+  if (!propertyIds?.length) return { changed: [], skipped: [] };
+  return transitionQueuedCharges(propertyIds, runId, () => ({
+    status: 'invoiced',
+    invoicedAt: FieldValue.serverTimestamp(),
+  }));
+}
+
+export async function markChargesFailed(propertyIds, { runId } = {}) {
+  if (!propertyIds?.length) return { changed: [], skipped: [] };
+  return transitionQueuedCharges(propertyIds, runId, () => ({ status: 'pending', runId: null }));
 }
