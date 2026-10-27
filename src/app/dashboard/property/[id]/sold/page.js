@@ -7,6 +7,7 @@ import { db } from '../../../../firebase/clientApp';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ArrowLeft, DollarSign, CheckCircle, Home, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { loginUrlForCurrentPage } from '../../../../utils/loginRedirect';
 
 export default function SoldEntryPage() {
   const { user, loading: authLoading } = useAuth();
@@ -25,7 +26,7 @@ export default function SoldEntryPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
-      router.push('/login');
+      router.replace(loginUrlForCurrentPage());
       return;
     }
 

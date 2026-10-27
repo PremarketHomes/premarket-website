@@ -27,6 +27,7 @@ import {
   MessageSquare,
   Terminal,
 } from 'lucide-react';
+import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
 
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
 
@@ -82,7 +83,7 @@ export default function DevelopersPage() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/join');
+      router.replace(loginUrlForCurrentPage());
     }
   }, [user, loading, router]);
 

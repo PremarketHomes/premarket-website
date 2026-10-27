@@ -8,7 +8,15 @@ import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
-import { db } from '../../../firebase/clientApp';
+import { db, auth } from '../../../firebase/clientApp';
+import { signOut as firebaseSignOut } from 'firebase/auth';
+import { loginUrlForCurrentPage } from '../../../utils/loginRedirect';
+import {
+  getRegistrationIdFromSearch,
+  registrationElementId,
+  findRegistration,
+  HIGHLIGHT_SCROLL_DELAYS,
+} from '../../../utils/registrationHighlight';
 import {
   doc,
   getDoc,
@@ -481,7 +489,7 @@ function fmtBudget(val) {
 }
 
 // --- Opinions Table ---
-function OpinionsTable({ opinions }) {
+function OpinionsTable({ opinions, highlightId }) {
   const [showAnonymous, setShowAnonymous] = useState(false);
   const [anonSortField, setAnonSortField] = useState('offerAmount');
   const [anonSortDir, setAnonSortDir] = useState('desc');
@@ -491,6 +499,31 @@ function OpinionsTable({ opinions }) {
       .filter(o => o.serious === true)
       .sort((a, b) => (parseFloat(b.offerAmount) || 0) - (parseFloat(a.offerAmount) || 0));
   }, [opinions]);
+
+  // The registration an agent was emailed about (?registration=<offerId>).
+  const highlighted = findRegistration(opinions, highlightId);
+  const highlightedId = highlighted?.id || null;
+
+  // Scroll the linked registration into view once the list is on screen. The
+  // table only mounts after the report data has loaded, so a slow load just
+  // delays this; the later passes correct for layout shifts as images/charts
+  // above finish loading on mobile. Stops the moment the person scrolls.
+  useEffect(() => {
+    if (!highlightedId) return undefined;
+    let interacted = false;
+    const stop = () => { interacted = true; };
+    const events = ['wheel', 'touchmove', 'keydown', 'mousedown'];
+    events.forEach((e) => window.addEventListener(e, stop, { passive: true }));
+    const timers = HIGHLIGHT_SCROLL_DELAYS.map((ms, i) => setTimeout(() => {
+      if (interacted) return;
+      document.getElementById(registrationElementId(highlightedId))
+        ?.scrollIntoView({ behavior: i === 0 ? 'smooth' : 'auto', block: 'center' });
+    }, ms));
+    return () => {
+      timers.forEach(clearTimeout);
+      events.forEach((e) => window.removeEventListener(e, stop));
+    };
+  }, [highlightedId]);
 
   const anonymousOpinions = useMemo(() => {
     const anon = opinions.filter(o => o.serious !== true);
@@ -546,6 +579,12 @@ function OpinionsTable({ opinions }) {
 
   return (
     <div className="space-y-6">
+      {highlightId && !highlighted && (
+        <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          We couldn&apos;t find that specific registration on this listing, so here is the full report.
+        </div>
+      )}
+
       {/* Serious / Registered Buyers */}
       {seriousOpinions.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -557,7 +596,16 @@ function OpinionsTable({ opinions }) {
           </div>
           <div className="divide-y divide-slate-100">
             {seriousOpinions.map((op) => (
-              <div key={op.id} className="px-6 py-4">
+              <div
+                key={op.id}
+                id={registrationElementId(op.id)}
+                className={`px-6 py-4 scroll-mt-28 ${op.id === highlightedId ? 'bg-amber-50 ring-2 ring-inset ring-amber-400' : ''}`}
+              >
+                {op.id === highlightedId && (
+                  <p className="mb-2 inline-flex items-center rounded-full bg-amber-400 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-amber-950">
+                    The registration from your email
+                  </p>
+                )}
                 {/* Top row: name/contact + price/date */}
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
@@ -1024,6 +1072,62 @@ function ImageEditModal({ imageUrl, imageIndex, propertyId, userId, allImages, o
   );
 }
 
+// --- Shown instead of a silent redirect when this account can't open the report ---
+function AccessPanel({ kind, email, onSwitchAccount }) {
+  const content = {
+    denied: {
+      title: "This registration isn't available to this account",
+      body: 'This link was sent to the listing agent, so it only opens for their account (or an administrator of their office). No buyer details are shown here.',
+    },
+    notfound: {
+      title: "We couldn't find that property",
+      body: 'It may have been removed, or the link may be incomplete.',
+    },
+    error: {
+      title: "We couldn't load this report",
+      body: 'Something went wrong while loading. Please try again.',
+    },
+  }[kind] || {};
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+      <div role="alert" className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h1 className="text-lg font-bold text-slate-900">{content.title}</h1>
+        <p className="mt-2 text-sm text-slate-600">{content.body}</p>
+        {kind === 'denied' && email && (
+          <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            You&apos;re signed in as <span className="font-semibold break-all">{email}</span>.
+          </p>
+        )}
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+          {kind === 'denied' && (
+            <button
+              onClick={onSwitchAccount}
+              className="rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            >
+              Switch account
+            </button>
+          )}
+          {kind === 'error' && (
+            <button
+              onClick={() => window.location.reload()}
+              className="rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            >
+              Try again
+            </button>
+          )}
+          <Link
+            href="/dashboard"
+            className="rounded-xl bg-slate-100 px-4 py-2.5 text-center text-sm font-semibold text-slate-700 hover:bg-slate-200 transition-colors"
+          >
+            Go to my dashboard
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Main Report Page ---
 export default function PropertyReportPage() {
   useRequireAgent();
@@ -1057,6 +1161,13 @@ export default function PropertyReportPage() {
   // True when an office administrator is viewing a member agent's listing:
   // full reporting, but no management actions (the server refuses them too).
   const [readOnly, setReadOnly] = useState(false);
+  // null | 'denied' | 'notfound' | 'error' — shown as an explanation, never a silent redirect.
+  const [accessError, setAccessError] = useState(null);
+  // ?registration=<offerId> from the emailed link (read client-side after mount).
+  const [registrationId, setRegistrationId] = useState(null);
+  useEffect(() => {
+    setRegistrationId(getRegistrationIdFromSearch(window.location.search));
+  }, []);
   const [showImageEdit, setShowImageEdit] = useState(false);
   const [editingImageUrl, setEditingImageUrl] = useState(null);
   const [editingImageIndex, setEditingImageIndex] = useState(0);
@@ -1064,7 +1175,7 @@ export default function PropertyReportPage() {
   // Redirect if not logged in
   useEffect(() => {
     if (!authLoading && !user) {
-      router.push('/join');
+      router.replace(loginUrlForCurrentPage());
     }
   }, [user, authLoading, router]);
 
@@ -1077,7 +1188,7 @@ export default function PropertyReportPage() {
       try {
         const propertySnap = await getDoc(doc(db, 'properties', propertyId));
         if (!propertySnap.exists()) {
-          router.push('/dashboard');
+          setAccessError('notfound');
           return;
         }
 
@@ -1112,7 +1223,7 @@ export default function PropertyReportPage() {
         } else {
           const res = await authFetch(`/api/properties/${propertyId}/report`);
           if (!res.ok) {
-            router.push('/dashboard');
+            setAccessError(res.status === 403 ? 'denied' : res.status === 404 ? 'notfound' : 'error');
             return;
           }
           const report = await res.json();
@@ -1158,6 +1269,7 @@ export default function PropertyReportPage() {
         setLikes(rawLikes);
       } catch (err) {
         console.error('Error fetching report data:', err);
+        setAccessError('error');
       } finally {
         setLoading(false);
       }
@@ -1382,7 +1494,25 @@ export default function PropertyReportPage() {
     );
   }
 
-  if (!user || !property) return null;
+  if (!user) return null;
+
+  if (accessError) {
+    return (
+      <AccessPanel
+        kind={accessError}
+        email={user.email}
+        onSwitchAccount={async () => {
+          // Only on an explicit click — never automatic. Signs out, then comes
+          // back to this exact link (including ?registration=) after login.
+          const destination = loginUrlForCurrentPage();
+          try { await firebaseSignOut(auth); } catch (err) { console.error('Sign out failed:', err); }
+          window.location.assign(destination);
+        }}
+      />
+    );
+  }
+
+  if (!property) return null;
 
   const propertyUrl = `https://premarket.homes/find-property?propertyId=${property.id}`;
 
@@ -1721,7 +1851,7 @@ export default function PropertyReportPage() {
         <PriceTimeline opinions={opinions} />
 
         {/* Opinions Table */}
-        <OpinionsTable opinions={opinions} />
+        <OpinionsTable opinions={opinions} highlightId={registrationId} />
 
         {/* Sold Status Action — internal agent/admin control, never shown on the public property page; hidden for read-only office admins */}
         {!readOnly && (

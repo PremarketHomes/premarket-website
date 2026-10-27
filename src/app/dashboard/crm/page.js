@@ -23,6 +23,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { formatDate, formatRelative } from '../../utils/formatters';
+import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
 
 const TABS = [
   { key: 'agencies', label: 'Agencies', icon: Building2 },
@@ -122,7 +123,7 @@ export default function CRMDashboard() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/join');
+      router.replace(loginUrlForCurrentPage());
       return;
     }
     if (!loading && userData && userData.superAdmin !== true) {

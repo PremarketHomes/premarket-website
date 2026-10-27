@@ -9,6 +9,7 @@ import { db } from '../../firebase/clientApp';
 import { collection, query, where, getDocs, doc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { ArrowLeft, Plus, Pencil, Trash2, User, Users, Loader2 } from 'lucide-react';
 import AgentModal from '../../components/AgentModal';
+import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
 
 export default function AgentsPage() {
   useRequireAgent();
@@ -22,7 +23,7 @@ export default function AgentsPage() {
 
   useEffect(() => {
     if (!authLoading && !user) {
-      router.push('/join');
+      router.replace(loginUrlForCurrentPage());
     }
   }, [user, authLoading, router]);
 

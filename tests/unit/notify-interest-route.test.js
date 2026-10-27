@@ -102,6 +102,9 @@ describe('POST /api/offers/notify-interest', () => {
         buyerName: 'Jane Buyer',
         buyerEmail: 'jane@example.com',
         buyerPhone: '0400 000 000',
+        // the emailed "View Registration" link needs these to open the exact registration
+        propertyId: 'prop-1',
+        offerId: 'offer-1',
       })
     );
   });

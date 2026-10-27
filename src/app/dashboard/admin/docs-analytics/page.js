@@ -23,6 +23,7 @@ import {
   Globe,
   RefreshCw,
 } from 'lucide-react';
+import { loginUrlForCurrentPage } from '../../../utils/loginRedirect';
 
 function formatDate(iso) {
   if (!iso) return '--';
@@ -77,7 +78,7 @@ export default function DocsAnalyticsPage() {
   // Auth guard
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/join');
+      router.replace(loginUrlForCurrentPage());
       return;
     }
     if (!loading && userData && userData.superAdmin !== true) {

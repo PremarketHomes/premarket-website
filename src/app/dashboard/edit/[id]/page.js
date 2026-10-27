@@ -46,6 +46,7 @@ import {
   Phone,
   Shield,
 } from 'lucide-react';
+import { loginUrlForCurrentPage } from '../../../utils/loginRedirect';
 
 const STEPS = {
   ADDRESS: 1,
@@ -134,7 +135,7 @@ export default function EditPropertyPage() {
   // Redirect if not logged in
   useEffect(() => {
     if (!authLoading && !user) {
-      router.push('/join');
+      router.replace(loginUrlForCurrentPage());
     }
   }, [user, authLoading, router]);
 

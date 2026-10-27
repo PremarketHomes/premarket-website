@@ -33,6 +33,7 @@ import {
   Import,
   Building2,
 } from 'lucide-react';
+import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
 
 // --- Agentbox Connect Modal ---
 function ConnectModal({ onClose, onConnect, onConnectDemo, connecting }) {
@@ -498,7 +499,7 @@ export default function IntegrationsPage() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/join');
+      router.replace(loginUrlForCurrentPage());
     }
   }, [user, loading, router]);
 

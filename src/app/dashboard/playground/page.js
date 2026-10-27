@@ -29,6 +29,7 @@ import HeatmapControls from './components/HeatmapControls';
 import LocationSearch from './components/LocationSearch';
 import LocationReport from './components/LocationReport';
 import ChatPanel from './components/ChatPanel';
+import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
 
 // Load mapbox component with SSR disabled (mapbox-gl requires window/document)
 const PHIHeatmap = dynamic(() => import('./components/PHIHeatmap'), {
@@ -264,7 +265,7 @@ export default function PlaygroundPage() {
   const reportGenRef = useRef(0);
 
   useEffect(() => {
-    if (!loading && !user) router.push('/join');
+    if (!loading && !user) router.replace(loginUrlForCurrentPage());
   }, [user, loading, router]);
 
   useEffect(() => {
