@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Save, Plug, Unplug, Loader2, AlertTriangle, PlayCircle, CheckCircle2 } from 'lucide-react';
 import { authFetch } from '../../../../utils/authFetch';
+import XeroReadinessPanel from './XeroReadinessPanel';
 
 // Firestore can hand this back as a real Timestamp, a serialized
 // {_seconds}, or a plain Date — same multi-shape handling used
@@ -250,6 +251,8 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError, onXe
       </div>
 
       {/* Billing Settings */}
+      {xeroConnected && <XeroReadinessPanel />}
+
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h3 className="text-sm font-semibold text-slate-700 mb-4">Billing Settings</h3>
         <div className="space-y-4">
