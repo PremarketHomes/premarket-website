@@ -1,3 +1,4 @@
+import { resolveBuyerIdentity, profileForRegistration } from '../../utils/registrationIdentity';
 import { adminDb } from '../../firebase/adminApp';
 import { sendEmail } from './resendService';
 import { wrapEmail } from './emailTemplates';
@@ -105,13 +106,14 @@ export async function buildReport(propertyId) {
   // the offer (e.g. iPad kiosk / web "register interest" flow).
   const seriousBuyerDetails = serious.map(o => {
     const u = o.userId ? userMap[o.userId] : null;
-    const name = (u?.firstName && u?.lastName) ? `${u.firstName} ${u.lastName}`.trim()
-      : (u?.firstName || o.buyerName || o.userName || 'Anonymous');
-    const prefs = u?.buyerPreferences || {};
+    // Typed registration details win; the linked account only fills gaps and
+    // only if it can be the same person (see utils/registrationIdentity.js).
+    const identity = resolveBuyerIdentity(o, u);
+    const prefs = profileForRegistration(o, u)?.buyerPreferences || {};
     return {
-      name,
-      email: u?.email || o.buyerEmail || null,
-      phone: u?.phone || o.buyerPhone || null,
+      name: identity.name || 'Anonymous',
+      email: identity.email,
+      phone: identity.phone,
       price: o.offerAmount || 0,
       buyerType: o.buyerType || null,
       seriousness: o.seriousnessLevel || null,

@@ -5,8 +5,9 @@ import { useEffect, useState, useRef } from 'react';
 import { getAuth } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { fetchAgentProfiles } from '../utils/fetchAgentProfiles';
+import { shouldLinkAccount } from '../utils/registrationIdentity';
 import { db } from '../firebase/clientApp';
-import { doc, getDoc, addDoc, collection, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, addDoc, collection, serverTimestamp, updateDoc, deleteField } from 'firebase/firestore';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { usePropertyEngagement } from '../hooks/usePropertyEngagement';
@@ -781,6 +782,9 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
 
     setSubmitting(true);
 
+    const linkAccount = !!currentAuthUser
+      && shouldLinkAccount({ typedEmail: email, accountEmail: currentAuthUser.email });
+
     try {
       const interestFields = {
         serious: registerInterest && hasAllContactFields ? true : false,
@@ -792,8 +796,12 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         buyerName: `${firstName.trim()} ${lastName.trim()}`.trim(),
         buyerEmail: email.trim().toLowerCase() || null,
         buyerPhone: phone.trim() || null,
-        // Link to existing user if they're logged in
-        ...(currentAuthUser ? { userId: currentAuthUser.uid } : {}),
+        // Link the signed-in account ONLY when the typed email is that account's
+        // own. An agent or office admin who is logged in while registering
+        // someone else's details must not have the registration attributed to
+        // them (their profile would replace the buyer in reports, dashboards
+        // and emails). Otherwise the typed details stand alone.
+        ...(linkAccount ? { userId: currentAuthUser.uid } : {}),
         updatedAt: serverTimestamp(),
       };
 
@@ -804,7 +812,13 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
       // record, or notify a real agent, from a preview build.
       if (!isPreviewDeployment()) {
         if (savedOfferId) {
-          await updateDoc(doc(db, 'offers', savedOfferId), interestFields);
+          await updateDoc(doc(db, 'offers', savedOfferId), {
+            ...interestFields,
+            // If this page session already linked the offer to the signed-in
+            // account (an earlier submit with their own email), unlink it now
+            // that different buyer details were entered.
+            ...(currentAuthUser && !linkAccount ? { userId: deleteField() } : {}),
+          });
         } else {
           // No prior price opinion exists for this visitor — this used to
           // mean registering interest silently wrote nothing at all (the

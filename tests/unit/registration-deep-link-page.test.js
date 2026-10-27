@@ -138,6 +138,29 @@ describe('emailed registration link: owner (desktop or mobile browser)', () => {
   });
 });
 
+describe('report page: whose details are shown for a registration', () => {
+  const HANNAH = { firstName: 'Hannah', lastName: 'Loadsman', email: 'hannah@premarket.homes', phone: '0411 111 111', buyerPreferences: { locations: ['Gold Coast'] } };
+
+  it('REGRESSION: a registration typed as Luke but linked to Hannah\'s account shows LUKE, never Hannah', async () => {
+    ownOffers = [{ id: 'REG_TARGET1', type: 'opinion', serious: true, userId: 'hannah', buyerName: 'Luke Wilson', buyerEmail: 'lukejwilson15@gmail.com', buyerPhone: '0400 000 000', offerAmount: 900000, createdAt: '2026-10-26T00:00:00.000Z' }];
+    authFetch.mockImplementation(async () => ({ ok: true, status: 200, json: async () => ({ buyers: { hannah: HANNAH } }) }));
+    await mount();
+    const row = await waitFor(() => { const r = document.getElementById('registration-REG_TARGET1'); expect(r).toBeTruthy(); return r; });
+    expect(row.textContent).toContain('Luke Wilson');
+    expect(row.textContent).toContain('lukejwilson15@gmail.com');
+    expect(row.textContent).not.toMatch(/Hannah|Loadsman|premarket\.homes|0411|Gold Coast/);
+  });
+
+  it('a genuine linked buyer (same email) still shows the typed name and gets the profile fallback for missing fields', async () => {
+    ownOffers = [{ id: 'REG_TARGET1', type: 'opinion', serious: true, userId: 'hannah', buyerName: 'Hannah L', buyerEmail: 'HANNAH@premarket.homes', offerAmount: 900000, createdAt: '2026-10-26T00:00:00.000Z' }];
+    authFetch.mockImplementation(async () => ({ ok: true, status: 200, json: async () => ({ buyers: { hannah: HANNAH } }) }));
+    await mount();
+    const row = await waitFor(() => { const r = document.getElementById('registration-REG_TARGET1'); expect(r).toBeTruthy(); return r; });
+    expect(row.textContent).toContain('Hannah L');
+    expect(row.textContent).toContain('0411 111 111'); // phone not typed -> same person's profile
+  });
+});
+
 describe('emailed registration link: signed in as the WRONG account', () => {
   beforeEach(() => {
     authState = { user: { uid: 'someoneElse', email: 'other-account@example.com' }, userData: { agent: true }, loading: false };

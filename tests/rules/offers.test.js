@@ -1,4 +1,5 @@
 import { describe, it, beforeAll, afterAll, beforeEach } from 'vitest';
+import { deleteField } from 'firebase/firestore';
 import {
   getTestEnv, getAuthedDb, getUnauthDb, getSuperAdminDb, seedDoc,
   cleanup, teardown,
@@ -139,5 +140,38 @@ describe('offers collection', () => {
     const db = getUnauthDb();
     await setDoc(doc(db, 'offers', 'offer1'), { propertyId: 'prop1', amount: 500000 });
     await assertFails(deleteDoc(doc(db, 'offers', 'offer1')));
+  });
+
+  // --- registrations that are NOT linked to the signed-in account ---
+  // A logged-in agent/admin registering someone else's details must be able to
+  // save them WITHOUT their own userId (see utils/registrationIdentity.js).
+  it('allows an authenticated user to create a registration with typed buyer details and NO userId', async () => {
+    const db = getAuthedDb('agentAdmin1');
+    await assertSucceeds(setDoc(doc(db, 'offers', 'reg1'), {
+      type: 'opinion', propertyId: 'prop1', serious: true,
+      buyerName: 'Luke Wilson', buyerEmail: 'luke@example.com', buyerPhone: '0400 000 000',
+    }));
+  });
+
+  it('allows an authenticated user to turn their earlier anonymous opinion into a registration without userId', async () => {
+    await setDoc(doc(getUnauthDb(), 'offers', 'op1'), { type: 'opinion', propertyId: 'prop1', offerAmount: 900000 });
+    const db = getAuthedDb('agentAdmin1');
+    await assertSucceeds(updateDoc(doc(db, 'offers', 'op1'), {
+      serious: true, buyerName: 'Luke Wilson', buyerEmail: 'luke@example.com',
+    }));
+  });
+
+  it('allows the signed-in user to unlink their OWN userId when different buyer details are entered (deleteField)', async () => {
+    await seedDoc('offers/linked1', { type: 'opinion', propertyId: 'prop1', serious: true, userId: 'agentAdmin1' });
+    const db = getAuthedDb('agentAdmin1');
+    await assertSucceeds(updateDoc(doc(db, 'offers', 'linked1'), {
+      userId: deleteField(), buyerName: 'Luke Wilson', buyerEmail: 'luke@example.com',
+    }));
+  });
+
+  it('still denies attaching someone ELSE\'s userId to a registration', async () => {
+    await setDoc(doc(getUnauthDb(), 'offers', 'op2'), { type: 'opinion', propertyId: 'prop1' });
+    const db = getAuthedDb('agentAdmin1');
+    await assertFails(updateDoc(doc(db, 'offers', 'op2'), { userId: 'someoneElse' }));
   });
 });
