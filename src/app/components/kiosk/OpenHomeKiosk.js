@@ -24,8 +24,9 @@ const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /**
  * Full-screen iPad open-home experience. ONE page: a buyer slides the price
- * opinion slider, lets go and walks away — no welcome screen, no steps, no
- * submit button. See utils/kioskController.js (when an opinion is recorded),
+ * opinion slider, lets go, and is asked "Happy with $X?" — their opinion is only
+ * recorded once they approve it (walking away discards it). No welcome screen, no
+ * steps. See utils/kioskController.js (when an opinion is recorded),
  * utils/kioskOutbox.js (durable, idempotent saving) and
  * utils/kioskPersistence.js (what is written).
  *
@@ -301,7 +302,7 @@ export default function OpenHomeKiosk({
 
   // ── render ───────────────────────────────────────────────────────────
   const showPrice = ui.moved || ui.phase === 'thanks';
-  const settling = ui.phase === 'settling';
+  const confirming = ui.phase === 'confirming';
   const thanks = ui.phase === 'thanks';
 
   return (
@@ -394,8 +395,6 @@ export default function OpenHomeKiosk({
               step={step}
               value={ui.value}
               disabled={modalOpen}
-              settling={settling}
-              settleMs={timing.settleMs}
               invite={ui.phase === 'idle' && !ui.moved}
               valueText={money(ui.value)}
               onGestureStart={() => ctrl.gestureStart()}
@@ -408,9 +407,37 @@ export default function OpenHomeKiosk({
             </div>
           </div>
 
-          <p className="mt-[clamp(14px,3vh,32px)] max-w-[40ch] text-[clamp(14px,1.7vw,20px)] leading-snug text-white/90">
-            <span className="font-semibold">Anonymous — no name, no sign-up.</span> Slide to show what you think this home is worth. Your opinion helps guide the owner.
-          </p>
+          {/* Either the anonymity assurance, or — after release — the approval question. Same box, so nothing jumps. */}
+          <div className="mt-[clamp(14px,3vh,32px)] flex min-h-[clamp(104px,15vh,140px)] w-full max-w-[40rem] items-center justify-center">
+            {confirming ? (
+              <div role="group" aria-labelledby="kiosk-confirm-title" className="w-full rounded-3xl bg-white/95 p-4 text-slate-900 shadow-2xl" data-testid="kiosk-confirm">
+                <p id="kiosk-confirm-title" className="text-[clamp(18px,2.4vw,26px)] font-bold leading-tight">
+                  Happy with <span className="tabular-nums">{money(ui.value)}</span>?
+                </p>
+                <p className="mt-0.5 text-sm text-slate-600">Your opinion is anonymous and only counts once you approve it.</p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => ctrl.approve()}
+                    className="min-h-[56px] flex-1 rounded-2xl bg-[var(--brand-primary,#c2410c)] px-5 text-lg font-bold text-[var(--brand-text-on-primary,#fff)] shadow-lg transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-900/40"
+                  >
+                    Yes, record my opinion
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => ctrl.reset()}
+                    className="min-h-[56px] rounded-2xl border border-slate-300 bg-white px-5 text-base font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-900/30"
+                  >
+                    Start again
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="max-w-[40ch] text-center text-[clamp(14px,1.7vw,20px)] leading-snug text-white/90">
+                <span className="font-semibold">Anonymous — no name, no sign-up.</span> Slide to show what you think this home is worth. Your opinion helps guide the owner.
+              </p>
+            )}
+          </div>
 
           {/* Thank-you: a quiet pill, never a blocking screen */}
           <div className="mt-4 h-12" role="status" aria-live="polite">

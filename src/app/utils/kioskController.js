@@ -1,34 +1,35 @@
 /**
  * Gesture-to-opinion state machine for the iPad open-home kiosk.
  *
- *   idle ──grab & move──▶ dragging ──release──▶ settling ──(settleMs)──▶ thanks ──▶ idle
- *                            ▲                      │
- *                            └────── re-grip ───────┘   (cancels the pending save)
+ *   idle ──grab & move──▶ dragging ──release──▶ confirming ──APPROVE──▶ thanks ──▶ idle
+ *                            ▲                      │  │
+ *                            └────── re-grip ───────┘  └─ walk away / Start again ─▶ idle (nothing saved)
  *
  * What it guarantees (each is covered by tests):
- *  - An opinion is only recorded after a DELIBERATE interaction: the value
- *    must actually have moved. A touch or brush that doesn't move the slider
+ *  - Nothing is recorded until the buyer APPROVES it. Releasing the slider only
+ *    asks "Happy with $X?"; an opinion that is never approved (the buyer walks
+ *    away, taps Start again, or opens Register interest instead) is discarded.
+ *  - Only a DELIBERATE interaction can even reach that question: the value must
+ *    actually have moved. A touch or brush that doesn't move the slider asks and
  *    records nothing.
- *  - A short settling window after release (default 1.2 s) absorbs ordinary
- *    re-grips, so letting go mid-drag and grabbing again yields ONE opinion at
- *    the final value.
- *  - Exactly one commit per visit: the commit is single-flight, duplicate or
- *    late release events can't fire it twice, and a straggler touch right
- *    after the commit (thanksLockMs) is ignored rather than starting a second
- *    opinion for the same person.
+ *  - While the question is showing the slider stays live: a re-grip changes the
+ *    value and the question re-asks about the FINAL value.
+ *  - Exactly one commit per visit: approve is single-flight, a double tap can't
+ *    record twice, and a straggler touch right after the commit (thanksLockMs)
+ *    is ignored rather than starting a second opinion for the same person.
  *  - A touch cancelled by the system (pointercancel, app switch) discards the
- *    attempt instead of saving.
+ *    attempt.
  *  - Every visit starts completely fresh: the second, third… visitor behaves
- *    exactly like the first, without a page refresh (the previous kiosk kept a
- *    "first interaction" ref that was never reset).
- *  - Saving is NOT part of this machine. It hands the opinion to `onCommit`
- *    and moves on, so the next visitor is never blocked by a slow network.
+ *    exactly like the first, without a page refresh.
+ *  - Saving is NOT part of this machine. It hands the approved opinion to
+ *    `onCommit` and moves on, so the next visitor is never blocked by a slow
+ *    network.
  *
  * Framework-free and clock-injectable so it can be tested deterministically.
  */
 
 export const KIOSK_TIMING = Object.freeze({
-  settleMs: 1200,      // quiet period after release before the opinion is recorded
+  confirmIdleMs: 20000, // an unapproved opinion is discarded if the buyer walks away for this long
   thanksMs: 2500,      // how long the thank-you stays before resetting for the next visitor
   thanksLockMs: 900,   // ignore stray touches this long after a commit
   modalIdleMs: 60000,  // register-interest modal wipes itself after this much inactivity
@@ -53,17 +54,17 @@ export function createKioskController({
   let committed = null; // { id, amount, at } for the current visit
   let held = false;     // true while the register modal is open
   let thanksAt = 0;
-  let settleTimer = null;
+  let confirmTimer = null;
   let thanksTimer = null;
 
   const snapshot = () => ({ phase, value, moved, committed, held });
   const emit = () => onChange(snapshot());
 
-  const clearSettle = () => { if (settleTimer !== null) { clearTimer(settleTimer); settleTimer = null; } };
+  const clearConfirm = () => { if (confirmTimer !== null) { clearTimer(confirmTimer); confirmTimer = null; } };
   const clearThanks = () => { if (thanksTimer !== null) { clearTimer(thanksTimer); thanksTimer = null; } };
 
   function reset() {
-    clearSettle();
+    clearConfirm();
     clearThanks();
     phase = 'idle';
     value = baselineValue;
@@ -78,15 +79,16 @@ export function createKioskController({
   }
 
   function commit() {
-    settleTimer = null;
-    // Single-flight: only a pending (settling) attempt can commit, once.
-    if (phase !== 'settling' || committed) return;
+    // Single-flight: only a pending (confirming) attempt can commit, once.
+    if (phase !== 'confirming' || committed) return false;
+    clearConfirm();
     committed = { id: newId(), amount: value, at: now() };
     phase = 'thanks';
     thanksAt = now();
     emit();
     onCommit({ ...committed });
     if (!held) startThanksTimer(timing.thanksMs);
+    return true;
   }
 
   return {
@@ -100,7 +102,7 @@ export function createKioskController({
         // Otherwise it is the NEXT visitor: end the thank-you early and start fresh.
         reset();
       }
-      clearSettle(); // re-grip while settling cancels the pending save
+      clearConfirm(); // a re-grip while the question is showing: ask again about the final value
       phase = 'dragging';
       emit();
       return true;
@@ -118,21 +120,29 @@ export function createKioskController({
     /** Release. `cancelled` = the system took the touch away (pointercancel, app switch). */
     gestureEnd({ cancelled = false } = {}) {
       if (phase !== 'dragging') return;
-      if (cancelled) { reset(); return; }          // discard — never save an interrupted gesture
-      if (!moved) { phase = 'idle'; emit(); return; } // nothing was actually changed
-      phase = 'settling';
+      if (cancelled) { reset(); return; }             // discard — never keep an interrupted gesture
+      if (!moved) { phase = 'idle'; emit(); return; } // nothing was actually changed: nothing to confirm
+      phase = 'confirming';                           // ask "Happy with $X?" — nothing is recorded yet
       emit();
-      clearSettle();
-      settleTimer = setTimer(commit, timing.settleMs);
+      clearConfirm();
+      confirmTimer = setTimer(() => { confirmTimer = null; reset(); }, timing.confirmIdleMs); // walked away: discard
     },
+
+    /** The buyer approved their opinion. Returns false if there was nothing to approve. */
+    approve() { return commit(); },
 
     /** The register modal opened: keep this visit (so a registration links to its opinion). */
     hold() {
       held = true;
       clearThanks();
-      // Tapping "Register interest" is a deliberate end to the interaction: finalise
-      // a pending opinion now so the registration is tied to it, not left to race.
-      if (phase === 'settling') { clearSettle(); commit(); return; }
+      // Opening Register interest while an opinion is still waiting for approval: that opinion
+      // was never approved, so it is discarded (the registration stands on its own).
+      if (phase === 'confirming' || phase === 'dragging') {
+        clearConfirm();
+        phase = 'idle';
+        value = baselineValue;
+        moved = false;
+      }
       emit();
     },
 
@@ -151,6 +161,6 @@ export function createKioskController({
     },
 
     reset,
-    destroy() { clearSettle(); clearThanks(); },
+    destroy() { clearConfirm(); clearThanks(); },
   };
 }

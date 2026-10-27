@@ -42,7 +42,7 @@ vi.mock('next/image', () => ({
 
 import OpenHomeKiosk from '../../src/app/components/kiosk/OpenHomeKiosk';
 
-const FAST = { settleMs: 120, thanksMs: 600, thanksLockMs: 60, modalIdleMs: 500, exitHoldMs: 300, queuedAfterMs: 150 };
+const FAST = { confirmIdleMs: 900, thanksMs: 600, thanksLockMs: 60, modalIdleMs: 500, exitHoldMs: 300, queuedAfterMs: 150 };
 const base = {
   propertyId: 'prop1', title: 'Beach House', addressLine: '1 Greenwich Avenue, Pimpama QLD',
   imageUrl: 'https://img.test/house.jpg', agentName: 'Phil Chillemi', companyName: 'Harcourts Property Hub',
@@ -74,6 +74,16 @@ async function drag(to = 800, { release = true, pointerId = 1 } = {}) {
   fireEvent.pointerMove(slider(), pe('move', { clientX: to, pointerId }));
   if (release) fireEvent.pointerUp(slider(), pe('up', { clientX: to, pointerId }));
 }
+const approve = async () => {
+  const btn = await screen.findByRole('button', { name: /yes, record my opinion/i });
+  fireEvent.click(btn);
+};
+// Slide, release, then approve the "Happy with $X?" question.
+async function dragApprove(to = 800, opts = {}) {
+  await drag(to, opts);
+  if (opts.release === false) return;
+  await approve();
+}
 const opinionWrites = () => server.writes.filter((w) => !w.data.serious);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -98,6 +108,15 @@ describe('one beautiful full-screen page', () => {
     for (const banned of ['next', 'submit', 'lock in', 'confirm', 'continue', 'start', 'welcome']) {
       expect(names.some((n) => n.includes(banned))).toBe(false);
     }
+  });
+
+  it('the only extra controls ever shown are the approval question after a release (and Register interest)', async () => {
+    mount();
+    expect(screen.queryByTestId('kiosk-confirm')).toBeNull();
+    await drag(800);
+    await screen.findByTestId('kiosk-confirm');
+    const names = screen.getAllByRole('button').map((b) => b.textContent.toLowerCase());
+    expect(names.sort()).toEqual(['register interest', 'start again', 'yes, record my opinion']);
   });
 
   it('does not anchor the buyer: no price is shown until they move the slider', () => {
@@ -138,21 +157,59 @@ describe('one beautiful full-screen page', () => {
 });
 
 describe('slider release records one anonymous opinion — deliberately', () => {
-  it('drag + release saves exactly one anonymous opinion after the settling window, with an idempotent id', async () => {
+  it('drag + release only ASKS "Happy with…?" — nothing is recorded until the buyer approves; approving records exactly one anonymous opinion', async () => {
     mount();
     await drag(800);
-    expect(opinionWrites()).toHaveLength(0);              // not yet: still settling
+    const confirm = await screen.findByTestId('kiosk-confirm');
+    expect(confirm.textContent).toMatch(/Happy with \$1,120,000\?/);
+    expect(screen.getByRole('button', { name: /yes, record my opinion/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /start again/i })).toBeTruthy();
+    await wait(400);
+    expect(server.writes).toHaveLength(0);                 // still just a question
+
+    await approve();
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     const w = opinionWrites()[0];
     expect(w.docId).toMatch(/^[A-Za-z0-9]{20}$/);
     expect(w.data).toMatchObject({ type: 'opinion', propertyId: 'prop1', offerAmount: 1120000, fromWeb: true, fromIpadMode: true, visitorId: 'v_kiosk' });
     expect(w.data.sessionId).toMatch(/^ipad_/);
     expect('userId' in w.data).toBe(false);
-    expect('buyerEmail' in w.data).toBe(false);          // anonymous
+    expect('buyerEmail' in w.data).toBe(false);            // anonymous
+    expect(screen.queryByTestId('kiosk-confirm')).toBeNull();
     await wait(300);
-    expect(opinionWrites()).toHaveLength(1);              // never saved twice
+    expect(opinionWrites()).toHaveLength(1);               // never saved twice
   });
 
+  it('walking away without approving discards the opinion: nothing is saved and the screen resets for the next visitor', async () => {
+    mount();
+    await drag(800);
+    await screen.findByTestId('kiosk-confirm');
+    await waitFor(() => expect(screen.queryByTestId('kiosk-confirm')).toBeNull(), { timeout: 3000 });
+    expect(screen.getByText(/what do you think it.s worth/i)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/\$1,120,000/);
+    await wait(300);
+    expect(server.writes).toHaveLength(0);
+  });
+
+  it('"Start again" discards the unapproved opinion and resets the slider', async () => {
+    mount();
+    await drag(800);
+    fireEvent.click(await screen.findByRole('button', { name: /start again/i }));
+    expect(screen.queryByTestId('kiosk-confirm')).toBeNull();
+    expect(screen.getByText(/what do you think it.s worth/i)).toBeTruthy();
+    await wait(300);
+    expect(server.writes).toHaveLength(0);
+  });
+
+  it('a double tap on "Yes, record my opinion" records once', async () => {
+    mount();
+    await drag(800);
+    const yes = await screen.findByRole('button', { name: /yes, record my opinion/i });
+    fireEvent.click(yes); fireEvent.click(yes);
+    await waitFor(() => expect(opinionWrites()).toHaveLength(1));
+    await wait(300);
+    expect(opinionWrites()).toHaveLength(1);
+  });
   it('a tap or brush that does not move the slider records nothing', async () => {
     mount();
     fireEvent.pointerDown(slider(), pe('down', { clientX: 500 }));
@@ -178,47 +235,52 @@ describe('slider release records one anonymous opinion — deliberately', () => 
     fireEvent.pointerDown(slider(), pe('down', { clientX: 200, pointerId: 2 }));
     fireEvent.pointerMove(slider(), pe('move', { clientX: 300, pointerId: 2 }));
     fireEvent.pointerUp(slider(), pe('up', { clientX: 300, pointerId: 2 }));
+    expect(screen.queryByTestId('kiosk-confirm')).toBeNull();      // the stray finger did not end the gesture
     fireEvent.pointerUp(slider(), pe('up', { clientX: 800, pointerId: 1 }));
+    await approve();
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     expect(opinionWrites()[0].data.offerAmount).toBe(1120000);
   });
-
-  it('duplicate release events (touchend + emulated mouseup style) save once', async () => {
+  it('duplicate release events (touchend + emulated mouseup style) ask once and save once', async () => {
     mount();
     await drag(800);
     fireEvent.pointerUp(slider(), pe('up', { clientX: 800 }));
     fireEvent.pointerUp(slider(), pe('up', { clientX: 800 }));
+    expect(screen.getAllByTestId('kiosk-confirm')).toHaveLength(1);
+    await approve();
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     await wait(300);
     expect(opinionWrites()).toHaveLength(1);
   });
-
-  it('letting go and re-gripping within the window yields ONE opinion at the final value', async () => {
+  it('adjusting while the question is showing re-asks about the FINAL value; only that approved value is recorded', async () => {
     mount();
     await drag(700);
-    await wait(40);
+    expect((await screen.findByTestId('kiosk-confirm')).textContent).toMatch(/\$1,080,000/);
     fireEvent.pointerDown(slider(), pe('down', { clientX: 700 }));
     fireEvent.pointerMove(slider(), pe('move', { clientX: 900 }));
+    expect(screen.queryByTestId('kiosk-confirm')).toBeNull();      // dragging again hides the question
     fireEvent.pointerUp(slider(), pe('up', { clientX: 900 }));
+    expect((await screen.findByTestId('kiosk-confirm')).textContent).toMatch(/\$1,160,000/);
+    await approve();
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     await wait(300);
     expect(opinionWrites()).toHaveLength(1);
     expect(opinionWrites()[0].data.offerAmount).toBe(1160000);
   });
-
-  it('is operable from a keyboard / switch control, and still saves just once', async () => {
+  it('is operable from a keyboard / switch control, including approving', async () => {
     mount();
     slider().focus();
     fireEvent.keyDown(slider(), { key: 'ArrowRight' });
     fireEvent.keyDown(slider(), { key: 'ArrowRight' });
     fireEvent.keyUp(slider(), { key: 'ArrowRight' });
+    expect((await screen.findByTestId('kiosk-confirm')).textContent).toMatch(/\$1,020,000/);
+    await approve();
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     expect(opinionWrites()[0].data.offerAmount).toBe(1020000);
   });
-
   it('respects the property price boundaries (cannot leave the min–max range)', async () => {
     mount();
-    await drag(5000);                        // far past the right edge
+    await dragApprove(5000);                        // far past the right edge
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     expect(opinionWrites()[0].data.offerAmount).toBe(1200000);
   });
@@ -228,7 +290,7 @@ describe('honest saving and reliability', () => {
   it('never says "saved" until the server has acknowledged the write', async () => {
     server.hang = true;                       // server never answers
     mount();
-    await drag(800);
+    await dragApprove(800);
     const thanks = await screen.findByTestId('kiosk-thanks');
     expect(thanks.textContent).not.toMatch(/\bis saved\b/i);
     await waitFor(() => expect(screen.getByTestId('kiosk-thanks').textContent).toMatch(/stored on this iPad/i));
@@ -236,7 +298,7 @@ describe('honest saving and reliability', () => {
 
   it('says saved once the server acknowledges it', async () => {
     mount();
-    await drag(800);
+    await dragApprove(800);
     await waitFor(() => expect(screen.getByTestId('kiosk-thanks').textContent).toMatch(/your opinion is saved/i));
   });
 
@@ -244,7 +306,7 @@ describe('honest saving and reliability', () => {
     server.online = false;
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
     mount();
-    await drag(800);
+    await dragApprove(800);
     expect((await screen.findByTestId('kiosk-thanks')).textContent).toMatch(/stored on this iPad/i);
     await waitFor(() => expect(screen.getByTestId('kiosk-sync').textContent).toMatch(/Offline — 1 waiting/));
     expect(Object.keys(server.docs)).toHaveLength(0);
@@ -261,7 +323,7 @@ describe('honest saving and reliability', () => {
   it('a reload with an opinion still queued delivers it on startup', async () => {
     server.online = false;
     const first = mount();
-    await drag(800);
+    await dragApprove(800);
     await waitFor(() => expect(memory.get('pm_kiosk_outbox_v1')).toBeTruthy());
     first.unmount();
     server.online = true;
@@ -275,7 +337,7 @@ describe('every visitor starts fresh', () => {
     mount();
     const targets = [800, 300, 950, 600];
     for (const t of targets) {
-      await drag(t);
+      await dragApprove(t);
       await waitFor(() => expect(screen.getByTestId('kiosk-thanks')).toBeTruthy());
       await waitFor(() => expect(screen.getByText(/what do you think it.s worth/i)).toBeTruthy(), { timeout: 2500 }); // auto-reset
       expect(document.body.textContent).not.toMatch(/\$\d,\d{3},\d{3}/);          // previous price is gone
@@ -288,10 +350,10 @@ describe('every visitor starts fresh', () => {
   it('the next visitor is not blocked while an earlier opinion is still syncing', async () => {
     server.hang = true;
     mount();
-    await drag(800);
+    await dragApprove(800);
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     await waitFor(() => expect(screen.getByText(/what do you think it.s worth/i)).toBeTruthy(), { timeout: 2500 });
-    await drag(400);
+    await dragApprove(400);
     await waitFor(() => expect(opinionWrites().length).toBeGreaterThanOrEqual(2));
     expect(new Set(opinionWrites().map((w) => w.docId)).size).toBe(2);
   });
@@ -308,7 +370,7 @@ describe('Register interest: same page, private, honest', () => {
 
   it('is available straight after an opinion; opens a modal on the same page; registration is tied to that opinion', async () => {
     mount();
-    await drag(800);
+    await dragApprove(800);
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     const opinionId = opinionWrites()[0].docId;
     fireEvent.click(screen.getByRole('button', { name: /register interest/i }));
@@ -419,7 +481,7 @@ describe('Register interest: same page, private, honest', () => {
 
   it('after one visitor registers, the next sees no previous details or opinion, and their registration is NOT linked to the previous opinion', async () => {
     mount();
-    await drag(800);
+    await dragApprove(800);
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     const firstOpinion = opinionWrites()[0].docId;
     fireEvent.click(screen.getByRole('button', { name: /register interest/i }));
@@ -440,16 +502,19 @@ describe('Register interest: same page, private, honest', () => {
     expect('offerAmount' in bob.data).toBe(false);
   });
 
-  it('tapping Register while a release is still settling finalises that opinion first (registration links to it)', async () => {
+  it('opening Register interest while an opinion is still unapproved discards that opinion; the registration stands alone', async () => {
     mount();
     await drag(800);
+    await screen.findByTestId('kiosk-confirm');
     fireEvent.click(screen.getByRole('button', { name: /register interest/i }));
     await screen.findByRole('dialog');
-    await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     fill();
     fireEvent.click(screen.getByRole('button', { name: /send my details/i }));
     await waitFor(() => expect(server.writes.some((w) => w.data.serious)).toBe(true));
-    expect(server.writes.find((w) => w.data.serious).docId).toBe(opinionWrites()[0].docId);
+    await wait(300);
+    expect(opinionWrites()).toHaveLength(0);                               // never approved, never recorded
+    const reg = server.writes.find((w) => w.data.serious);
+    expect('offerAmount' in reg.data).toBe(false);                         // no price they didn't approve
   });
 });
 
@@ -475,7 +540,7 @@ describe('staff exit and demo mode', () => {
   it('demo mode runs the whole flow but writes nothing, and says so', async () => {
     mount({ demoMode: true });
     expect(screen.getByText(/Demo mode/i)).toBeTruthy();
-    await drag(800);
+    await dragApprove(800);
     expect((await screen.findByTestId('kiosk-thanks')).textContent).toMatch(/Demo only — nothing is saved/);
     fireEvent.click(screen.getByRole('button', { name: /register interest/i }));
     await screen.findByRole('dialog');

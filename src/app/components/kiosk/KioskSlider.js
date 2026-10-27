@@ -26,8 +26,6 @@ export default function KioskSlider({
   step,
   value,
   disabled = false,
-  settling = false,
-  settleMs = 1200,
   invite = false,
   ariaLabel = 'Your price opinion',
   valueText,
@@ -207,27 +205,15 @@ export default function KioskSlider({
             className={`relative h-[68px] w-[68px] rounded-full bg-white shadow-2xl transition-transform duration-150 ${dragging ? 'scale-110' : ''} ${invite && !dragging ? 'pm-kiosk-invite' : ''}`}
             style={{ border: '6px solid var(--brand-primary, #e48900)' }}
           >
-            <svg className="pointer-events-none absolute -inset-[10px] h-[88px] w-[88px] -rotate-90" viewBox="0 0 88 88" aria-hidden="true">
-              <circle
-                cx="44" cy="44" r="40" fill="none" strokeWidth="4" strokeLinecap="round"
-                stroke="var(--brand-primary, #e48900)"
-                strokeDasharray="251.3"
-                strokeDashoffset={settling ? undefined : 251.3}
-                className={settling ? 'pm-kiosk-ring-active' : undefined}
-                style={settling ? { animation: `pm-kiosk-settle ${settleMs}ms linear forwards` } : { opacity: 0 }}
-              />
-            </svg>
           </div>
         </div>
       </div>
 
       <style>{`
-        @keyframes pm-kiosk-settle { from { stroke-dashoffset: 251.3; } to { stroke-dashoffset: 0; } }
         @keyframes pm-kiosk-invite { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,.55); } 50% { box-shadow: 0 0 0 18px rgba(255,255,255,0); } }
         .pm-kiosk-invite { animation: pm-kiosk-invite 2.4s ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) {
           .pm-kiosk-invite { animation: none; }
-          .pm-kiosk-ring-active { animation: none !important; stroke-dashoffset: 0 !important; }
         }
       `}</style>
     </div>
