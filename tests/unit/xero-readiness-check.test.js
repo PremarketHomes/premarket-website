@@ -14,11 +14,12 @@ const hph = (over = {}) => ({ billingEntityKey: HPH_KEY, billingName: LEGAL, abn
 // A fake, read-only Xero. Anything not configured returns the "healthy, clean org" answer.
 function makeXero(over = {}) {
   return {
-    getOrganisation: vi.fn(async () => ({ Name: 'Premarket Group Pty Ltd', LegalName: 'Premarket Group Pty Ltd', IsDemoCompany: false, OrganisationType: 'COMPANY', CountryCode: 'AU', BaseCurrency: 'AUD', OrganisationStatus: 'ACTIVE' })),
-    getAccountByCode: vi.fn(async (code) => ({ Code: code, Name: 'Sales', Type: 'REVENUE', Class: 'REVENUE', Status: 'ACTIVE', TaxType: 'OUTPUT' })),
+    getOrganisation: vi.fn(async () => ({ Name: 'Premarket Group Pty Ltd', LegalName: 'Premarket Group Pty Ltd', IsDemoCompany: false, OrganisationType: 'COMPANY', CountryCode: 'AU', BaseCurrency: 'AUD', OrganisationStatus: 'ACTIVE', PaysTax: false, SalesTaxBasis: 'NONE', SalesTaxPeriod: 'QUARTERLY1', DefaultSalesTax: 'Tax Exclusive' })),
+    getAccountByCode: vi.fn(async (code) => ({ Code: code, Name: 'Sales', Type: 'REVENUE', Class: 'REVENUE', Status: 'ACTIVE', TaxType: 'BASEXCLUDED' })),
     getTaxRates: vi.fn(async () => [
-      { Name: 'GST on Income', TaxType: 'OUTPUT', Status: 'ACTIVE', CanApplyToRevenue: true },
-      { Name: 'BAS Excluded', TaxType: 'NONE', Status: 'ACTIVE', CanApplyToRevenue: true },
+      { Name: 'GST on Income', TaxType: 'OUTPUT', Status: 'ACTIVE', EffectiveRate: 10, CanApplyToRevenue: true },
+      { Name: 'BAS Excluded', TaxType: 'BASEXCLUDED', Status: 'ACTIVE', EffectiveRate: 0, CanApplyToRevenue: true },
+      { Name: 'GST Free Income', TaxType: 'EXEMPTOUTPUT', Status: 'ACTIVE', EffectiveRate: 0, CanApplyToRevenue: true },
     ]),
     searchContactByName: vi.fn(async () => null),
     getContactById: vi.fn(async () => null),
@@ -41,8 +42,11 @@ describe('Xero readiness check: a clean, ready organisation', () => {
     expect(byId(r, 'organisation').detail).toMatch(/Premarket Group Pty Ltd/);
     expect(byId(r, 'account')).toMatchObject({ status: 'pass' });
     expect(byId(r, 'taxType')).toMatchObject({ status: 'pass' });
+    expect(byId(r, 'accountTax')).toMatchObject({ status: 'pass' });
+    expect(byId(r, 'gstRegistration')).toMatchObject({ status: 'pass' });
     expect(byId(r, `contact:${HPH_KEY}`)).toMatchObject({ status: 'pass', plan: 'create one contact with the legal billing name' });
     expect(byId(r, 'leftovers')).toMatchObject({ status: 'pass' });
+    expect(byId(r, 'testContact')).toMatchObject({ status: 'pass' });
   });
 
   it('reports which read functions it used (transparency), and only read functions', async () => {
@@ -114,22 +118,87 @@ describe('revenue account code', () => {
   });
 });
 
-describe('tax type NONE', () => {
-  it('FAILS when NONE is missing', async () => {
-    const r = await run(makeXero({ getTaxRates: vi.fn(async () => [{ Name: 'GST', TaxType: 'OUTPUT', Status: 'ACTIVE' }]) }));
-    expect(byId(r, 'taxType')).toMatchObject({ status: 'fail' });
+describe('tax type BASEXCLUDED (BAS Excluded, no GST)', () => {
+  const rates = (...r) => vi.fn(async () => r);
+  const BAS = { Name: 'BAS Excluded', TaxType: 'BASEXCLUDED', Status: 'ACTIVE', EffectiveRate: 0, CanApplyToRevenue: true };
+
+  it('REGRESSION: a real Australian org has NO "NONE" rate, and that is fine — BAS Excluded is what is verified', async () => {
+    const r = await run(makeXero({ getTaxRates: rates({ Name: 'GST on Income', TaxType: 'OUTPUT', Status: 'ACTIVE', EffectiveRate: 10, CanApplyToRevenue: true }, BAS) }));
+    expect(byId(r, 'taxType').status).toBe('pass');
+    expect(r.ready).toBe(true);
+    expect(r.checks.some((c) => /NONE/.test(c.label))).toBe(false);
   });
-  it('FAILS when NONE is not active', async () => {
-    const r = await run(makeXero({ getTaxRates: vi.fn(async () => [{ Name: 'BAS Excluded', TaxType: 'NONE', Status: 'DELETED' }]) }));
-    expect(byId(r, 'taxType')).toMatchObject({ status: 'fail' });
+  it('FAILS when BAS Excluded is missing', async () => {
+    const r = await run(makeXero({ getTaxRates: rates({ Name: 'GST', TaxType: 'OUTPUT', Status: 'ACTIVE', EffectiveRate: 10 }) }));
+    expect(byId(r, 'taxType').status).toBe('fail');
+    expect(r.ready).toBe(false);
   });
-  it('FAILS when NONE cannot be applied to revenue', async () => {
-    const r = await run(makeXero({ getTaxRates: vi.fn(async () => [{ Name: 'BAS Excluded', TaxType: 'NONE', Status: 'ACTIVE', CanApplyToRevenue: false }]) }));
-    expect(byId(r, 'taxType')).toMatchObject({ status: 'fail' });
+  it('FAILS when BAS Excluded is not active', async () => {
+    expect(byId(await run(makeXero({ getTaxRates: rates({ ...BAS, Status: 'ARCHIVED' }) })), 'taxType').status).toBe('fail');
   });
-  it('passes, noting OUTPUT exists but is NOT used', async () => {
-    const r = await run(makeXero());
-    expect(byId(r, 'taxType').detail).toMatch(/NOT used/);
+  it('FAILS when BAS Excluded cannot be applied to revenue', async () => {
+    expect(byId(await run(makeXero({ getTaxRates: rates({ ...BAS, CanApplyToRevenue: false }) })), 'taxType').status).toBe('fail');
+  });
+  it('FAILS if the rate would actually charge GST', async () => {
+    const t = byId(await run(makeXero({ getTaxRates: rates({ ...BAS, EffectiveRate: 10 }) })), 'taxType');
+    expect(t.status).toBe('fail');
+    expect(t.detail).toMatch(/would charge GST/);
+  });
+  it('passes, noting GST on Income exists but is NOT used', async () => {
+    expect(byId(await run(makeXero()), 'taxType').detail).toMatch(/NOT used/);
+  });
+  it('a tax-rate read error fails both the tax-type and account-default checks without crashing', async () => {
+    const r = await run(makeXero({ getTaxRates: vi.fn(async () => { throw new Error('Xero API GET /TaxRates failed (403)'); }) }));
+    expect(byId(r, 'taxType').status).toBe('fail');
+    expect(byId(r, 'accountTax')).toBeUndefined();
+  });
+});
+
+describe('account default tax treatment', () => {
+  const acct = (TaxType) => vi.fn(async () => ({ Code: '200', Name: 'Sales', Type: 'REVENUE', Class: 'REVENUE', Status: 'ACTIVE', ...(TaxType ? { TaxType } : {}) }));
+  it('passes when account 200 defaults to BAS Excluded (the correct no-GST treatment)', async () => {
+    const t = byId(await run(makeXero()), 'accountTax');
+    expect(t.status).toBe('pass');
+    expect(t.detail).toMatch(/correct no-GST treatment/);
+  });
+  it('WARNS (not blocks) when the account defaults to GST on Income — invoices set the type explicitly, but hand-made ones would charge GST', async () => {
+    const r = await run(makeXero({ getAccountByCode: acct('OUTPUT') }));
+    const t = byId(r, 'accountTax');
+    expect(t.status).toBe('warn');
+    expect(t.detail).toMatch(/10% GST/);
+    expect(t.detail).toMatch(/explicitly/);
+    expect(r.ready).toBe(true);
+  });
+  it('WARNS when the account defaults to another zero-rated type (e.g. GST Free Income)', async () => {
+    const t = byId(await run(makeXero({ getAccountByCode: acct('EXEMPTOUTPUT') })), 'accountTax');
+    expect(t.status).toBe('warn');
+    expect(t.detail).toMatch(/not BAS Excluded/);
+  });
+  it('WARNS when the account has no default tax type', async () => {
+    expect(byId(await run(makeXero({ getAccountByCode: acct(undefined) })), 'accountTax').status).toBe('warn');
+  });
+  it('is skipped (no false alarm) when the account itself could not be found', async () => {
+    expect(byId(await run(makeXero({ getAccountByCode: vi.fn(async () => null) })), 'accountTax')).toBeUndefined();
+  });
+});
+
+describe('GST registration as configured in Xero', () => {
+  it('passes and reports the configuration when the org is NOT registered (Premarket\'s actual status)', async () => {
+    const g = byId(await run(makeXero()), 'gstRegistration');
+    expect(g.status).toBe('pass');
+    expect(g.detail).toMatch(/NOT registered for GST/);
+    expect(g.data).toMatchObject({ PaysTax: false, SalesTaxBasis: 'NONE', SalesTaxPeriod: 'QUARTERLY1' });
+  });
+  it('WARNS when Xero has the org set up to collect GST while invoices carry none', async () => {
+    const g = byId(await run(makeXero({ getOrganisation: vi.fn(async () => ({ Name: 'Premarket Group Pty Ltd', IsDemoCompany: false, PaysTax: true, SalesTaxBasis: 'ACCRUALS', SalesTaxPeriod: 'QUARTERLY1' })) })), 'gstRegistration');
+    expect(g.status).toBe('warn');
+    expect(g.detail).toMatch(/accountant/);
+  });
+  it('WARNS when Xero does not say', async () => {
+    expect(byId(await run(makeXero({ getOrganisation: vi.fn(async () => ({ Name: 'X', IsDemoCompany: false })) })), 'gstRegistration').status).toBe('warn');
+  });
+  it('is not reported when the organisation could not be read', async () => {
+    expect(byId(await run(makeXero({ getOrganisation: vi.fn(async () => { throw new Error('down'); }) })), 'gstRegistration')).toBeUndefined();
   });
 });
 
@@ -184,9 +253,14 @@ describe('the HPH contact: what would the invoice run do?', () => {
   });
 });
 
-describe('leftover Premarket diagnostic test records', () => {
+describe('old Premarket diagnostic test records', () => {
   const testContact = { ContactID: 'tc1', Name: OLD_TEST_CONTACT_NAME, ContactStatus: 'ACTIVE', EmailAddress: 'xero-diagnostic-test@premarket.homes' };
-  const draft = (id, ref) => ({ InvoiceID: id, InvoiceNumber: `INV-${id}`, Status: 'DRAFT', Reference: ref, Total: 200 });
+  const inv = (id, ref, Status, extra = {}) => ({ InvoiceID: id, InvoiceNumber: id, Status, Reference: ref, Total: 200, ...extra });
+  const withTestRecords = (invoices, contact = testContact) => makeXero({
+    searchContactByName: vi.fn(async (n) => (n === OLD_TEST_CONTACT_NAME ? contact : null)),
+    listInvoicesByReference: vi.fn(async (ref) => invoices.filter((i) => i.Reference === ref)),
+    listInvoicesForContact: vi.fn(async () => invoices),
+  });
 
   it('looks for the old test contact and BOTH old references', async () => {
     const xero = makeXero();
@@ -194,35 +268,81 @@ describe('leftover Premarket diagnostic test records', () => {
     expect(xero.searchContactByName).toHaveBeenCalledWith(OLD_TEST_CONTACT_NAME);
     for (const ref of OLD_TEST_REFERENCES) expect(xero.listInvoicesByReference).toHaveBeenCalledWith(ref);
   });
-  it('finds drafts and gives step-by-step cleanup instructions, without doing the cleanup', async () => {
-    const xero = makeXero({
-      searchContactByName: vi.fn(async (n) => (n === OLD_TEST_CONTACT_NAME ? testContact : null)),
-      listInvoicesByReference: vi.fn(async (ref) => (ref === OLD_TEST_REFERENCES[0] ? [draft('d1', ref)] : [draft('d2', ref)])),
-      listInvoicesForContact: vi.fn(async () => [draft('d1', OLD_TEST_REFERENCES[0])]),
-    });
-    const r = await run(xero);
+
+  it('REGRESSION (our real Xero): two DELETED test invoices are historical records, not active leftovers; the active test contact is an OPTIONAL archive task', async () => {
+    const r = await run(withTestRecords([
+      inv('INV-0001', OLD_TEST_REFERENCES[0], 'DELETED', { Total: 200 }),
+      inv('INV-0002', OLD_TEST_REFERENCES[1], 'DELETED', { Total: 1000 }),
+    ]));
+    const l = byId(r, 'leftovers');
+    expect(l.status).toBe('pass');
+    expect(l.detail).toMatch(/historical DELETED records/);
+    expect(l.detail).toMatch(/INV-0001, INV-0002/);
+    expect(l.detail).toMatch(/nothing to clean up/);
+    expect(l.data.historicalOnly).toBe(true);
+    expect(l.cleanup).toBeUndefined();
+    const t = byId(r, 'testContact');
+    expect(t.status).toBe('info');
+    expect(t.optional).toBe(true);
+    expect(t.detail).toMatch(/Optional tidy-up/);
+    expect(t.cleanup.join(' ')).toMatch(/Archive/);
+    expect(r.warnings).toEqual([]);                    // nothing here is a warning
+    expect(r.optionalTasks).toHaveLength(1);
+    expect(r.ready).toBe(true);
+  });
+
+  it('VOIDED invoices are historical too', async () => {
+    const l = byId(await run(withTestRecords([inv('INV-9', OLD_TEST_REFERENCES[0], 'VOIDED')])), 'leftovers');
+    expect(l.status).toBe('pass');
+    expect(l.detail).toMatch(/VOIDED/);
+  });
+
+  it('a LIVE draft is an active leftover: warn, with cleanup steps (and no cleanup is performed)', async () => {
+    const r = await run(withTestRecords([inv('d1', OLD_TEST_REFERENCES[0], 'DRAFT')]));
     const l = byId(r, 'leftovers');
     expect(l.status).toBe('warn');
-    expect(l.data.testContact.ContactID).toBe('tc1');
-    expect(l.data.invoices.map((i) => i.InvoiceID).sort()).toEqual(['d1', 'd2']);   // de-duplicated across searches
-    expect(l.detail).toMatch(/all drafts/);
+    expect(l.detail).toMatch(/1 live old test invoice found \(all drafts\)/);
     expect(l.cleanup.join(' ')).toMatch(/Delete it/);
     expect(l.cleanup.join(' ')).toMatch(/Do NOT authorise or send/);
-    expect(r.ready).toBe(true);                                                      // leftovers never block HPH billing
+    expect(r.ready).toBe(true);                        // leftovers never block HPH billing
   });
-  it('flags any leftover that is NOT a draft', async () => {
-    const xero = makeXero({
-      listInvoicesByReference: vi.fn(async (ref) => [{ ...draft('p1', ref), Status: 'AUTHORISED' }]),
-    });
-    const l = byId(await run(xero), 'leftovers');
+
+  it('flags any live leftover that is NOT a draft (authorised/paid), and mentions the deleted history', async () => {
+    const l = byId(await run(withTestRecords([
+      inv('p1', OLD_TEST_REFERENCES[0], 'AUTHORISED'),
+      inv('x1', OLD_TEST_REFERENCES[1], 'DELETED'),
+    ])), 'leftovers');
     expect(l.status).toBe('warn');
-    expect(l.detail).toMatch(/are NOT drafts/);
+    expect(l.detail).toMatch(/1 are NOT drafts/);
+    expect(l.detail).toMatch(/1 more are already deleted\/voided history/);
   });
-  it('reports only the contact when it has no invoices', async () => {
-    const l = byId(await run(makeXero({ searchContactByName: vi.fn(async (n) => (n === OLD_TEST_CONTACT_NAME ? testContact : null)) })), 'leftovers');
-    expect(l.status).toBe('warn');
-    expect(l.data.invoices).toEqual([]);
+
+  it('de-duplicates an invoice found by reference AND under the contact', async () => {
+    const same = inv('d1', OLD_TEST_REFERENCES[0], 'DELETED');
+    const l = byId(await run(withTestRecords([same])), 'leftovers');
+    expect(l.data.invoices).toHaveLength(1);
   });
+
+  it('an ARCHIVED test contact is reported as done', async () => {
+    const t = byId(await run(withTestRecords([], { ...testContact, ContactStatus: 'ARCHIVED' })), 'testContact');
+    expect(t.status).toBe('pass');
+    expect(t.detail).toMatch(/already archived/);
+  });
+
+  it('an active test contact with no invoices at all is still just an optional tidy-up', async () => {
+    const r = await run(withTestRecords([]));
+    expect(byId(r, 'leftovers').status).toBe('pass');
+    expect(byId(r, 'testContact').status).toBe('info');
+    expect(r.optionalTasks).toHaveLength(1);
+  });
+
+  it('no old test contact and no invoices: everything passes', async () => {
+    const r = await run(makeXero());
+    expect(byId(r, 'leftovers').status).toBe('pass');
+    expect(byId(r, 'testContact').status).toBe('pass');
+    expect(r.optionalTasks).toEqual([]);
+  });
+
   it('an error is reported, not thrown', async () => {
     const l = byId(await run(makeXero({ listInvoicesByReference: vi.fn(async () => { throw new Error('boom'); }) })), 'leftovers');
     expect(l.status).toBe('fail');

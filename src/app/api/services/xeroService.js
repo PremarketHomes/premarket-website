@@ -1,5 +1,6 @@
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
+import { ZERO_GST_TAX_TYPE } from './xeroTaxTypes';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // XERO API: Token management
@@ -235,7 +236,7 @@ export async function getOrganisation() {
   return result.Organisations?.[0] || null;
 }
 
-/** Read-only. The organisation's tax rates, so a caller can confirm a tax type (e.g. 'NONE')
+/** Read-only. The organisation's tax rates, so a caller can confirm a tax type (e.g. 'BASEXCLUDED')
  * exists and can be applied to revenue before anything invoices with it. */
 export async function getTaxRates() {
   const result = await makeXeroRequest('GET', '/TaxRates');
@@ -269,16 +270,14 @@ export async function getAccountByCode(code) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType, status, idempotencyKey }) {
-  // 'NONE' (not GST registered — Premarket's actual status) or
-  // 'OUTPUT' (GST on income, 10%, if that ever changes). Each line
-  // item normally carries its own taxType (send/route.js derives it
-  // per property, from that property's own snapshotted gstAmount —
-  // different properties in the same consolidated invoice could in
-  // principle have been charged under different settings if gstRate
-  // changed between them). `taxType` here is only a fallback default
-  // for a line item that doesn't specify its own — never a value this
+  // ZERO_GST_TAX_TYPE ('BASEXCLUDED' — Premarket is not GST registered; see xeroTaxTypes.js) or
+  // 'OUTPUT' (GST on income, 10%, if that ever changes). Each line item normally carries its own
+  // taxType (send/route.js derives it per property, from that property's own snapshotted
+  // gstAmount — different properties in the same consolidated invoice could in principle have
+  // been charged under different settings if gstRate changed between them). `taxType` here is
+  // only a fallback default for a line item that doesn't specify its own — never a value this
   // function invents or defaults to GST on its own.
-  const defaultTaxType = taxType || 'NONE';
+  const defaultTaxType = taxType || ZERO_GST_TAX_TYPE;
   const invoice = {
     Type: 'ACCREC',
     Contact: { ContactID: contactId },

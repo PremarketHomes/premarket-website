@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildInvoiceReference } from '../../src/app/api/services/xeroInvoiceIdentity';
+import { ZERO_GST_TAX_TYPE, GST_TAX_TYPE } from '../../src/app/api/services/xeroTaxTypes';
 
 const mockVerifyIdToken = vi.fn();
 vi.mock('firebase-admin/auth', () => ({
@@ -126,8 +127,11 @@ function makeFakeXero() {
     },
     createInvoice: async ({ contactId, lineItems, reference }) => {
       invoiceSeq += 1;
-      const total = lineItems.reduce((sum, l) => sum + l.unitAmount * l.quantity * (l.taxType === 'OUTPUT' ? 1.1 : 1), 0);
-      const inv = { InvoiceID: `inv${invoiceSeq}`, InvoiceNumber: `PM-${invoiceSeq}`, Status: 'AUTHORISED', Reference: reference, Contact: { ContactID: contactId }, Total: Math.round(total * 100) / 100 };
+      // Like Xero: only a taxed type (OUTPUT, 10%) adds GST; any 0% type (BASEXCLUDED) adds none.
+      const sub = lineItems.reduce((sum, l) => sum + l.unitAmount * l.quantity, 0);
+      const tax = lineItems.reduce((sum, l) => sum + (l.taxType === 'OUTPUT' ? l.unitAmount * l.quantity * 0.1 : 0), 0);
+      const total = sub + tax;
+      const inv = { InvoiceID: `inv${invoiceSeq}`, InvoiceNumber: `PM-${invoiceSeq}`, Status: 'AUTHORISED', Reference: reference, Contact: { ContactID: contactId }, SubTotal: Math.round(sub * 100) / 100, TotalTax: Math.round(tax * 100) / 100, Total: Math.round(total * 100) / 100, LineItems: undefined };
       invoices.push(inv);
       return inv;
     },
@@ -186,7 +190,7 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
   // to Xero would have been NaN. Fixed in send/route.js to derive
   // unitAmount/taxType from each property's own numbers instead.
 
-  it('passes taxType NONE and each property\'s own ex-GST subtotal as the unit amount when not GST registered', async () => {
+  it('passes the explicit zero-GST tax type (BASEXCLUDED) and each property\'s own ex-GST subtotal as the unit amount when not GST registered', async () => {
     fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-10-01') });
     fakeDb._seed('billingContacts', 'agent:uid1', { status: 'confirmed', billingName: 'Acme Agency', name: 'Jo Bloggs', email: 'jo@example.com' });
     fakeDb._seed('invoiceRunItems', 'item1', {
@@ -207,7 +211,7 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
     expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
     const call = mockCreateInvoice.mock.calls[0][0];
     expect(call.lineItems[0].unitAmount).toBe(200);
-    expect(call.lineItems[0].taxType).toBe('NONE');
+    expect(call.lineItems[0].taxType).toBe(ZERO_GST_TAX_TYPE);
   });
 
   it('passes taxType OUTPUT and that property\'s own ex-GST amount when its charge was snapshotted with GST', async () => {
@@ -252,7 +256,7 @@ describe('POST /api/admin/invoicing/runs/[runId]/send — GST', () => {
 
     const call = mockCreateInvoice.mock.calls[0][0];
     expect(call.lineItems).toHaveLength(2);
-    expect(call.lineItems[0]).toMatchObject({ unitAmount: 200, taxType: 'NONE' });
+    expect(call.lineItems[0]).toMatchObject({ unitAmount: 200, taxType: ZERO_GST_TAX_TYPE });
     expect(call.lineItems[1]).toMatchObject({ taxType: 'OUTPUT' });
     expect(call.lineItems[1].unitAmount).toBeCloseTo(181.82, 2);
   });
@@ -587,8 +591,8 @@ describe('POST .../send — office (consolidated) invoices', () => {
     const call = mockCreateInvoice.mock.calls[0][0];
     expect(call.lineItems).toHaveLength(2);
     expect(call.lineItems.map((l) => [l.description, l.unitAmount, l.taxType])).toEqual([
-      ['Premarket listing: 1 Phil St (Phil Agent)', 200, 'NONE'],
-      ['Premarket listing: 2 Sam St (Sam Agent)', 200, 'NONE'],
+      ['Premarket listing: 1 Phil St (Phil Agent)', 200, ZERO_GST_TAX_TYPE],
+      ['Premarket listing: 2 Sam St (Sam Agent)', 200, ZERO_GST_TAX_TYPE],
     ]);
     expect(mockFindOrCreateContact.mock.calls[0][0]).toMatchObject({ email: 'accounts@hph.test' });
   });
@@ -869,8 +873,8 @@ describe('POST .../send — HPH consolidated invoices: unique references, verifi
     expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
     const call = mockCreateInvoice.mock.calls[0][0];
     expect(call.lineItems).toEqual([
-      { description: 'Premarket listing: 1 Test St (Phil Agent)', quantity: 1, unitAmount: 200, taxType: 'NONE' },
-      { description: 'Premarket listing: 2 Test St (Sam Agent)', quantity: 1, unitAmount: 200, taxType: 'NONE' },
+      { description: 'Premarket listing: 1 Test St (Phil Agent)', quantity: 1, unitAmount: 200, taxType: ZERO_GST_TAX_TYPE },
+      { description: 'Premarket listing: 2 Test St (Sam Agent)', quantity: 1, unitAmount: 200, taxType: ZERO_GST_TAX_TYPE },
     ]);
     const due = new Date(); due.setDate(due.getDate() + 14);
     expect(call.dueDate).toBe(due.toISOString().split('T')[0]);
@@ -892,5 +896,63 @@ describe('POST .../send — HPH consolidated invoices: unique references, verifi
     expect(call.lineItems[0].description).toBe('Premarket listing: 9 Solo Rd');
     expect(call.reference).toBe(refFor('2026-11-01', 'itemSolo'));
     expect(mockFindOrCreateContact.mock.calls[0][0].name).toBe('Solo Realty');
+  });
+});
+
+describe('POST .../send — zero-GST tax type is explicit (BASEXCLUDED), never the placeholder "NONE"', () => {
+  const HPH = 'office:hphOffice1';
+  const seedHph = (properties, over = {}) => {
+    fakeDb._seed('billingContacts', HPH, { status: 'confirmed', billingName: 'Results Realty (QLD) Pty Ltd ATF Results Realty Trust trading as Harcourts Property Hub', name: 'Chris Manby', email: 'accounts@hph.test', abn: '68 677 191 726' });
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-11-23') });
+    fakeDb._seed('invoiceRunItems', 'item1', {
+      runId: 'run1', agencyName: 'Harcourts Property Hub', agentName: 'HPH Accounts', agentEmail: 'accounts@hph.test',
+      billingEntityType: 'office', billingEntityKey: HPH, officeId: 'hphOffice1', properties, ...over,
+    });
+  };
+  const send = async () => {
+    const { POST } = await import('../../src/app/api/admin/invoicing/runs/[runId]/send/route.js');
+    return (await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) })).json();
+  };
+
+  it('HPH\'s $200 campaign fee: unit amount $200, tax type BASEXCLUDED, $0 GST and a $200 invoice total', async () => {
+    seedHph([{ propertyId: 'p1', address: '1 Greenwich Avenue, Pimpama QLD, Australia', agentName: 'Phil Chillemi', subtotalEx: 200, gstAmount: 0, totalInc: 200 }]);
+    expect((await send()).status).toBe('sent');
+    const call = mockCreateInvoice.mock.calls[0][0];
+    expect(call.lineItems).toEqual([{ description: 'Premarket listing: 1 Greenwich Avenue, Pimpama QLD, Australia (Phil Chillemi)', quantity: 1, unitAmount: 200, taxType: 'BASEXCLUDED' }]);
+    expect(xero.invoices[0]).toMatchObject({ SubTotal: 200, TotalTax: 0, Total: 200 });
+  });
+
+  it('a consolidated HPH invoice of several $200 campaigns is all BASEXCLUDED, with $0 GST in total', async () => {
+    seedHph(['a', 'b', 'c'].map((id, i) => ({ propertyId: id, address: `${i + 1} Test St`, agentName: 'Phil Chillemi', subtotalEx: 200, gstAmount: 0, totalInc: 200 })));
+    await send();
+    const call = mockCreateInvoice.mock.calls[0][0];
+    expect(call.lineItems.every((l) => l.taxType === 'BASEXCLUDED' && l.unitAmount === 200)).toBe(true);
+    expect(xero.invoices[0]).toMatchObject({ SubTotal: 600, TotalTax: 0, Total: 600 });
+  });
+
+  it('a line whose charge WAS snapshotted with GST still uses OUTPUT (GST handling preserved), alongside zero-GST lines', async () => {
+    seedHph([
+      { propertyId: 'p1', address: '1 Test St', agentName: 'Phil Chillemi', subtotalEx: 200, gstAmount: 0, totalInc: 200 },
+      { propertyId: 'p2', address: '2 Test St', agentName: 'Phil Chillemi', subtotalEx: 200, gstAmount: 20, totalInc: 220 },
+    ]);
+    await send();
+    const call = mockCreateInvoice.mock.calls[0][0];
+    expect(call.lineItems.map((l) => l.taxType)).toEqual([ZERO_GST_TAX_TYPE, GST_TAX_TYPE]);
+    expect(xero.invoices[0]).toMatchObject({ SubTotal: 400, TotalTax: 20, Total: 420 });
+  });
+
+  it('an independent agent\'s $200 invoice is also BASEXCLUDED with $0 GST', async () => {
+    fakeDb._seed('billingContacts', 'agent:solo', { status: 'confirmed', name: 'Solo Agent', email: 's@x.test', billingName: 'Solo Realty' });
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'approved', periodStart: new Date('2026-11-01') });
+    fakeDb._seed('invoiceRunItems', 'item1', { runId: 'run1', agencyName: 'Solo Realty', agentName: 'Solo Agent', agentEmail: 's@x.test', billingEntityType: 'independent', billingEntityKey: 'agent:solo', properties: [{ propertyId: 'ps', address: '9 Solo Rd', subtotalEx: 200, gstAmount: 0, totalInc: 200 }] });
+    await send();
+    expect(mockCreateInvoice.mock.calls[0][0].lineItems[0].taxType).toBe('BASEXCLUDED');
+    expect(xero.invoices[0]).toMatchObject({ TotalTax: 0, Total: 200 });
+  });
+
+  it('the placeholder "NONE" is never sent to Xero on any line', async () => {
+    seedHph([{ propertyId: 'p1', address: '1 Test St', agentName: 'Phil', subtotalEx: 200, gstAmount: 0, totalInc: 200 }]);
+    await send();
+    expect(JSON.stringify(mockCreateInvoice.mock.calls)).not.toContain('"NONE"');
   });
 });
