@@ -3,6 +3,7 @@ import { verifyAdmin } from '../../middleware/auth';
 import {
   fetchBuyersWithPreferences,
   fetchNewestProperties,
+  fetchHottestProperties,
   matchPropertiesToBuyer,
   generateNewsletterHTML,
 } from '../../services/newsletterService';
@@ -17,9 +18,10 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     const { email } = body;
 
-    const [buyers, newestProperties] = await Promise.all([
+    const [buyers, newestProperties, hottestProperties] = await Promise.all([
       fetchBuyersWithPreferences(),
       fetchNewestProperties(10),
+      fetchHottestProperties(5),
     ]);
 
     let buyer = email ? buyers.find((b) => b.email === email) : buyers[0];
@@ -36,7 +38,11 @@ export async function POST(request) {
     const matched = matchPropertiesToBuyer(buyer, newestProperties);
     const buyerProperties = matched.length > 0 ? matched : newestProperties;
 
-    const html = generateNewsletterHTML(buyer, buyerProperties);
+    const matchedHottest = matchPropertiesToBuyer(buyer, hottestProperties);
+    const buyerHottest = matchedHottest.length > 0 ? matchedHottest : hottestProperties;
+
+    // Read-only: renders the email for one buyer from live data. Nothing is sent.
+    const html = generateNewsletterHTML(buyer, buyerProperties, buyerHottest);
     return new NextResponse(html, { headers: { 'Content-Type': 'text/html' } });
   } catch (err) {
     console.error('Error previewing newsletter:', err);

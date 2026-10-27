@@ -63,6 +63,55 @@ export async function fetchNewestProperties(limit = 10) {
   });
 }
 
+/**
+ * The properties getting the most buyer attention this week: ranked by the number
+ * of offers (price opinions / registrations) created in the last 7 days, top
+ * `limit`, and only if the listing is still active and visible. Same logic as
+ * the legacy Firebase newsletter's "Hottest This Week" section, reading the
+ * same `offers` data.
+ */
+export async function fetchHottestProperties(limit = 5) {
+  const oneWeekAgo = new Date();
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+  const offersSnapshot = await adminDb
+    .collection('offers')
+    .where('createdAt', '>=', Timestamp.fromDate(oneWeekAgo))
+    .get();
+
+  const counts = {};
+  offersSnapshot.forEach((doc) => {
+    const propertyId = doc.data().propertyId;
+    if (propertyId) counts[propertyId] = (counts[propertyId] || 0) + 1;
+  });
+
+  const top = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit);
+
+  const properties = [];
+  for (const [propertyId, count] of top) {
+    const propertyDoc = await adminDb.collection('properties').doc(propertyId).get();
+    if (!propertyDoc.exists) continue;
+    const data = propertyDoc.data();
+    if (!(data.active && data.visibility)) continue;
+    properties.push({
+      id: propertyDoc.id,
+      title: data.title || 'Untitled Property',
+      address: data.address || '',
+      suburb: data.location?.suburb || '',
+      showSuburbOnly: data.showSuburbOnly || false,
+      bedrooms: data.bedrooms || null,
+      bathrooms: data.bathrooms || null,
+      carSpaces: data.carSpaces || null,
+      price: data.price || null,
+      imageUrl: data.imageUrls?.[0] || null,
+      offerCount: count,
+    });
+  }
+  return properties;
+}
+
 function formatPrice(price) {
   const result = formatPriceShort(price);
   return result === '--' ? 'Price on Application' : result;
@@ -73,6 +122,16 @@ function getDisplayAddress(property) {
     return property.address?.split(',')[1]?.trim() || property.suburb || 'Australia';
   }
   return property.address || property.suburb || 'Australia';
+}
+
+// Prices are stored as numbers or display strings ("$1,250,000"). Referenced by
+// matchPropertiesToBuyer below; it was missing, which made every per-buyer send
+// throw a ReferenceError.
+function parsePrice(price) {
+  if (!price) return null;
+  if (typeof price === 'number') return price;
+  const cleaned = String(price).replace(/[^0-9.]/g, '');
+  return parseFloat(cleaned) || null;
 }
 
 export function matchPropertiesToBuyer(buyer, properties) {
@@ -140,48 +199,61 @@ function propertyCardHTML(property) {
   </td></tr>`;
 }
 
-export function generateNewsletterHTML(buyer, properties) {
-  const propertyCount = properties.length;
+export function generateNewsletterHTML(buyer, properties, hottest = []) {
+  // A property already shown under Latest Listings is not repeated under Hottest.
+  const shown = new Set(properties.map((prop) => prop.id));
+  const hot = hottest.filter((prop) => !shown.has(prop.id));
+  const propertyCount = properties.length + hot.length;
+
+  const intro = properties.length > 0
+    ? p(`Your exclusive weekly preview of <strong>${properties.length} new pre-market propert${properties.length === 1 ? 'y' : 'ies'}</strong> is here. <span style="color:#f97316; font-weight:600;">You're seeing them first!</span>`)
+    : p('Here are the pre-market properties getting the most buyer attention this week. <span style="color:#f97316; font-weight:600;">You\u2019re seeing them first!</span>');
+
+  const section = (title, subtitle, list) => `
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+      <tr><td style="padding-bottom:16px;">
+        <h2 style="margin:0; font-size:20px; font-weight:700; color:#1a1a2e;">${title}</h2>
+        <p style="margin:4px 0 0 0; font-size:13px; color:#6b7280;">${subtitle}</p>
+      </td></tr>
+      ${list.map((prop) => propertyCardHTML(prop)).join('')}
+    </table>`;
 
   const bodyHTML = `
     ${greeting(buyer.firstName)}
-    ${p(`Your exclusive weekly preview of <strong>${propertyCount} new pre-market propert${propertyCount === 1 ? 'y' : 'ies'}</strong> is here. <span style="color:#f97316; font-weight:600;">You're seeing them first!</span>`)}
-
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
-      <tr><td style="padding-bottom:16px;">
-        <h2 style="margin:0; font-size:20px; font-weight:700; color:#1a1a2e;">Latest Listings</h2>
-        <p style="margin:4px 0 0 0; font-size:13px; color:#6b7280;">Newest first — just added this week</p>
-      </td></tr>
-      ${properties.map((prop) => propertyCardHTML(prop)).join('')}
-    </table>
+    ${intro}
+    ${properties.length > 0 ? section('Latest Listings', 'Newest first \u2014 just added this week', properties) : ''}
+    ${hot.length > 0 ? section('Hottest This Week', 'Getting the most buyer attention', hot) : ''}
 
     ${signature()}
   `;
 
   return wrapEmail({
-    previewText: `${propertyCount} new pre-market propert${propertyCount === 1 ? 'y' : 'ies'} this week`,
+    previewText: `${propertyCount} pre-market propert${propertyCount === 1 ? 'y' : 'ies'} this week`,
     bodyHTML,
     recipientEmail: buyer.email,
     reason: "You're receiving this because you signed up for property alerts on Premarket.",
   });
 }
 
-async function sendNewsletterEmail(buyer, properties) {
-  const html = generateNewsletterHTML(buyer, properties);
-  return sendEmail({
-    to: buyer.email,
-    subject: `${properties.length} New Pre-Market Propert${properties.length === 1 ? 'y' : 'ies'} This Week`,
-    html,
-  });
+async function sendNewsletterEmail(buyer, properties, hottest = []) {
+  const html = generateNewsletterHTML(buyer, properties, hottest);
+  // Unchanged subject when there is no hottest section; otherwise the total shown.
+  const shown = new Set(properties.map((prop) => prop.id));
+  const total = properties.length + hottest.filter((prop) => !shown.has(prop.id)).length;
+  const subject = hottest.length === 0
+    ? `${properties.length} New Pre-Market Propert${properties.length === 1 ? 'y' : 'ies'} This Week`
+    : `${total} Pre-Market Propert${total === 1 ? 'y' : 'ies'} This Week`;
+  return sendEmail({ to: buyer.email, subject, html });
 }
 
 export async function sendWeeklyBuyerNewsletters() {
-  const [buyers, newestProperties] = await Promise.all([
+  const [buyers, newestProperties, hottestProperties] = await Promise.all([
     fetchBuyersWithPreferences(),
     fetchNewestProperties(10),
+    fetchHottestProperties(5),
   ]);
 
-  if (newestProperties.length === 0) {
+  if (newestProperties.length === 0 && hottestProperties.length === 0) {
     return { sent: 0, skipped: buyers.length, errors: 0 };
   }
 
@@ -189,16 +261,18 @@ export async function sendWeeklyBuyerNewsletters() {
 
   for (const buyer of buyers) {
     try {
-      const matched = matchPropertiesToBuyer(buyer, newestProperties);
-      // Show matched properties if any, otherwise show all newest
-      const buyerProperties = matched.length > 0 ? matched : newestProperties;
+      const matchedNewest = matchPropertiesToBuyer(buyer, newestProperties);
+      const matchedHottest = matchPropertiesToBuyer(buyer, hottestProperties);
+      // Show matched properties if any, otherwise show all
+      const buyerNewest = matchedNewest.length > 0 ? matchedNewest : newestProperties;
+      const buyerHottest = matchedHottest.length > 0 ? matchedHottest : hottestProperties;
 
-      if (buyerProperties.length === 0) {
+      if (buyerNewest.length === 0 && buyerHottest.length === 0) {
         results.skipped++;
         continue;
       }
 
-      await sendNewsletterEmail(buyer, buyerProperties);
+      await sendNewsletterEmail(buyer, buyerNewest, buyerHottest);
       results.sent++;
     } catch (error) {
       console.error(`Failed to send newsletter to ${buyer.email}:`, error);
