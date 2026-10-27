@@ -11,6 +11,7 @@ import { authFetch } from '../../../utils/authFetch';
 import { db, auth } from '../../../firebase/clientApp';
 import { signOut as firebaseSignOut } from 'firebase/auth';
 import { loginUrlForCurrentPage } from '../../../utils/loginRedirect';
+import { resolveBuyerIdentity, profileForRegistration } from '../../../utils/registrationIdentity';
 import {
   getRegistrationIdFromSearch,
   registrationElementId,
@@ -1239,16 +1240,15 @@ export default function PropertyReportPage() {
         // was captured directly on the offer (e.g. iPad kiosk flow).
         const enrichedOffers = rawOffers.map(o => {
           if (o.type === 'opinion' && o.serious === true && o.userId && userMap[o.userId]) {
-            const u = userMap[o.userId];
-            const resolvedName = (u.firstName && u.lastName)
-              ? `${u.firstName} ${u.lastName}`.trim()
-              : (u.firstName || o.buyerName || o.userName || null);
-            const prefs = u.buyerPreferences || {};
+            // Typed registration details win; the linked account only fills gaps,
+            // and only if it can be the same person (see registrationIdentity.js).
+            const identity = resolveBuyerIdentity(o, userMap[o.userId]);
+            const prefs = profileForRegistration(o, userMap[o.userId])?.buyerPreferences || {};
             return {
               ...o,
-              resolvedBuyerName: resolvedName,
-              resolvedEmail: u.email || o.buyerEmail || null,
-              resolvedPhone: u.phone || o.buyerPhone || null,
+              resolvedBuyerName: identity.name,
+              resolvedEmail: identity.email,
+              resolvedPhone: identity.phone,
               preferredLocations: prefs.locations || [],
               preferredType: prefs.propertyType || null,
               minBedrooms: prefs.minBedrooms || null,
