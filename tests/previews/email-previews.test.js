@@ -83,6 +83,8 @@ beforeAll(async () => {
     svc.sendPasswordResetEmailTemplate('sam.example@example.com', 'Sam', 'https://premarket.homes/reset?oobCode=SAMPLE'));
   add('property-live', 'Property is live', 'Website', 'A property goes live', () =>
     svc.sendPropertyLiveEmail('sam.example@example.com', 'Sam', '12 Example Street, Sampleton QLD', false));
+  add('property-ready', 'Property ready to review (to agent)', 'Website', 'An admin assigns or reassigns a property to the agent, or a vendor submission arrives. Never when an agent uploads their own', () =>
+    svc.sendPropertyReadyEmail('sam.example@example.com', 'Sam', '14 Marine Parade, Kingscliff NSW 2487', 'SAMPLE_PROPERTY_ID'));
   add('new-prospect', 'New prospect added (to agent)', 'Website', 'A vendor adds a property to an agent profile', () =>
     svc.sendPropertyAgentEmail('sam.example@example.com', 'Sam', '12 Example Street, Sampleton QLD'));
   add('buyer-interest', 'New buyer registration (to agent)', 'Website', 'A buyer registers interest', () =>
@@ -99,8 +101,10 @@ beforeAll(async () => {
     const html = news.generateNewsletterHTML({ email: 'alex.buyer@example.com', firstName: 'Alex' }, [
       { id: 'a', title: 'Renovated family home', address: '12 Example Street, Sampleton QLD', price: '$1,275,000', bedrooms: 4, bathrooms: 2, carSpaces: 2 },
       { id: 'b', title: 'Modern townhouse', address: '3 Sample Lane, Exampleton QLD', price: '$890,000', bedrooms: 3, bathrooms: 2, carSpaces: 1 },
+    ], [
+      { id: 'c', title: 'Garden-view apartment', address: '9 Placeholder Court, Demoville QLD', price: '$720,000', bedrooms: 2, bathrooms: 2, carSpaces: 1 },
     ]);
-    sent.push({ subject: 'New Pre-Market Properties This Week', html });
+    sent.push({ subject: '3 Pre-Market Properties This Week', html });
   });
 });
 

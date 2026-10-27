@@ -20,15 +20,57 @@ function getResend() {
 // sent — which is exactly what happened in production: the stored
 // RESEND_API_KEY was invalid, every send "succeeded" with no error
 // anywhere, and no email ever actually left Resend's side.
-export async function sendEmail({ to, subject, html, text, attachments }) {
+export async function sendEmail({ to, subject, html, text, attachments, idempotencyKey }) {
   // Every email carries a plain-text part; templates may pass their own.
   const textPart = text || (html ? toPlainText(html) : undefined);
-  const result = await getResend().emails.send({ from: FROM_EMAIL, to, subject, html, text: textPart, attachments });
+  const payload = { from: FROM_EMAIL, to, subject, html, text: textPart, attachments };
+  // Resend de-duplicates sends that share an Idempotency-Key (24h window) — a
+  // second layer behind the durable emailLog claim in notificationService.js.
+  const result = idempotencyKey
+    ? await getResend().emails.send(payload, { idempotencyKey })
+    : await getResend().emails.send(payload);
   if (result?.error) {
     const { name, message, statusCode } = result.error;
     throw new Error(`Resend rejected the email (${name}, HTTP ${statusCode}): ${message}`);
   }
   return result;
+}
+
+/**
+ * Sent when a property is genuinely assigned to an agent (an admin assigns or
+ * reassigns it, or a vendor submission arrives) — never when an agent uploads
+ * their own property. Sent only through notificationService.sendPropertyReadyOnce,
+ * which owns de-duplication and recipient eligibility.
+ * The button opens the property's own dashboard page, which enforces sign-in and
+ * the owner / office-admin / superAdmin access check.
+ */
+export async function sendPropertyReadyEmail(userEmail, userFirstName, propertyAddress, propertyId, { idempotencyKey } = {}) {
+  const bodyHTML = `
+    ${heading('Your property is ready to review')}
+    ${greeting(esc(userFirstName))}
+    ${p('A new property has been added to your Premarket dashboard.')}
+    ${p('Review the details, prepare your campaign and start collecting valuable buyer feedback when you\u2019re ready.')}
+    ${detailList([['Property', esc(propertyAddress)]])}
+    ${steps([
+      'Review your property details and photos.',
+      'Make any final adjustments.',
+      'Activate your campaign when you\u2019re ready.',
+    ], 'Next steps')}
+    ${ctaButton('View Property', `${BASE_URL}/dashboard/property/${encodeURIComponent(propertyId)}`)}
+    ${signature()}
+  `;
+
+  return sendEmail({
+    to: userEmail,
+    subject: 'Your property is ready to review | Premarket',
+    idempotencyKey,
+    html: wrapEmail({
+      previewText: `${esc(propertyAddress)} has been added to your Premarket dashboard`,
+      bodyHTML,
+      recipientEmail: userEmail,
+      reason: "You're receiving this because a property was added to your Premarket account.",
+    }),
+  });
 }
 
 /**

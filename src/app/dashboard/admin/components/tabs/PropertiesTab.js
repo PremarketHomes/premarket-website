@@ -24,7 +24,7 @@ export default function PropertiesTab({ user }) {
   const [properties, setProperties] = useState([]);
   const [allUsers, setAllUsers] = useState({});
   const [allAgentDocs, setAllAgentDocs] = useState({});
-  const [propertiesLoading, setPropertiesLoading] = useState(true);
+  const [propertiesLoading, setPropertiesLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [agentFilter, setAgentFilter] = useState('');
@@ -36,6 +36,7 @@ export default function PropertiesTab({ user }) {
   const [reassignTargetId, setReassignTargetId] = useState(null);
   const [reassigning, setReassigning] = useState(false);
   const [reassignSuccess, setReassignSuccess] = useState(null);
+  const [reassignNotify, setReassignNotify] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -212,11 +213,15 @@ export default function PropertiesTab({ user }) {
         body: JSON.stringify({
           propertyIds: [...selectedIds],
           targetUserId: reassignTargetId,
+          notify: reassignNotify,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reassign');
-      setReassignSuccess(`${data.count} ${data.count === 1 ? 'property' : 'properties'} reassigned successfully`);
+      setReassignSuccess(
+        `${data.count} ${data.count === 1 ? 'property' : 'properties'} reassigned successfully` +
+          (reassignNotify ? ` · ${data.notified || 0} agent email${data.notified === 1 ? '' : 's'} sent` : ''),
+      );
       setSelectedIds(new Set());
       setTimeout(() => {
         setShowReassignModal(false);
@@ -282,7 +287,7 @@ export default function PropertiesTab({ user }) {
 
         {selectedIds.size > 0 && (
           <button
-            onClick={() => { setShowReassignModal(true); setReassignSearch(''); setReassignTargetId(null); }}
+            onClick={() => { setShowReassignModal(true); setReassignSearch(''); setReassignTargetId(null); setReassignNotify(false); }}
             className="ml-auto px-4 py-1.5 text-xs font-semibold rounded-full bg-orange-500 text-white hover:bg-orange-600 transition-colors flex items-center gap-1.5"
           >
             <ArrowRightLeft className="w-3.5 h-3.5" />
@@ -460,7 +465,21 @@ export default function PropertiesTab({ user }) {
                   )}
                 </div>
 
-                <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
+                <div className="px-6 pt-4 border-t border-slate-200">
+                  <label className="flex items-start gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={reassignNotify}
+                      onChange={(e) => setReassignNotify(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Email the agent that these properties were assigned to them
+                      <span className="block text-xs text-slate-400">Off by default. Tick only for a genuine individual assignment (up to 25 properties). Skipped automatically for inactive or disabled agents.</span>
+                    </span>
+                  </label>
+                </div>
+                <div className="px-6 py-4 flex items-center justify-end gap-3">
                   <button
                     onClick={() => setShowReassignModal(false)}
                     className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
