@@ -9,36 +9,31 @@ const STEPS = [
   'Use that information to support timely, informed vendor conversations.',
 ];
 
-export default function PriceIntelligenceLanding({ office }) {
-  const { name, navy, blue, logo } = office;
-
+// Headline and intro copy, shared by this page and the Agent Hub tab. `Heading` is h1 on the
+// standalone page and h2 inside the hub, which already has its own h1.
+export function PriceIntelligenceHeroCopy({ Heading = 'h1' }) {
   return (
-    <main className="font-sans text-slate-800 bg-white" style={{ '--navy': navy, '--blue': blue }}>
-      {/* 1. Hero */}
-      <section className="bg-(--navy) text-white">
-        <div className="max-w-3xl mx-auto px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-16 sm:pb-24">
-          <div className="py-3">
-            <Image src={logo.src} alt={name} width={logo.width} height={logo.height} priority className="h-14 sm:h-16 w-auto" />
-          </div>
-          <p className="mt-14 text-xs font-semibold uppercase tracking-[0.18em] text-(--blue)">
-            Harcourts Property Hub <span aria-hidden="true">&middot;</span> Price Intelligence
-          </p>
-          <h1 className="mt-4 text-[2rem] leading-[1.15] sm:text-5xl sm:leading-[1.1] font-semibold tracking-tight text-balance">
-            The market has changed. It&rsquo;s time to change the conversation.
-          </h1>
-          <p className="mt-6 text-base sm:text-lg font-semibold leading-relaxed text-white">
-            Higher interest rates. Reduced borrowing power. More cautious buyers. Longer campaigns.
-          </p>
-          <p className="mt-4 text-base sm:text-lg text-white/80 leading-relaxed">
-            We&rsquo;re operating in a different market now. Properties aren&rsquo;t attracting the same
-            urgency, and waiting for offers alone isn&rsquo;t giving us the information we need.
-          </p>
-          <p className="mt-4 text-base sm:text-lg text-white/80 leading-relaxed">
-            It&rsquo;s time to start listening to what buyers are actually telling us.
-          </p>
-        </div>
-      </section>
+    <>
+      <Heading className="mt-4 text-[2rem] leading-[1.15] sm:text-5xl sm:leading-[1.1] font-semibold tracking-tight text-balance">
+        The market has changed. It&rsquo;s time to change the conversation.
+      </Heading>
+      <p className="mt-6 text-base sm:text-lg font-semibold leading-relaxed text-white">
+        Higher interest rates. Reduced borrowing power. More cautious buyers. Longer campaigns.
+      </p>
+      <p className="mt-4 text-base sm:text-lg text-white/80 leading-relaxed">
+        We&rsquo;re operating in a different market now. Properties aren&rsquo;t attracting the same
+        urgency, and waiting for offers alone isn&rsquo;t giving us the information we need.
+      </p>
+      <p className="mt-4 text-base sm:text-lg text-white/80 leading-relaxed">
+        It&rsquo;s time to start listening to what buyers are actually telling us.
+      </p>
+    </>
+  );
+}
 
+export function PriceIntelligenceSections() {
+  return (
+    <>
       {/* 2. Market reality */}
       <section className="max-w-3xl mx-auto px-5 py-14 sm:py-20">
         <h2 className="text-2xl sm:text-3xl font-semibold text-(--navy) tracking-tight">Buyers&rsquo; borrowing power has changed.</h2>
@@ -121,23 +116,53 @@ export default function PriceIntelligenceLanding({ office }) {
           ))}
         </ol>
       </section>
+    </>
+  );
+}
 
-      {/* 6. Closing */}
-      <section className="bg-(--navy) text-white">
-        <div className="max-w-3xl mx-auto px-5 py-16 sm:py-20 text-center">
+export function PriceIntelligenceClosing({ logo }) {
+  return (
+    <section className="bg-(--navy) text-white">
+      <div className="max-w-3xl mx-auto px-5 py-16 sm:py-20 text-center">
+        {logo && (
           <Image src={logo.src} alt="" width={logo.width} height={logo.height} className="mx-auto mb-6 h-16 w-auto" />
-          <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-balance">
-            Let&rsquo;s get ahead of the market.
-          </h2>
-          <p className="mt-4 text-white/80 leading-relaxed">
-            We can&rsquo;t control interest rates or buyer confidence. But we can control how quickly we
-            collect feedback, educate our vendors and respond.
+        )}
+        <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-balance">
+          Let&rsquo;s get ahead of the market.
+        </h2>
+        <p className="mt-4 text-white/80 leading-relaxed">
+          We can&rsquo;t control interest rates or buyer confidence. But we can control how quickly we
+          collect feedback, educate our vendors and respond.
+        </p>
+        <p className="mt-6 font-semibold text-(--blue)">
+          Better buyer feedback. Earlier vendor conversations. More informed pricing decisions.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+export default function PriceIntelligenceLanding({ office }) {
+  const { name, navy, blue, logo } = office;
+
+  return (
+    <main className="font-sans text-slate-800 bg-white" style={{ '--navy': navy, '--blue': blue }}>
+      {/* 1. Hero */}
+      <section className="bg-(--navy) text-white">
+        <div className="max-w-3xl mx-auto px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-16 sm:pb-24">
+          <div className="py-3">
+            <Image src={logo.src} alt={name} width={logo.width} height={logo.height} priority className="h-14 sm:h-16 w-auto" />
+          </div>
+          <p className="mt-14 text-xs font-semibold uppercase tracking-[0.18em] text-(--blue)">
+            Harcourts Property Hub <span aria-hidden="true">&middot;</span> Price Intelligence
           </p>
-          <p className="mt-6 font-semibold text-(--blue)">
-            Better buyer feedback. Earlier vendor conversations. More informed pricing decisions.
-          </p>
+          <PriceIntelligenceHeroCopy />
         </div>
       </section>
+
+      <PriceIntelligenceSections />
+
+      <PriceIntelligenceClosing logo={logo} />
 
       <footer className="bg-white px-5 pt-8 pb-[max(2rem,env(safe-area-inset-bottom))] text-center text-xs leading-relaxed text-slate-500">
         <p className="flex items-center justify-center gap-2">

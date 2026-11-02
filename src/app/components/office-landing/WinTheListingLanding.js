@@ -14,34 +14,29 @@ const BENEFITS = [
   { title: 'Build confidence with evidence', body: 'Give vendors meaningful buyer feedback before deciding on a public launch strategy.' },
 ];
 
-export default function WinTheListingLanding({ office }) {
-  const { name, navy, blue, logo } = office;
-
+// Headline and intro copy, shared by this page and the Agent Hub tab. `Heading` is h1 on the
+// standalone page and h2 inside the hub, which already has its own h1.
+export function WinTheListingHeroCopy({ Heading = 'h1' }) {
   return (
-    <main className="font-sans text-slate-800 bg-white" style={{ '--navy': navy, '--blue': blue }}>
-      {/* 1. Hero */}
-      <section className="bg-(--navy) text-white">
-        <div className="max-w-3xl mx-auto px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-16 sm:pb-24">
-          <div className="py-3">
-            <Image src={logo.src} alt={name} width={logo.width} height={logo.height} priority className="h-14 sm:h-16 w-auto" />
-          </div>
-          <p className="mt-14 text-xs font-semibold uppercase tracking-[0.18em] text-(--blue)">
-            Harcourts Property Hub <span aria-hidden="true">&middot;</span> Win the Listing
-          </p>
-          <h1 className="mt-4 text-[2rem] leading-[1.15] sm:text-5xl sm:leading-[1.1] font-semibold tracking-tight text-balance">
-            Give vendors a reason to choose you before they&rsquo;re ready to sell.
-          </h1>
-          <p className="mt-6 text-base sm:text-lg text-white/80 leading-relaxed">
-            Not every homeowner is ready for a full marketing campaign. That doesn&rsquo;t mean
-            they&rsquo;re not ready to start the conversation.
-          </p>
-          <p className="mt-4 text-base sm:text-lg text-white/80 leading-relaxed">
-            Premarket gives you another way to secure the listing opportunity, demonstrate value and help
-            vendors understand buyer expectations before launching publicly.
-          </p>
-        </div>
-      </section>
+    <>
+      <Heading className="mt-4 text-[2rem] leading-[1.15] sm:text-5xl sm:leading-[1.1] font-semibold tracking-tight text-balance">
+        Give vendors a reason to choose you before they&rsquo;re ready to sell.
+      </Heading>
+      <p className="mt-6 text-base sm:text-lg text-white/80 leading-relaxed">
+        Not every homeowner is ready for a full marketing campaign. That doesn&rsquo;t mean
+        they&rsquo;re not ready to start the conversation.
+      </p>
+      <p className="mt-4 text-base sm:text-lg text-white/80 leading-relaxed">
+        Premarket gives you another way to secure the listing opportunity, demonstrate value and help
+        vendors understand buyer expectations before launching publicly.
+      </p>
+    </>
+  );
+}
 
+export function WinTheListingSections() {
+  return (
+    <>
       {/* 2. The opportunity */}
       <section className="max-w-3xl mx-auto px-5 py-14 sm:py-20">
         <h2 className="text-2xl sm:text-3xl font-semibold text-(--navy) tracking-tight">
@@ -106,20 +101,50 @@ export default function WinTheListingLanding({ office }) {
           </blockquote>
         </figure>
       </section>
+    </>
+  );
+}
 
-      {/* 5. Closing */}
-      <section className="bg-(--navy) text-white">
-        <div className="max-w-3xl mx-auto px-5 py-16 sm:py-20 text-center">
+export function WinTheListingClosing({ logo }) {
+  return (
+    <section className="bg-(--navy) text-white">
+      <div className="max-w-3xl mx-auto px-5 py-16 sm:py-20 text-center">
+        {logo && (
           <Image src={logo.src} alt="" width={logo.width} height={logo.height} className="mx-auto mb-6 h-16 w-auto" />
-          <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-balance">
-            Don&rsquo;t just pitch the listing. Give the vendor a plan.
-          </h2>
-          <p className="mt-4 text-white/80 leading-relaxed">
-            Differentiate your presentation. Reduce the pressure. Create a reason for the vendor to move
-            forward with you.
+        )}
+        <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-balance">
+          Don&rsquo;t just pitch the listing. Give the vendor a plan.
+        </h2>
+        <p className="mt-4 text-white/80 leading-relaxed">
+          Differentiate your presentation. Reduce the pressure. Create a reason for the vendor to move
+          forward with you.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+export default function WinTheListingLanding({ office }) {
+  const { name, navy, blue, logo } = office;
+
+  return (
+    <main className="font-sans text-slate-800 bg-white" style={{ '--navy': navy, '--blue': blue }}>
+      {/* 1. Hero */}
+      <section className="bg-(--navy) text-white">
+        <div className="max-w-3xl mx-auto px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-16 sm:pb-24">
+          <div className="py-3">
+            <Image src={logo.src} alt={name} width={logo.width} height={logo.height} priority className="h-14 sm:h-16 w-auto" />
+          </div>
+          <p className="mt-14 text-xs font-semibold uppercase tracking-[0.18em] text-(--blue)">
+            Harcourts Property Hub <span aria-hidden="true">&middot;</span> Win the Listing
           </p>
+          <WinTheListingHeroCopy />
         </div>
       </section>
+
+      <WinTheListingSections />
+
+      <WinTheListingClosing logo={logo} />
 
       <footer className="bg-white px-5 pt-8 pb-[max(2rem,env(safe-area-inset-bottom))] text-center text-xs leading-relaxed text-slate-500">
         <p className="flex items-center justify-center gap-2">
