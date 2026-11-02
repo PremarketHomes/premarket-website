@@ -578,4 +578,44 @@ export async function sendOfficeJoinInviteEmail(email, firstName, officeName, ac
   });
 }
 
+/**
+ * Team invitation — sent to ONE colleague in the inviter's own office, from the
+ * "My Team" page only. Nothing changes until they sign in and accept; the email
+ * carries no buyer or property data. Never part of any bulk/newsletter path.
+ */
+export async function sendTeamInviteEmail(email, firstName, inviterName, officeName, link) {
+  const inviter = esc(inviterName);
+  const office = esc(officeName);
+  const bodyHTML = `
+    ${eyebrow('Team invitation')}
+    ${heading(`${inviter} invited you to a Premarket team`)}
+    ${greeting(esc(firstName))}
+    ${lead(`Teams let colleagues in ${office} see each other's campaigns and buyer feedback, read-only. You keep your own account, properties and billing.`)}
+    ${detailList([
+      ['Invited by', inviter],
+      ['Office', office],
+      ['What teammates can see', `Your properties and anonymous buyer feedback`],
+      ['What they can&rsquo;t do', `Edit, delete, send reports, see buyer contact details or billing`],
+    ], 'Invitation')}
+    ${ctaButton('Review invitation', link, { fallback: true })}
+    ${infoBox(`
+      <p class="t-body" style="margin:0; font-size:13px; color:${COLORS.body}; line-height:1.65;">
+        <strong class="t-ink" style="color:${COLORS.ink};">Not expecting this?</strong> You can decline from your dashboard or simply ignore this email. The invitation expires in 14 days and nothing changes unless you accept.
+      </p>
+    `, { tone: 'warm' })}
+    ${signature()}
+  `;
+
+  return sendEmail({
+    to: email,
+    subject: `${inviterName} invited you to their Premarket team`,
+    html: wrapEmail({
+      previewText: `${inviter} invited you to share campaign feedback as a team. Accept or decline.`,
+      bodyHTML,
+      recipientEmail: email,
+      reason: `You're receiving this because a colleague at ${esc(officeName)} invited you to their Premarket team.`,
+    }),
+  });
+}
+
 export { getResend as resend };

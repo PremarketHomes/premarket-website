@@ -70,7 +70,7 @@ service cloud.firestore {
       //
       // SECURITY: every other server-only field (agencyBrandId,
       // brandColors, officeId, isOfficeAdmin, accountStatus, invitedAt,
-      // activatedAt, invitedBy) must be excluded here too, not just on
+      // activatedAt, invitedBy, teamId) must be excluded here too, not just on
       // `update` below — `create` had NO allowlist at all until this
       // fix, so a self-signup client write could set any of these on
       // its OWN initial account-creation call (e.g. self-assigning an
@@ -84,7 +84,7 @@ service cloud.firestore {
         && !request.resource.data.keys().hasAny([
              'superAdmin', 'agencyBrandId', 'brandColors',
              'officeId', 'isOfficeAdmin', 'accountStatus',
-             'invitedAt', 'activatedAt', 'invitedBy'
+             'invitedAt', 'activatedAt', 'invitedBy', 'teamId'
            ]);
       // Allowlist, not a denylist: only fields an agent/buyer's own
       // dashboard or settings page actually writes to their own account
@@ -443,6 +443,19 @@ service cloud.firestore {
     //   agent account in the meantime — never a broken or dangling one.
     // ═══════════════════════════════════════════════════════════
     match /officeJoinRequests/{requestId} { allow read, write: if false; }
+
+    // ═══════════════════════════════════════════════════════════
+    // TEAMS (agents of one office sharing read-only sight of campaigns)
+    // Server-only, like officeInvites. `users.teamId` is the one-team-per-
+    //   agent pointer: it is never in the client create/update allowlists
+    //   above, so an agent can't put themselves in (or move into) a team.
+    //   All reads go through /api/teams/* and the redacted report level in
+    //   propertyAccessService.js (Admin SDK); the client is granted nothing.
+    // ═══════════════════════════════════════════════════════════
+    match /teams/{teamId} { allow read, write: if false; }
+    match /teamInvites/{inviteId} { allow read, write: if false; }
+    // Per-sender daily invitation-attempt counter (rate limiting). Server-only.
+    match /teamInviteAttempts/{uid} { allow read, write: if false; }
 
     // Server-only: records an agent's removal from an office so billing can
     // hold their later campaigns for review (see billingService.js).

@@ -1,4 +1,6 @@
 import { loadBuyerProfiles } from './publicProfileService';
+import { areActiveTeamPeers } from './teamAccess';
+import { redactOffersForTeam, redactLikesForTeam, redactPropertyForTeam } from './teamRedaction';
 
 /**
  * Who may view a property's private report (opinions, buyer contact details,
@@ -9,6 +11,13 @@ import { loadBuyerProfiles } from './publicProfileService';
  *   'superAdmin'  a platform administrator
  *   'officeAdmin' an administrator of the office the listing agent CURRENTLY
  *                 belongs to. READ-ONLY: this level never authorises a write.
+ *   'teamMember'  a colleague in the SAME team of the SAME active office as the
+ *                 listing agent. READ-ONLY and REDACTED: the report data built
+ *                 for this level (see teamRedaction.js) contains no buyer
+ *                 identity or contact details and no raw offer documents, and
+ *                 buyer-profiles is refused outright. Re-evaluated live from
+ *                 `users.teamId`/`officeId` + the team doc, so leaving or being
+ *                 removed (or either leaving the office) ends it immediately.
  *   null          anyone else
  *
  * The office link is evaluated live from `users.officeId` — never from when
@@ -33,7 +42,17 @@ export async function getPropertyReportAccess(db, { uid, property }) {
   if (!officeAdminInfo.exists) return null;
   const office = officeAdminInfo.data();
   if (office.status !== 'active') return null;
-  return Array.isArray(office.officeAdminUids) && office.officeAdminUids.includes(uid) ? 'officeAdmin' : null;
+  if (Array.isArray(office.officeAdminUids) && office.officeAdminUids.includes(uid)) return 'officeAdmin';
+
+  // Office admin outranks team (it stays the fuller, existing read-only level);
+  // a team peer is the last, narrowest level.
+  const peers = await areActiveTeamPeers(db, {
+    requesterUid: uid,
+    requester: requester.exists ? requester.data() : null,
+    ownerUid: property.userId,
+    owner: owner.data(),
+  });
+  return peers ? 'teamMember' : null;
 }
 
 /** Owner / superAdmin only — for anything that acts on a property (e.g. emailing a report). */
@@ -64,6 +83,8 @@ export async function getPropertyReportData(db, { uid, propertyId }) {
   const access = await getPropertyReportAccess(db, { uid, property });
   if (!access) return { status: 403, error: 'Forbidden' };
 
+  if (access === 'teamMember') return getRedactedTeamReport(db, { propertyId, property, access });
+
   const [offers, likes, buyers] = await Promise.all([
     db.collection('offers').where('propertyId', '==', propertyId).get(),
     db.collection('likes').where('propertyId', '==', propertyId).get(),
@@ -82,6 +103,27 @@ export async function getPropertyReportData(db, { uid, propertyId }) {
 }
 
 /**
+ * Team-level report: same shape the report page already consumes, rebuilt from
+ * allowlists. No raw offer/like documents, no buyer identity, no `buyers` map.
+ */
+async function getRedactedTeamReport(db, { propertyId, property, access }) {
+  const [offers, likes] = await Promise.all([
+    db.collection('offers').where('propertyId', '==', propertyId).get(),
+    db.collection('likes').where('propertyId', '==', propertyId).get(),
+  ]);
+  return {
+    status: 200,
+    access,
+    readOnly: true,
+    redacted: true,
+    property: serializeForClient({ id: propertyId, ...redactPropertyForTeam(property) }),
+    offers: redactOffersForTeam(offers.docs.map((d) => d.data()), serializeForClient),
+    likes: redactLikesForTeam(likes.docs.map((d) => d.data()), serializeForClient),
+    buyers: {},
+  };
+}
+
+/**
  * Buyer details for one listing, for anyone entitled to its report
  * (owner, superAdmin, or an administrator of the agent's current office).
  */
@@ -91,6 +133,8 @@ export async function getBuyerProfilesForProperty(db, { uid, propertyId }) {
 
   const access = await getPropertyReportAccess(db, { uid, property: propertySnap.data() });
   if (!access) return { status: 403, error: 'Forbidden' };
+  // Buyer identity and contact details are never available at team level.
+  if (access === 'teamMember') return { status: 403, error: 'Forbidden' };
 
   return { status: 200, buyers: await loadBuyerProfiles(db, propertyId) };
 }

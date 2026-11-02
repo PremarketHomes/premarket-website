@@ -49,6 +49,7 @@ import {
   Megaphone,
   Clock,
   Building,
+  UserPlus,
 } from 'lucide-react';
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 
@@ -90,6 +91,11 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     // page, exactly as before — which is also why it looked empty for an
     // office admin: it only ever shows the signed-in user's own profiles.
     { id: 'agents', label: 'Team', icon: Users, href: userData?.isOfficeAdmin === true ? '/dashboard/office/team' : '/dashboard/agents' },
+    // Colleagues in the same verified office can share read-only sight of each
+    // other's campaigns. Only offered to office-linked agents.
+    ...(userData?.officeId
+      ? [{ id: 'my-team', label: 'My Team', icon: UserPlus, href: '/dashboard/team' }]
+      : []),
     { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/settings' },
     ...(userData?.isOfficeAdmin === true
       ? [{ id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' }]

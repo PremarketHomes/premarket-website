@@ -1162,6 +1162,8 @@ export default function PropertyReportPage() {
   // True when an office administrator is viewing a member agent's listing:
   // full reporting, but no management actions (the server refuses them too).
   const [readOnly, setReadOnly] = useState(false);
+  // 'team' = a colleague's listing: read-only AND buyer-redacted by the server.
+  const [viewerLevel, setViewerLevel] = useState(null);
   // null | 'denied' | 'notfound' | 'error' — shown as an explanation, never a silent redirect.
   const [accessError, setAccessError] = useState(null);
   // ?registration=<offerId> from the emailed link (read client-side after mount).
@@ -1229,6 +1231,7 @@ export default function PropertyReportPage() {
           }
           const report = await res.json();
           setReadOnly(report.readOnly === true);
+          setViewerLevel(report.access || null);
           setProperty(report.property);
           rawOffers = report.offers;
           rawLikes = report.likes;
@@ -1557,7 +1560,7 @@ export default function PropertyReportPage() {
           <div className="flex items-center justify-between gap-3">
             {/* Left: Back + Title */}
             <div className="flex items-center gap-3 min-w-0">
-              <Link href={readOnly ? '/dashboard/office/team' : '/dashboard'} className="p-2 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
+              <Link href={viewerLevel === 'teamMember' ? '/dashboard/team' : readOnly ? '/dashboard/office/team' : '/dashboard'} className="p-2 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
                 <ArrowLeft className="w-5 h-5 text-slate-600" />
               </Link>
               <div className="min-w-0">
@@ -1715,8 +1718,17 @@ export default function PropertyReportPage() {
           <div role="status" className="flex items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
             <Eye className="w-4 h-4 mt-0.5 shrink-0" />
             <div>
-              <span className="font-semibold">Viewing as office admin</span>
-              <span className="text-indigo-800"> — read-only. You can review this listing&apos;s reporting, but only the listing agent can edit or manage it.</span>
+              {viewerLevel !== 'teamMember' ? (
+                <>
+                  <span className="font-semibold">Viewing as office admin</span>
+                  <span className="text-indigo-800"> — read-only. You can review this listing&apos;s reporting, but only the listing agent can edit or manage it.</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">Viewing a teammate&apos;s listing</span>
+                  <span className="text-indigo-800"> — read-only. Buyer names and contact details are hidden, and only the listing agent can edit or manage it.</span>
+                </>
+              )}
             </div>
           </div>
         )}

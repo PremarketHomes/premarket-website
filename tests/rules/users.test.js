@@ -5,7 +5,7 @@ import {
   assertSucceeds, assertFails,
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs,
 } from './helpers.js';
-import { query, where } from 'firebase/firestore';
+import { query, where, deleteField } from 'firebase/firestore';
 
 beforeAll(async () => { await getTestEnv(); });
 afterAll(async () => { await teardown(); });
@@ -167,6 +167,24 @@ describe('users collection', () => {
     await assertFails(updateDoc(doc(db, 'users', 'user1'), { isOfficeAdmin: true }));
   });
 
+  it('SECURITY: denies the owner putting themselves in a team (teamId is server-only)', async () => {
+    const db = getAuthedDb('user1');
+    await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { teamId: 'someone-elses-team' }));
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Bob', teamId: 'someone-elses-team' }));
+  });
+
+  it('a team member can still make every normal profile update — the server-set teamId/officeId do not get in the way', async () => {
+    await seedDoc('users/user1', { firstName: 'Alice', agent: true, officeId: 'A', teamId: 'T1' });
+    const db = getAuthedDb('user1');
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { firstName: 'Alicia' }));
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { phone: '+61412345678', mobileConfirmedAt: 'ts' }));
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user1'), { avatar: 'a.jpg', logoUrl: 'l.png', companyName: 'X', lastName: 'L', roles: ['agent'] }));
+    // …but cannot move themselves to a different team, or out of the lock
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { teamId: 'T2' }));
+    await assertFails(updateDoc(doc(db, 'users', 'user1'), { phone: '1', teamId: deleteField() }));
+  });
+
   it('denies changing officeId even alongside an otherwise-valid field', async () => {
     const db = getAuthedDb('user1');
     await setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice' });
@@ -234,6 +252,7 @@ describe('users collection', () => {
     ['invitedAt', 'fake-timestamp'],
     ['activatedAt', 'fake-timestamp'],
     ['invitedBy', 'self'],
+    ['teamId', 'some-team'],
   ])('SECURITY: denies self-assigning %s at account creation', async (field, value) => {
     const db = getAuthedDb('user1');
     await assertFails(setDoc(doc(db, 'users', 'user1'), { firstName: 'Alice', [field]: value }));

@@ -73,6 +73,8 @@ beforeAll(async () => {
 
   add('office-invite', 'Office invitation: new agent account', 'Website', 'Office admin adds / imports / sends an invitation', () =>
     svc.sendOfficeInviteEmail('sam.example@example.com', 'Sam', 'Harcourts Property Hub', ACTIVATE));
+  add('team-invite', 'Team invitation', 'Website', 'A colleague invites you to their Premarket team (My Team page)', () =>
+    svc.sendTeamInviteEmail('sam.example@example.com', 'Sam', 'Jordan Example', 'Harcourts Property Hub', 'https://premarket.homes/dashboard/team'));
   add('office-join-invite', 'Office invitation: existing Premarket user', 'Website', 'Office admin adds someone who already has an account', () =>
     svc.sendOfficeJoinInviteEmail('sam.example@example.com', 'Sam', 'Harcourts Property Hub', ACCEPT));
   add('agent-welcome', 'Agent welcome (independent agents only)', 'Firebase function (new "welcome" codebase, not yet deployed)', 'A new independent agent signs up. Never sent to office-invited agents', async () => {
@@ -154,6 +156,21 @@ describe('redesigned emails', () => {
     sent.length = 0;
     await svc.sendOfficeJoinInviteEmail('a@example.com', 'A', 'Test Office', ACCEPT);
     expect(sent[0].html).toContain(`href="${ACCEPT}"`);
+  });
+
+  it('team invitation: keeps its link, escapes names, promises no buyer data and uses the shared Premarket layout', async () => {
+    sent.length = 0;
+    await svc.sendTeamInviteEmail('a@example.com', '<b>A</b>', '<img src=x onerror=alert(1)>', '<script>x</script>', 'https://premarket.homes/dashboard/team');
+    const { html, text, subject, to } = sent[0];
+    expect(to).toBe('a@example.com');
+    expect(html).toContain('href="https://premarket.homes/dashboard/team"');
+    expect(html).not.toMatch(/<img src=x|<script>x|<b>A<\/b>/);
+    expect(html).toMatch(/alt="Premarket"/);          // shared wrapEmail header
+    expect(html).toMatch(/unsubscribe/i);             // shared wrapEmail footer
+    expect(html).toMatch(/14 days/);
+    expect(html).toMatch(/Edit, delete, send reports, see buyer contact details or billing/);
+    expect(text.length).toBeGreaterThan(20);
+    expect(subject).toMatch(/invited you to their Premarket team/);
   });
 
   it('escapes the office name everywhere it is shown', async () => {
