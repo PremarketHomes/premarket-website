@@ -173,6 +173,58 @@ describe('redesigned emails', () => {
     expect(subject).toMatch(/invited you to their Premarket team/);
   });
 
+  describe('HPH agent onboarding invitation', () => {
+    const HPH = 'Harcourts Property Hub';
+
+    it('keeps the activation link, subject and 14-day expiry exactly as the standard email', async () => {
+      sent.length = 0;
+      await svc.sendOfficeInviteEmail('a@example.com', 'A', HPH, ACTIVATE);
+      const hphMsg = sent[0];
+      sent.length = 0;
+      await svc.sendOfficeInviteEmail('a@example.com', 'A', 'Test Office', ACTIVATE);
+      const stdMsg = sent[0];
+      expect(hphMsg.subject).toBe(`You've been invited to join ${HPH} on Premarket`);
+      expect(hphMsg.to).toEqual(stdMsg.to);
+      expect(hphMsg.html).toContain(`href="${ACTIVATE}"`);
+      expect(hphMsg.text).toContain(ACTIVATE);
+      expect(hphMsg.html).toMatch(/Activate your account/);
+      expect(hphMsg.html).toMatch(/14 days/);
+      expect(hphMsg.html.split(ACTIVATE).length - 1).toBe(stdMsg.html.split(ACTIVATE).length - 1);
+    });
+
+    it('adds the Premarket welcome, the Agent Hub and My Team sections', async () => {
+      sent.length = 0;
+      await svc.sendOfficeInviteEmail('a@example.com', 'A', HPH, ACTIVATE);
+      const { html, text } = sent[0];
+      expect(html).toContain('href="https://premarket.homes/hph-agent-hub"');
+      expect(text).toContain('https://premarket.homes/hph-agent-hub');
+      for (const phrase of ['Welcome to Premarket', 'Win the Listing', 'Price Intelligence', 'My Team', 'read-only', 'Once they accept']) {
+        expect(html, phrase).toContain(phrase);
+      }
+    });
+
+    it('matches the office name case- and space-insensitively, but only exactly', async () => {
+      sent.length = 0;
+      await svc.sendOfficeInviteEmail('a@example.com', 'A', '  harcourts property hub ', ACTIVATE);
+      expect(sent[0].html).toContain('hph-agent-hub');
+      sent.length = 0;
+      await svc.sendOfficeInviteEmail('a@example.com', 'A', 'Harcourts  Property   Hub', ACTIVATE);
+      expect(sent[0].html).toContain('hph-agent-hub');
+      sent.length = 0;
+      await svc.sendOfficeInviteEmail('a@example.com', 'A', 'Harcourts Property Hub Burleigh', ACTIVATE);
+      expect(sent[0].html).not.toContain('hph-agent-hub');
+    });
+
+    it('leaves every other office on the original email', async () => {
+      sent.length = 0;
+      await svc.sendOfficeInviteEmail('a@example.com', 'A', 'Test Office', ACTIVATE);
+      for (const phrase of ['hph-agent-hub', 'Agent Hub', 'My Team', 'Welcome to Premarket']) {
+        expect(sent[0].html, phrase).not.toContain(phrase);
+      }
+      expect(sent[0].html).toContain('Office invitation');
+    });
+  });
+
   it('escapes the office name everywhere it is shown', async () => {
     sent.length = 0;
     await svc.sendOfficeInviteEmail('a@example.com', 'A', '<img src=x onerror=alert(1)>', ACTIVATE);

@@ -488,6 +488,66 @@ export async function sendPasswordResetEmailTemplate(userEmail, userFirstName, r
   });
 }
 
+// The initial invitation is shared by every office. Harcourts Property Hub (the launch partner)
+// gets an extended onboarding version; every other office keeps the original email unchanged.
+//
+// Identified by name, not officeId: office ids are random Firestore auto-ids that the codebase
+// never records, so there is no verified HPH id to compare against. The name is a safe key here
+// because callers pass the stored office record's own name, active offices cannot share an exact
+// name (see findOfficeByExactName in officeService.js) and nothing renames an office. The
+// normalisation matches normalizeAgencyNameExact in brandProfileService.js (kept inline so this
+// email service doesn't import a Firestore module); only an exact match counts, never a prefix.
+const isHphOffice = (officeName) => String(officeName || '').trim().toLowerCase().replace(/\s+/g, ' ') === 'harcourts property hub';
+
+const sectionTitle = (text) =>
+  `<p class="t-ink" style="margin:0 0 12px 0; font-size:12px; font-weight:700; color:${COLORS.ink}; text-transform:uppercase; letter-spacing:1.2px;">${text}</p>`;
+
+const featureLine = (name, text) =>
+  `<p class="t-body" style="margin:0 0 12px 0; font-size:14px; color:${COLORS.body}; line-height:1.6;"><strong class="t-ink" style="color:${COLORS.ink};">${name}</strong> &mdash; ${text}</p>`;
+
+// Activation details are identical to the standard email; only the welcome and the sections after
+// the activation steps are added. `office` is already escaped.
+function hphOfficeInviteBody({ office, email, firstName, activationLink }) {
+  return `
+    ${eyebrow('Welcome to Premarket')}
+    ${heading(`${office} has set up your Premarket account`)}
+    ${greeting(esc(firstName))}
+    ${lead(`Welcome to Premarket. ${office} is our launch partner, and your account is ready &mdash; all that's left is to choose a password.`)}
+    ${p('Premarket is where you run premarket campaigns, gather anonymous buyer pricing opinions and see buyer interest, before and during a campaign.')}
+    ${detailList([
+      ['Office', office],
+      ['Your login', esc(email)],
+      ['Branding', 'Applied automatically'],
+    ], 'Your account')}
+    ${ctaButton('Activate your account', activationLink, { fallback: true })}
+    ${divider()}
+    ${steps([
+      'Select <strong>Activate your account</strong>.',
+      'Choose your own password. We never email passwords.',
+      `Arrive in your dashboard, already connected to <strong>${office}</strong>.`,
+    ])}
+    ${infoBox(`
+      <p class="t-body" style="margin:0; font-size:13px; color:${COLORS.body}; line-height:1.65;">
+        <strong class="t-ink" style="color:${COLORS.ink};">This link is personal to you</strong> and stays valid for 14 days. If it has expired, ask your office administrator to resend your invitation. If you weren't expecting this email, you can safely ignore it.
+      </p>
+    `, { tone: 'warm' })}
+    ${divider()}
+    ${sectionTitle('Your HPH Agent Hub')}
+    ${p('A short guide built for HPH agents, in three parts:')}
+    ${featureLine('Win the Listing', 'use Premarket as a point of difference in listing presentations, with a script you can use with hesitant vendors.')}
+    ${featureLine('Premarket', 'introduce a property to the buyers in your database and gather anonymous price opinions before you go to market.')}
+    ${featureLine('Price Intelligence', 'collect buyer pricing opinions throughout a live campaign to support earlier, evidence-based vendor conversations.')}
+    ${ctaButtonDark('Open the HPH Agent Hub', `${BASE_URL}/hph-agent-hub`)}
+    ${infoBox(`
+      ${sectionTitle('My Team')}
+      <p class="t-body" style="margin:0; font-size:14px; color:${COLORS.body}; line-height:1.65;">
+        Once you're in, open <strong class="t-ink" style="color:${COLORS.ink};">My Team</strong> in your dashboard to invite colleagues from your office by email. Once they accept, you can each see the other's campaigns and buyer feedback, read-only.
+      </p>
+    `)}
+    ${signature()}
+  `;
+}
+
 /**
  * Office activation invite — sent to a BRAND-NEW agent account created
  * by an office's CSV import or "add an agent" action. `activationLink`
@@ -499,7 +559,8 @@ export async function sendPasswordResetEmailTemplate(userEmail, userFirstName, r
  */
 export async function sendOfficeInviteEmail(email, firstName, officeName, activationLink) {
   const office = esc(officeName);
-  const bodyHTML = `
+  const hph = isHphOffice(officeName);
+  const bodyHTML = hph ? hphOfficeInviteBody({ office, email, firstName, activationLink }) : `
     ${eyebrow('Office invitation')}
     ${heading(`${office} has set up your Premarket account`)}
     ${greeting(esc(firstName))}
@@ -528,7 +589,9 @@ export async function sendOfficeInviteEmail(email, firstName, officeName, activa
     to: email,
     subject: `You've been invited to join ${officeName} on Premarket`,
     html: wrapEmail({
-      previewText: `${office} has set up your Premarket account. Activate it in one click.`,
+      previewText: hph
+        ? `Welcome to Premarket. Your ${office} account is ready: activate it in one click.`
+        : `${office} has set up your Premarket account. Activate it in one click.`,
       bodyHTML,
       recipientEmail: email,
       reason: `You're receiving this because ${esc(officeName)} added you to their Premarket office account.`,
