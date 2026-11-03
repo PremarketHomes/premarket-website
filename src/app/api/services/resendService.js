@@ -192,33 +192,46 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-// A plain row inside a card: a small uppercase label on the left (or
-// above, on narrow screens — the table collapses naturally since each
-// row is its own block rather than relying on a multi-column layout),
-// value on the right in the normal body colour.
+// Plain label/value row for the buyer-interest notification. Deliberately
+// unstyled beyond a bold label: this is an operational alert, not a campaign.
 function detailRow(label, valueHTML) {
   return `
     <tr>
-      <td class="t-muted" style="padding:7px 0; font-size:12px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.4px; vertical-align:top; width:112px;">${label}</td>
-      <td class="t-ink" style="padding:7px 0; font-size:14px; color:#1a1a2e; vertical-align:top;">${valueHTML}</td>
+      <td style="padding:2px 12px 2px 0; color:#6b7280; vertical-align:top; white-space:nowrap;">${label}</td>
+      <td style="padding:2px 0; vertical-align:top;">${valueHTML}</td>
     </tr>
   `;
 }
 
-// A card: white background, thin border, rounded corners, a small
-// uppercase section title, then a table of detailRow()s — the "clean
-// cards and subtle dividers" the redesign asked for, reused for both
-// BUYER DETAILS and WHAT THE BUYER TOLD US so they read as one
-// consistent system rather than two different treatments.
+// A titled block of detailRow()s — plain text weight, no card chrome.
 function detailCard(title, rowsHTML) {
   return `
-    <div class="bg-panel line" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:18px 20px; margin:0 0 16px 0;">
-      <p class="t-ink" style="margin:0 0 4px 0; font-size:12px; font-weight:700; color:#1a1a2e; text-transform:uppercase; letter-spacing:0.6px;">${title}</p>
-      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-        ${rowsHTML}
-      </table>
-    </div>
+    <p style="margin:20px 0 6px 0; font-weight:700;">${title}</p>
+    <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+      ${rowsHTML}
+    </table>
   `;
+}
+
+// Minimal transactional shell for the buyer-interest notification: no logo
+// banner, accent bar, dark-mode CSS, unsubscribe link or copyright footer.
+// Local on purpose — the shared wrapEmail() keeps every other email's look.
+function wrapPlainNotification({ bodyHTML, previewText, reason }) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buyer registration</title>
+</head>
+<body style="margin:0; padding:0; background-color:#ffffff;">
+  <div style="display:none; max-height:0; overflow:hidden; font-size:1px; line-height:1px; color:#ffffff;">${previewText}</div>
+  <div style="max-width:560px; margin:0 auto; padding:24px 20px; font-family:Arial, Helvetica, sans-serif; font-size:15px; line-height:1.6; color:#111827;">
+    ${bodyHTML}
+    <p style="margin:28px 0 0 0; font-size:12px; color:#6b7280;">${reason}</p>
+  </div>
+</body>
+</html>`;
 }
 
 // Strips everything except a leading + and digits, so "0400 000 000"
@@ -279,8 +292,8 @@ export async function sendNewBuyerInterestEmail({
 
   const buyerDetailsRows = [
     detailRow('Name', safeName),
-    safeEmail ? detailRow('Email', `<a href="mailto:${safeEmail}" style="color:#1a1a2e; text-decoration:underline;">${safeEmail}</a>`) : '',
-    safePhone ? detailRow('Phone', `<a href="tel:${telHref}" style="color:#1a1a2e; text-decoration:underline;">${safePhone}</a>`) : '',
+    safeEmail ? detailRow('Email', `<a href="mailto:${safeEmail}" style="color:#1d4ed8; text-decoration:underline;">${safeEmail}</a>`) : '',
+    safePhone ? detailRow('Phone', `<a href="tel:${telHref}" style="color:#1d4ed8; text-decoration:underline;">${safePhone}</a>`) : '',
   ].filter(Boolean).join('');
 
   // Every row here is conditional — only what this buyer actually
@@ -296,30 +309,26 @@ export async function sendNewBuyerInterestEmail({
   // Deep-links to this exact registration (offerId) inside the property report.
   const dashboardUrl = `${BASE_URL}${buildRegistrationPath(propertyId, offerId)}`;
 
+  const safeFirstName = escapeHtml(agentFirstName);
   const bodyHTML = `
-    <p style="margin:0 0 6px 0; font-size:12px; font-weight:700; color:#ea580c; text-transform:uppercase; letter-spacing:0.8px;">New buyer registration</p>
-    <h2 class="t-ink" style="margin:0 0 4px 0; font-size:20px; font-weight:700; color:#1a1a2e; line-height:1.3;">
-      ${safeName} registered interest
-    </h2>
-    <p class="t-body" style="margin:0 0 22px 0; font-size:15px; color:#4b5563;">in <strong class="t-ink" style="color:#1a1a2e;">${safeAddress}</strong></p>
+    <p style="margin:0 0 14px 0;">Hi ${safeFirstName || 'there'},</p>
+    <p style="margin:0 0 6px 0;"><strong>${safeName}</strong> registered interest in <strong>${safeAddress}</strong>.</p>
 
     ${detailCard('Buyer details', buyerDetailsRows)}
     ${detailCard('What the buyer told us', submittedRows)}
 
-    <p class="t-ink" style="margin:0 0 4px 0; font-size:12px; font-weight:700; color:#1a1a2e; text-transform:uppercase; letter-spacing:0.6px;">Next step</p>
-    <p class="t-body" style="margin:0 0 20px 0; font-size:14px; color:#4b5563; line-height:1.6;">
-      Contact ${safeName} directly, or view the full registration in your Premarket dashboard. Buyer leads go cold fast — worth reaching out while this is fresh.
+    <p style="margin:20px 0 6px 0; font-weight:700;">Next step</p>
+    <p style="margin:0;">
+      Contact ${safeName} directly, or view the full registration in your Premarket dashboard:<br>
+      <a href="${dashboardUrl}" style="color:#1d4ed8; text-decoration:underline;">View registration</a>
     </p>
-
-    ${ctaButton('View Registration', dashboardUrl)}
-    ${signature()}
   `;
 
   // null means "omit this line entirely" (a field that wasn't
   // collected) — kept distinct from '' (a deliberate blank separator
   // line between sections), so filtering one never swallows the other.
   const plainTextLines = [
-    'NEW BUYER REGISTRATION',
+    `Hi ${agentFirstName || 'there'},`,
     '',
     `${buyerName || 'A buyer'} registered interest in ${propertyAddress}.`,
     '',
@@ -335,17 +344,21 @@ export async function sendNewBuyerInterestEmail({
     buyerTypeTags.length > 0 ? `Buyer type: ${buyerTypeTags.join(', ')}` : null,
     '',
     'NEXT STEP',
-    `Contact ${buyerName || 'the buyer'} directly, or view the full registration in your dashboard:`,
+    `Contact ${buyerName || 'the buyer'} directly, or view the full registration in your Premarket dashboard:`,
     dashboardUrl,
+    '',
+    "You're receiving this because a buyer registered interest in your property on Premarket.",
   ].filter((line) => line !== null);
+
+  // Header values must stay on one line, whatever the buyer typed.
+  const oneLine = (v) => String(v || '').replace(/[\r\n]+/g, ' ').trim();
 
   return sendEmail({
     to: agentEmail,
-    subject: `New buyer registration | ${propertyAddress}`,
-    html: wrapEmail({
+    subject: `${oneLine(buyerName) || 'A buyer'} registered interest in ${oneLine(propertyAddress)}`,
+    html: wrapPlainNotification({
       previewText: `${safeName} registered interest in ${safeAddress}`,
       bodyHTML,
-      recipientEmail: agentEmail,
       reason: "You're receiving this because a buyer registered interest in your property on Premarket.",
     }),
     text: plainTextLines.join('\n'),

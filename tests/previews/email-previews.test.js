@@ -125,7 +125,8 @@ describe('redesigned emails', () => {
       expect(html, item.id).not.toMatch(/fastest-growing|best in|number one|#1 /i);
       expect(html, item.id).not.toMatch(/hello@premarket/i);
       expect(html, item.id).not.toMatch(/undefined|\[object Object\]|NaN/);
-      expect(html, item.id).toMatch(/alt="Premarket"/);
+      // buyer-interest is a deliberately plain transactional alert (no logo banner) — see resendService.js.
+      if (item.id !== 'buyer-interest') expect(html, item.id).toMatch(/alt="Premarket"/);
       if (msg.text !== undefined) expect(msg.text.length, item.id).toBeGreaterThan(20);
       index.push({ ...item, subject: msg.subject, file: `${item.id}.html` });
       if (WRITE) writeFileSync(join(OUT, `${item.id}.html`), html);

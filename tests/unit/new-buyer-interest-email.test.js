@@ -195,7 +195,7 @@ describe('sendNewBuyerInterestEmail', () => {
       nextAction: 'contact',
     });
 
-    expect(sentEmails[0].subject).toBe('New buyer registration | 7 Jingella Street, Hope Island');
+    expect(sentEmails[0].subject).toBe('Jane Buyer registered interest in 7 Jingella Street, Hope Island');
   });
 
   it('includes a readable plain-text fallback with the same key facts', async () => {
@@ -245,5 +245,52 @@ describe('sendNewBuyerInterestEmail', () => {
     const whatTheyToldUsIndex = lines.indexOf('WHAT THE BUYER TOLD US');
     expect(lines[whatTheyToldUsIndex - 1]).toBe('');
     expect(whatTheyToldUsIndex).toBeGreaterThan(buyerDetailsIndex);
+  });
+
+  it('is a plain transactional notification: no logo banner, accent bar, unsubscribe link, copyright or promo wording', async () => {
+    const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
+    await sendNewBuyerInterestEmail({
+      agentEmail: 'agent@example.com',
+      agentFirstName: 'Alex',
+      propertyAddress: '1 Example St',
+      propertyId: 'prop-1',
+      buyerName: 'Jane Buyer',
+      nextAction: 'contact',
+    });
+
+    const html = sentEmails[0].html;
+    expect(html).not.toContain('<img');
+    expect(html).not.toMatch(/unsubscribe/i);
+    expect(html).not.toContain('All rights reserved');
+    expect(html).not.toContain('&copy;');
+    expect(html).not.toContain('#ea580c'); // brand-orange accent / eyebrow
+    expect(html).not.toMatch(/go cold|fresh/i);
+    expect(html).not.toMatch(/text-transform:\s*uppercase/);
+    expect(sentEmails[0].text).not.toMatch(/unsubscribe|go cold/i);
+    expect(html).toContain('Hi Alex,');
+  });
+
+  it('keeps one-line subjects even if the buyer name contains line breaks', async () => {
+    const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
+    await sendNewBuyerInterestEmail({
+      agentEmail: 'agent@example.com',
+      propertyAddress: '1 Example St',
+      propertyId: 'prop-1',
+      buyerName: 'Jane\r\nBcc: x@evil.test',
+      nextAction: 'contact',
+    });
+    expect(sentEmails[0].subject).not.toMatch(/[\r\n]/);
+  });
+
+  it('still sends from the unchanged Premarket sender', async () => {
+    const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
+    await sendNewBuyerInterestEmail({
+      agentEmail: 'agent@example.com',
+      propertyAddress: '1 Example St',
+      propertyId: 'prop-1',
+      buyerName: 'Jane Buyer',
+      nextAction: 'contact',
+    });
+    expect(sentEmails[0].from).toBe('Premarket <no-reply@mail.premarket.homes>');
   });
 });
