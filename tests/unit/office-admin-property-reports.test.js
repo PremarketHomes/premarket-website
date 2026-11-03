@@ -215,7 +215,8 @@ describe('report page: read-only mode and Team link (source-level)', () => {
       expect(at).toBeGreaterThan(-1);
       expect(page.slice(Math.max(0, at - 160), at + 260)).toContain('!readOnly');
     }
-    expect(page).toContain('onEditImage={readOnly ? undefined');
+    // AI Edit is no longer exposed to anyone, so there is nothing left to gate for the read-only view.
+    expect(page).not.toContain('onEditImage=');
     expect(page).toContain("const VisibilityTag = readOnly ? 'div' : 'button'");
   });
   it('Copy Link and Preview remain outside the read-only gate', () => {

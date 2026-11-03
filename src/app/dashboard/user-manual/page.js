@@ -419,7 +419,7 @@ export default function UserManualPage() {
               <div>
                 <h3 className="text-lg font-bold text-slate-900 mb-2">Add Listing Details</h3>
                 <p className="text-slate-600 leading-relaxed text-sm">
-                  Write a compelling title and description for the property. Short on time? Click &ldquo;Generate with AI&rdquo; and we&apos;ll create an engaging listing for you automatically.
+                  Write a compelling title and description for the property.
                 </p>
               </div>
             </div>

@@ -1740,11 +1740,6 @@ export default function PropertyReportPage() {
             <MediaGallery
               images={property.imageUrls}
               videoUrl={property.aiVideo?.url || property.videoUrl}
-              onEditImage={readOnly ? undefined : (url, idx) => {
-                setEditingImageUrl(url);
-                setEditingImageIndex(idx);
-                setShowImageEdit(true);
-              }}
             />
           </div>
 

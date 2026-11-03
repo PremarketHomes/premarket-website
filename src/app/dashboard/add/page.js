@@ -34,7 +34,6 @@ import {
   ChevronRight,
   Bath,
   Car,
-  Sparkles,
   Video,
   Building2,
   Search,
@@ -42,10 +41,6 @@ import {
   FileText,
   GripVertical,
   Clock,
-  User,
-  Mail,
-  Phone,
-  Shield,
 } from 'lucide-react';
 import { onSnapshot, query, where } from 'firebase/firestore';
 import AgentSelector from '../../components/AgentSelector';
@@ -61,8 +56,7 @@ const STEPS = {
   IMAGES: 5,
   TITLE: 6,
   EAGERNESS: 7,
-  CLIENT_INFO: 8,
-  TERMS: 9,
+  TERMS: 8,
 };
 
 const eagernessOptions = ['Very serious', 'Serious if the price is right', 'Just testing the waters'];
@@ -117,9 +111,6 @@ export default function AddPropertyPage() {
   const [video, setVideo] = useState(null);
   const [eagerness, setEagerness] = useState(null);
   const [showSuburbOnly, setShowSuburbOnly] = useState(false);
-  const [clientName, setClientName] = useState('');
-  const [clientEmail, setClientEmail] = useState('');
-  const [clientPhone, setClientPhone] = useState('');
 
   // Terms state
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -143,7 +134,6 @@ export default function AddPropertyPage() {
   // UX state
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [mediaError, setMediaError] = useState(null);
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
@@ -453,34 +443,6 @@ export default function AddPropertyPage() {
     setShowHeroPositioner(false);
   };
 
-  const handleGenerateAI = async () => {
-    setIsGenerating(true);
-    try {
-      const selectedFeatures = Object.keys(features).filter((f) => features[f]);
-      const res = await authFetch('/api/generate-listing', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          propertyType: homeTypes[type - 1],
-          address,
-          bedrooms,
-          bathrooms,
-          squareFeatures: squareFootage,
-          features: selectedFeatures,
-          price: priceRaw,
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to generate');
-      const data = await res.json();
-      if (data.title) setTitle(data.title);
-      if (data.description) setDescription(data.description);
-    } catch (err) {
-      console.error('AI generation failed:', err);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
   const toggleFeature = (feature) => {
     setFeatures((prev) => ({ ...prev, [feature]: !prev[feature] }));
   };
@@ -513,11 +475,6 @@ export default function AddPropertyPage() {
     }
     if (step === STEPS.EAGERNESS && eagerness === null) {
       newErrors.step = 'Please select a sales timeline.';
-    }
-    if (step === STEPS.CLIENT_INFO) {
-      if (!clientName.trim() || !clientEmail.trim() || !clientPhone.trim()) {
-        newErrors.step = 'Please fill in all client information fields.';
-      }
     }
     if (step === STEPS.TERMS && !termsAccepted) {
       newErrors.step = 'Please accept the terms and conditions to continue.';
@@ -689,9 +646,9 @@ export default function AddPropertyPage() {
         acceptingOffers: true,
         campaignId: 'FqMZd0mWlNlSBl66s7BN',
         isEager: eagerness,
-        clientName: clientName.trim() || null,
-        clientEmail: clientEmail.trim() || null,
-        clientPhone: clientPhone.trim() || null,
+        clientName: null,
+        clientEmail: null,
+        clientPhone: null,
         propertyType: type,
         listingStatus,
         showSuburbOnly,
@@ -1301,18 +1258,8 @@ export default function AddPropertyPage() {
             {/* Step 6: Title & Description */}
             {step === STEPS.TITLE && (
               <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-2xl font-bold text-slate-900">Listing details</h2>
-                  <button
-                    onClick={handleGenerateAI}
-                    disabled={isGenerating}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-semibold hover:from-purple-700 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-purple-500/25"
-                  >
-                    <Sparkles className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} />
-                    {isGenerating ? 'Generating...' : 'Generate with AI'}
-                  </button>
-                </div>
-                <p className="text-slate-500 mb-6">Add a title and description, or let AI generate them for you.</p>
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">Listing details</h2>
+                <p className="text-slate-500 mb-6">Add a title and a short description for the listing.</p>
 
                 <div className="space-y-4">
                   <div>
@@ -1385,65 +1332,6 @@ export default function AddPropertyPage() {
                       {option}
                     </button>
                   ))}
-                </div>
-              </div>
-            )}
-
-            {/* Step 8: Client Information */}
-            {step === STEPS.CLIENT_INFO && (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <h2 className="text-2xl font-bold text-slate-900 mb-2">Client Information</h2>
-                <p className="text-slate-500 mb-6">Enter the property owner's contact details.</p>
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Client Name</label>
-                    <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="John Smith"
-                        value={clientName}
-                        onChange={(e) => setClientName(e.target.value)}
-                        className="w-full pl-12 pr-4 py-4 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Client Email</label>
-                    <div className="relative">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                      <input
-                        type="email"
-                        placeholder="john@example.com"
-                        value={clientEmail}
-                        onChange={(e) => setClientEmail(e.target.value)}
-                        className="w-full pl-12 pr-4 py-4 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Client Phone</label>
-                    <div className="relative">
-                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                      <input
-                        type="tel"
-                        placeholder="0400 000 000"
-                        value={clientPhone}
-                        onChange={(e) => setClientPhone(e.target.value)}
-                        className="w-full pl-12 pr-4 py-4 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-6 flex items-start gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
-                  <Shield className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-slate-700">Your client&apos;s privacy is protected</p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Your client will not receive any communication from Premarket at any stage. We use this information solely for compliance purposes and to personalise the reports we generate for you.
-                    </p>
-                  </div>
                 </div>
               </div>
             )}
