@@ -109,12 +109,13 @@ describe('dashboard greeting and Office Team navigation (source guards)', () => 
   it('greeting always uses the person\'s name — header and sidebar — never companyName', () => {
     expect(dash).toContain('Welcome back, {userName}');
     expect(dash).not.toMatch(/Welcome back, \$\{userData\.companyName\}/);
-    expect(dash).toMatch(/Welcome back,<\/p>\s*\{\/\*[\s\S]*?\*\/\}\s*<p className="text-slate-900 font-semibold truncate">\{userName\}<\/p>/);
+    // Sidebar: "Welcome back," then the person's own name on its own line (styling-agnostic).
+    expect(dash).toMatch(/Welcome back,<\/p>\s*\{\/\*[\s\S]*?\*\/\}\s*<p className="[^"]*truncate[^"]*">\{userName\}<\/p>/);
     expect(dash).toContain("user?.displayName || 'there'");
   });
 
   it('agency/office name is kept as a separate, secondary line', () => {
-    expect(dash).toContain('<p className="text-xs text-slate-500 truncate">{officeBrand.brand?.name || \'Your office\'}</p>');
+    expect(dash).toMatch(/<p className="[^"]*truncate[^"]*">\{officeBrand\.brand\?\.name \|\| 'Your office'\}<\/p>/);
   });
 
   it('"Team" opens the office team for office administrators only; everyone else keeps the personal page', () => {

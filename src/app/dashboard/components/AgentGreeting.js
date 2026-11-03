@@ -29,29 +29,29 @@ export default function AgentGreeting({ userData, officeName, officeStatus, clas
           src={userData.avatar}
           alt=""
           onError={() => setPhotoFailed(true)}
-          className="w-14 h-14 rounded-full object-cover shrink-0 ring-2 ring-white shadow-md"
+          className="w-14 h-14 rounded-full object-cover shrink-0 ring-1 ring-stone-200"
         />
       ) : (
         <div
           aria-hidden="true"
           data-testid="initials-avatar"
-          className="w-14 h-14 rounded-full shrink-0 flex items-center justify-center bg-orange-100 text-orange-700 font-semibold text-lg tracking-wide ring-2 ring-white shadow-md"
+          className="w-14 h-14 rounded-full shrink-0 flex items-center justify-center bg-stone-100 text-stone-700 font-serif text-lg tracking-wide ring-1 ring-stone-200"
         >
           {initials || <User className="w-6 h-6" />}
         </div>
       )}
       <div className="min-w-0">
-        <p className="text-base text-slate-600 leading-snug">
-          Welcome back{firstName ? <>, <span className="font-semibold text-slate-900">{firstName}</span></> : ''}
+        <p className="text-base text-stone-500 leading-snug">
+          Welcome back{firstName ? <>, <span className="font-serif text-stone-900">{firstName}</span></> : ''}
         </p>
         {inOffice ? (
           officeStatus === 'loading' ? (
-            <div className="h-3.5 w-28 rounded bg-slate-200 animate-pulse mt-1.5" aria-label="Loading office" />
+            <div className="h-3.5 w-28 rounded bg-stone-200 animate-pulse mt-1.5" aria-label="Loading office" />
           ) : officeName ? (
-            <p className="text-sm text-slate-500 truncate mt-0.5">{officeName}</p>
+            <p className="text-sm text-stone-500 truncate mt-0.5">{officeName}</p>
           ) : null
         ) : !userData?.companyName ? (
-          <Link href="/dashboard/settings" className="text-sm text-orange-500 hover:text-orange-600 font-semibold mt-0.5 inline-block">
+          <Link href="/dashboard/settings" className="text-sm text-[#c64500] hover:text-[#a63a00] font-medium mt-0.5 inline-block">
             Add agency details
           </Link>
         ) : null}

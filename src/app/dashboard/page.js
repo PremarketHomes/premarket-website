@@ -24,9 +24,7 @@ import {
   Menu,
   X,
   Eye,
-  MessageSquare,
   Heart,
-  TrendingUp,
   ChevronRight,
   Bed,
   Bath,
@@ -106,54 +104,54 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
   ];
 
   const sidebarContent = (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-[#fdfcfb]">
       {/* Logo */}
-      <div className="p-6 border-b border-slate-200">
+      <div className="px-7 pt-8 pb-7">
         <Link href="/">
           <Image
             src="https://premarketvideos.b-cdn.net/assets/logo.png"
             alt="Premarket"
             width={140}
             height={35}
-            className="h-7 w-auto"
+            className="h-6 w-auto"
             unoptimized
           />
         </Link>
       </div>
 
       {/* User Info */}
-      <div className="px-6 py-4 border-b border-slate-200">
-        <div className="flex items-center gap-3">
+      <div className="px-7 pb-6 border-b border-stone-200">
+        <div className="flex items-center gap-3.5">
           {userData?.avatar ? (
             <img
               src={userData.avatar}
               alt=""
-              className="w-10 h-10 rounded-full object-cover shrink-0"
+              className="w-10 h-10 rounded-full object-cover shrink-0 ring-1 ring-stone-200"
             />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
-              <User className="w-5 h-5 text-orange-600" />
+            <div className="w-10 h-10 rounded-full bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center shrink-0">
+              <User className="w-4 h-4 text-stone-500" strokeWidth={1.5} />
             </div>
           )}
           <div className="min-w-0">
-            <p className="text-xs text-slate-500">Welcome back,</p>
+            <p className="text-[10px] uppercase tracking-[0.16em] text-stone-400">Welcome back,</p>
             {/* The greeting is always the person's own name — agency/office
                 branding is shown beneath it and never replaces it. */}
-            <p className="text-slate-900 font-semibold truncate">{userName}</p>
+            <p className="mt-0.5 font-serif text-[17px] leading-snug text-stone-900 truncate">{userName}</p>
             {sidebarOfficeId ? (
               officeBrand.status === 'loading' ? (
-                <div className="h-3 w-24 rounded bg-slate-200 animate-pulse mt-1" aria-label="Loading agency" />
+                <div className="h-3 w-24 rounded bg-stone-200 animate-pulse mt-1" aria-label="Loading agency" />
               ) : officeBrand.status === 'failed' ? (
-                <button onClick={officeBrand.retry} className="text-orange-500 hover:text-orange-600 text-xs font-semibold">
+                <button onClick={officeBrand.retry} className="text-[#c64500] hover:text-[#a63a00] text-xs font-medium">
                   Agency unavailable — retry
                 </button>
               ) : (
-                <p className="text-xs text-slate-500 truncate">{officeBrand.brand?.name || 'Your office'}</p>
+                <p className="text-xs text-stone-500 truncate">{officeBrand.brand?.name || 'Your office'}</p>
               )
             ) : agencyTitle ? (
-              <p className="text-xs text-slate-500 truncate">{agencyTitle}</p>
+              <p className="text-xs text-stone-500 truncate">{agencyTitle}</p>
             ) : (
-              <Link href="/dashboard/settings" className="text-orange-500 hover:text-orange-600 text-xs font-semibold">
+              <Link href="/dashboard/settings" className="text-[#c64500] hover:text-[#a63a00] text-xs font-medium">
                 Add Agency Details
               </Link>
             )}
@@ -162,7 +160,7 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
       </div>
 
       {/* Nav Items */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+      <nav className="flex-1 overflow-y-auto px-4 py-5 space-y-0.5">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = active === item.id;
@@ -171,13 +169,13 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
               <Link
                 key={item.id}
                 href={item.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                className={`relative flex items-center gap-3 px-4 py-2.5 rounded-md text-[13px] font-medium tracking-wide transition-colors ${
                   isActive
-                    ? 'bg-slate-900 text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-stone-900 bg-stone-100/80 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:rounded-full before:bg-[#c64500]'
+                    : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100/60'
                 }`}
               >
-                <Icon className="w-5 h-5" />
+                <Icon className="w-4 h-4" strokeWidth={1.5} />
                 {item.label}
               </Link>
             );
@@ -189,13 +187,13 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
                 onNavigate(item.id);
                 setSidebarOpen(false);
               }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+              className={`w-full relative flex items-center gap-3 px-4 py-2.5 rounded-md text-[13px] font-medium tracking-wide transition-colors ${
                 isActive
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  ? 'text-stone-900 bg-stone-100/80 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:rounded-full before:bg-[#c64500]'
+                  : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100/60'
               }`}
             >
-              <Icon className="w-5 h-5" />
+              <Icon className="w-4 h-4" strokeWidth={1.5} />
               {item.label}
             </button>
           );
@@ -203,12 +201,12 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
       </nav>
 
       {/* Bottom Actions */}
-      <div className="px-3 py-4 border-t border-slate-200 space-y-1">
+      <div className="px-4 py-4 border-t border-stone-200 space-y-1">
         <button
           onClick={onSignOut}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 transition-all"
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-md text-[13px] font-medium tracking-wide text-stone-500 hover:bg-stone-100/60 hover:text-stone-900 transition-colors"
         >
-          <LogOut className="w-5 h-5" />
+          <LogOut className="w-4 h-4" strokeWidth={1.5} />
           Sign Out
         </button>
       </div>
@@ -218,7 +216,7 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 bg-white border-r border-slate-200 z-30">
+      <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 bg-[#fdfcfb] border-r border-stone-200 z-30">
         {sidebarContent}
       </aside>
 
@@ -230,7 +228,7 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+              className="fixed inset-0 bg-stone-900/40 z-40 lg:hidden"
               onClick={() => setSidebarOpen(false)}
             />
             <motion.aside
@@ -238,13 +236,13 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
               animate={{ x: 0 }}
               exit={{ x: -280 }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 z-50 lg:hidden"
+              className="fixed inset-y-0 left-0 w-64 bg-[#fdfcfb] border-r border-stone-200 z-50 lg:hidden"
             >
               <button
                 onClick={() => setSidebarOpen(false)}
-                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-900"
+                className="absolute top-4 right-4 p-2 text-stone-400 hover:text-stone-900"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" strokeWidth={1.5} />
               </button>
               {sidebarContent}
             </motion.aside>
@@ -255,22 +253,15 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
   );
 }
 
-// --- Stat Card ---
-function StatCard({ label, value, icon: Icon }) {
+// --- Stat (one cell of the overview strip) ---
+// Four figures share a single hairline-divided panel rather than four
+// separate cards: quieter, and it reads as one summary of the portfolio.
+function StatCard({ label, value }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-white rounded-xl p-5 border border-slate-200"
-    >
-      <div className="flex items-center justify-between mb-3">
-        <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
-          <Icon className="w-5 h-5 text-slate-500" />
-        </div>
-      </div>
-      <div className="text-3xl font-bold text-slate-900">{value}</div>
-      <div className="text-sm text-slate-500 mt-1">{label}</div>
-    </motion.div>
+    <div className="bg-white px-5 py-5 sm:px-7 sm:py-6">
+      <div className="text-[11px] uppercase tracking-[0.14em] text-stone-500">{label}</div>
+      <div className="mt-2 font-serif text-3xl sm:text-4xl leading-none text-stone-900 tabular-nums">{value}</div>
+    </div>
   );
 }
 
@@ -280,58 +271,58 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-lg transition-shadow"
+      className="bg-white border border-stone-200 rounded-md overflow-hidden hover:border-stone-300 transition-colors flex flex-col"
     >
       {/* Image — clickable to preview listing */}
       <a
         href={`/find-property?propertyId=${property.id}`}
         target="_blank"
         rel="noopener noreferrer"
-        className="block relative h-48 bg-slate-100 cursor-pointer group"
+        className="block relative aspect-[4/3] bg-stone-100 cursor-pointer group"
       >
         {property.imageUrls?.[0] ? (
           <ShimmerImage
             src={property.imageUrls[0]}
             alt={property.address || 'Property'}
             fill
-            className="object-cover group-hover:scale-[1.02] transition-transform duration-300"
+            className="object-cover group-hover:scale-[1.015] transition-transform duration-500"
             unoptimized
           />
         ) : property.imageUploadProgress?.inProgress ? (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-slate-50">
-            <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs font-medium text-slate-500">Uploading media...</p>
+          <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-stone-50">
+            <div className="w-8 h-8 border-2 border-[#c64500] border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs text-stone-500">Uploading media...</p>
           </div>
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <Home className="w-12 h-12 text-slate-300" />
+            <Home className="w-10 h-10 text-stone-300" strokeWidth={1.25} />
           </div>
         )}
         {/* Status Badge */}
         <div className="absolute top-3 left-3">
-          <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-full ${
+          <span className={`inline-flex px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] rounded-sm ${
             isSold
-              ? 'bg-emerald-100 text-emerald-700'
+              ? 'bg-emerald-800 text-white'
               : property.archived === true
-                ? 'bg-amber-100 text-amber-700'
+                ? 'bg-white/90 text-stone-600'
                 : property.visibility === true
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-500'
+                  ? 'bg-stone-900 text-white'
+                  : 'bg-white/90 text-stone-600'
           }`}>
             {isSold ? 'Sold' : property.archived === true ? 'Archived' : property.visibility === true ? 'Public' : 'Private'}
           </span>
         </div>
         {/* Top-right badges */}
         <div className="absolute top-3 right-3 flex items-center gap-1.5">
-          <span className={`px-2 py-1 text-[10px] font-bold rounded-full ${
+          <span className={`px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] rounded-sm ${
             property.listingStatus === 'on-market'
-              ? 'bg-emerald-600 text-white'
-              : 'bg-gradient-to-r from-[#e48900] to-[#c64500] text-white'
+              ? 'bg-white/90 text-stone-800'
+              : 'bg-white/90 text-[#c64500]'
           }`}>
             {property.listingStatus === 'on-market' ? 'On Market' : 'Pre-Market'}
           </span>
           {(property.videoUrl || property.aiVideo?.url) && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full bg-black/60 text-white">
+            <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-sm bg-stone-900/70 text-white">
               <Video className="w-3 h-3" />
             </span>
           )}
@@ -339,9 +330,9 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
         {/* Upload Progress Bar */}
         {property.imageUploadProgress?.inProgress && (
           <div className="absolute bottom-0 left-0 right-0">
-            <div className="h-1 bg-slate-200">
+            <div className="h-0.5 bg-stone-200">
               <div
-                className="h-full bg-orange-500 transition-all duration-500"
+                className="h-full bg-[#c64500] transition-all duration-500"
                 style={{ width: `${property.imageUploadProgress.total > 0 ? (property.imageUploadProgress.uploaded / property.imageUploadProgress.total) * 100 : 0}%` }}
               />
             </div>
@@ -350,67 +341,67 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
       </a>
 
       {/* Details — address clickable to preview listing */}
-      <div className="p-4">
+      <div className="p-5 flex flex-col flex-1">
         <a
           href={`/find-property?propertyId=${property.id}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="font-semibold text-slate-900 text-sm truncate mb-1 block hover:text-orange-600 transition-colors"
+          className="font-medium text-stone-900 text-sm truncate mb-1 block hover:text-[#c64500] transition-colors"
         >
           {property.formattedAddress || property.address || 'No address'}
         </a>
         {property.agentId && teamAgents?.length > 0 && (() => {
           const agent = teamAgents.find(a => a.id === property.agentId);
-          return agent ? <p className="text-xs text-slate-500 mb-0.5">{agent.name}</p> : null;
+          return agent ? <p className="text-xs text-stone-500 mb-0.5">{agent.name}</p> : null;
         })()}
-        <p className="text-lg font-bold text-slate-900 mb-2">{formatPrice(property.price)}</p>
+        <p className="font-serif text-xl text-stone-900 mb-3">{formatPrice(property.price)}</p>
         {isSold && (
-          <p className="text-xs font-semibold text-emerald-700 mb-2 flex items-center gap-1">
-            <CheckCircle className="w-3.5 h-3.5" />
+          <p className="text-xs font-medium text-emerald-800 mb-3 flex items-center gap-1">
+            <CheckCircle className="w-3.5 h-3.5" strokeWidth={1.5} />
             {property.soldPrice ? `Sold ${formatPrice(property.soldPrice)}` : 'Sold'}
             {property.soldAt ? ` · ${formatDate(property.soldAt)}` : ''}
           </p>
         )}
 
-        <div className="flex items-center gap-3 text-xs text-slate-500 mb-3">
+        <div className="flex items-center gap-4 text-xs text-stone-500 mb-2">
           {property.bedrooms != null && (
-            <span className="flex items-center gap-1"><Bed className="w-3.5 h-3.5" />{property.bedrooms}</span>
+            <span className="flex items-center gap-1.5"><Bed className="w-3.5 h-3.5" strokeWidth={1.5} />{property.bedrooms}</span>
           )}
           {property.bathrooms != null && (
-            <span className="flex items-center gap-1"><Bath className="w-3.5 h-3.5" />{property.bathrooms}</span>
+            <span className="flex items-center gap-1.5"><Bath className="w-3.5 h-3.5" strokeWidth={1.5} />{property.bathrooms}</span>
           )}
           {property.carSpaces != null && (
-            <span className="flex items-center gap-1"><Car className="w-3.5 h-3.5" />{property.carSpaces}</span>
+            <span className="flex items-center gap-1.5"><Car className="w-3.5 h-3.5" strokeWidth={1.5} />{property.carSpaces}</span>
           )}
         </div>
 
         {/* Stats Row */}
-        <div className="flex items-center gap-4 text-xs text-slate-500 mb-4">
-          <span className="flex items-center gap-1"><Eye className="w-3.5 h-3.5" />{property.stats?.views || 0} views</span>
+        <div className="flex items-center gap-4 text-xs text-stone-500 mb-5">
+          <span className="flex items-center gap-1.5"><Eye className="w-3.5 h-3.5" strokeWidth={1.5} />{property.stats?.views || 0} views</span>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mt-auto pt-4 border-t border-stone-100">
           <Link
             href={`/dashboard/property/${property.id}`}
-            className="flex-1 text-center px-3 py-2 text-xs font-semibold text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors"
+            className="flex-1 text-center px-3 py-2 text-xs font-medium tracking-wide text-stone-900 border border-stone-300 hover:border-stone-900 hover:bg-stone-50 rounded-md transition-colors"
           >
             View Report
           </Link>
           <Link
             href={`/dashboard/edit/${property.id}`}
-            className="px-3 py-2 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-1"
+            className="px-3 py-2 text-xs font-medium tracking-wide text-stone-500 hover:text-stone-900 rounded-md transition-colors flex items-center gap-1.5"
           >
-            <Pencil className="w-3 h-3" />
+            <Pencil className="w-3 h-3" strokeWidth={1.5} />
             Edit
           </Link>
           {isArchived && !isSold && onHide && (
             <button
               onClick={() => onHide(property)}
-              className="px-3 py-2 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors flex items-center gap-1"
+              className="px-3 py-2 text-xs font-medium text-stone-400 hover:text-red-700 rounded-md transition-colors flex items-center gap-1"
               title="Hide from archive"
             >
-              <Trash2 className="w-3 h-3" />
+              <Trash2 className="w-3.5 h-3.5" strokeWidth={1.5} />
             </button>
           )}
         </div>
@@ -691,22 +682,20 @@ function BillingContactPrompt() {
 function EmptyState() {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white rounded-2xl border border-slate-200 p-12 text-center"
+      className="bg-white rounded-md border border-stone-200 px-6 py-16 sm:py-20 text-center"
     >
-      <div className="w-20 h-20 bg-orange-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-        <Home className="w-10 h-10 text-orange-500" />
-      </div>
-      <h3 className="text-xl font-bold text-slate-900 mb-2">No properties yet</h3>
-      <p className="text-slate-500 mb-6 max-w-md mx-auto">
+      <div className="mx-auto mb-7 h-px w-10 bg-[#c64500]" aria-hidden="true" />
+      <h3 className="font-serif text-2xl text-stone-900 mb-3">No properties yet</h3>
+      <p className="text-sm text-stone-500 leading-relaxed mb-8 max-w-sm mx-auto">
         Add your first property to start collecting buyer opinions and market insights.
       </p>
       <Link
         href="/dashboard/add"
-        className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all"
+        className="inline-flex items-center gap-2 px-6 py-3 bg-[#c64500] hover:bg-[#a63a00] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
       >
-        <Plus className="w-5 h-5" />
+        <Plus className="w-4 h-4" strokeWidth={1.75} />
         Add Your First Property
       </Link>
     </motion.div>
@@ -1303,8 +1292,8 @@ function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" />
+      <div className="min-h-screen bg-[#faf9f7] flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#c64500] border-t-transparent" />
       </div>
     );
   }
@@ -1327,7 +1316,7 @@ function DashboardPage() {
   const displayProperties = agentFilteredProperties;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[#faf9f7] text-stone-900">
       <Sidebar
         active={activeTab}
         onNavigate={setActiveTab}
@@ -1341,19 +1330,19 @@ function DashboardPage() {
       {/* Main Content */}
       <div className="lg:pl-64">
         {/* Mobile Header */}
-        <div className="sticky top-0 z-20 bg-white border-b border-slate-200 lg:hidden">
+        <div className="sticky top-0 z-20 bg-[#fdfcfb]/95 backdrop-blur border-b border-stone-200 lg:hidden">
           <div className="flex items-center justify-between px-4 py-3">
-            <button onClick={() => setSidebarOpen(true)} className="p-2 hover:bg-slate-100 rounded-lg">
-              <Menu className="w-5 h-5 text-slate-700" />
+            <button onClick={() => setSidebarOpen(true)} className="p-2 hover:bg-stone-100 rounded-md" aria-label="Open menu">
+              <Menu className="w-5 h-5 text-stone-700" strokeWidth={1.5} />
             </button>
-            <span className="text-lg font-bold text-slate-900">Dashboard</span>
-            <Link href="/dashboard/add" className="p-2 hover:bg-slate-100 rounded-lg">
-              <Plus className="w-5 h-5 text-slate-700" />
+            <span className="font-serif text-lg text-stone-900">Dashboard</span>
+            <Link href="/dashboard/add" className="p-2 hover:bg-stone-100 rounded-md" aria-label="Add property">
+              <Plus className="w-5 h-5 text-stone-700" strokeWidth={1.5} />
             </Link>
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-8 lg:px-10 py-7 sm:py-10 space-y-8">
           {/* Office-linked agents are onboarded by their office: no
               billing-details prompt or "invoicing is activated"
               announcement. Display-only — billing itself is untouched. */}
@@ -1373,8 +1362,8 @@ function DashboardPage() {
           )}
 
           {/* Page Header */}
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-end justify-between gap-6 pb-7 border-b border-stone-200">
+            <div className="min-w-0">
               {/* Mobile greeting: profile photo + first name, office underneath.
                   Desktop keeps the existing text greeting below (its sidebar already shows the photo). */}
               {activeTab !== 'archived' && activeTab !== 'sold' && (
@@ -1382,13 +1371,13 @@ function DashboardPage() {
                   userData={userData}
                   officeName={greetingOfficeBrand.brand?.name || null}
                   officeStatus={greetingOfficeBrand.status}
-                  className="sm:hidden mb-5"
+                  className="sm:hidden mb-6"
                 />
               )}
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="font-serif text-3xl sm:text-4xl leading-tight text-stone-900">
                 {activeTab === 'archived' ? 'Archived Properties' : activeTab === 'sold' ? 'Sold Properties' : 'Dashboard'}
               </h1>
-              <p className={`text-sm text-slate-500 mt-1 ${activeTab === 'archived' || activeTab === 'sold' ? '' : 'hidden sm:block'}`}>
+              <p className={`text-sm text-stone-500 mt-2 ${activeTab === 'archived' || activeTab === 'sold' ? '' : 'hidden sm:block'}`}>
                 {activeTab === 'archived'
                   ? `${archivedProperties.length} ${archivedProperties.length === 1 ? 'property' : 'properties'}`
                   : activeTab === 'sold'
@@ -1396,16 +1385,16 @@ function DashboardPage() {
                   : <span>
                       Welcome back, {userName}
                       {!userData?.officeId && !userData?.companyName && (
-                        <> · <Link href="/dashboard/settings" className="text-orange-500 hover:text-orange-600 font-semibold">Add Agency Details</Link></>
+                        <> · <Link href="/dashboard/settings" className="text-[#c64500] hover:text-[#a63a00] font-medium">Add Agency Details</Link></>
                       )}
                     </span>}
               </p>
             </div>
             <Link
               href="/dashboard/add"
-              className="hidden sm:inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold text-sm rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all"
+              className="hidden sm:inline-flex shrink-0 items-center gap-2 px-5 py-2.5 bg-[#c64500] hover:bg-[#a63a00] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4" strokeWidth={1.75} />
               Add Property
             </Link>
           </div>
@@ -1429,7 +1418,7 @@ function DashboardPage() {
               <select
                 value={filterAgentId}
                 onChange={(e) => setFilterAgentId(e.target.value)}
-                className="px-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400"
+                className="px-3 py-2 rounded-md border border-stone-300 text-sm text-stone-700 bg-white focus:outline-none focus:ring-1 focus:ring-stone-900 focus:border-stone-900"
               >
                 <option value="">All agents</option>
                 {teamAgents.map((a) => (
@@ -1441,11 +1430,11 @@ function DashboardPage() {
 
           {/* Overview Stats */}
           {activeTab === 'overview' && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard label="Total Properties" value={propertiesLoading ? '...' : activeProperties.length} icon={Home} />
-              <StatCard label="Public Listings" value={propertiesLoading ? '...' : liveProperties.length} icon={TrendingUp} />
-              <StatCard label="Total Views" value={propertiesLoading ? '...' : totalViews} icon={Eye} />
-              <StatCard label="Buyer Opinions" value={propertiesLoading ? '...' : opinionsCount} icon={MessageSquare} />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200 border border-stone-200 rounded-md overflow-hidden">
+              <StatCard label="Total Properties" value={propertiesLoading ? '...' : activeProperties.length} />
+              <StatCard label="Public Listings" value={propertiesLoading ? '...' : liveProperties.length} />
+              <StatCard label="Total Views" value={propertiesLoading ? '...' : totalViews} />
+              <StatCard label="Buyer Opinions" value={propertiesLoading ? '...' : opinionsCount} />
             </div>
           )}
 
@@ -1480,46 +1469,45 @@ function DashboardPage() {
             />
           )}
 
-          {/* Quick Actions (overview only) */}
+          {/* Quick Actions (overview only) — phones only: from tablet up the same
+              link lives in the page header and the sidebar. */}
           {activeTab === 'overview' && !propertiesLoading && properties.length > 0 && (
             <Link
               href="/dashboard/add"
-              className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4 hover:shadow-md transition-shadow group"
+              className="sm:hidden bg-white rounded-md border border-stone-200 px-5 py-4 flex items-center gap-4 hover:border-stone-300 transition-colors group"
             >
-              <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center group-hover:bg-slate-200 transition-colors">
-                <Plus className="w-6 h-6 text-slate-600" />
-              </div>
+              <Plus className="w-5 h-5 text-[#c64500]" strokeWidth={1.5} />
               <div className="flex-1">
-                <p className="font-semibold text-slate-900">Add Property</p>
-                <p className="text-xs text-slate-500">List a new property for your client</p>
+                <p className="text-sm font-medium text-stone-900">Add Property</p>
+                <p className="text-xs text-stone-500">List a new property for your client</p>
               </div>
-              <ChevronRight className="w-5 h-5 text-slate-300" />
+              <ChevronRight className="w-4 h-4 text-stone-300" strokeWidth={1.5} />
             </Link>
           )}
 
           {/* Properties Grid */}
           {propertiesLoading ? (
             <div className="flex items-center justify-center py-20">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" />
+              <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#c64500] border-t-transparent" />
             </div>
           ) : activeTab !== 'archived' && activeTab !== 'sold' && properties.length === 0 ? (
             <EmptyState />
           ) : displayProperties.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+            <div className="bg-white rounded-md border border-stone-200 px-6 py-16 text-center">
               {activeTab === 'sold' ? (
                 <>
-                  <CheckCircle className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-sm text-slate-500">No sold properties yet</p>
+                  <CheckCircle className="w-8 h-8 text-stone-300 mx-auto mb-4" strokeWidth={1.25} />
+                  <p className="text-sm text-stone-500">No sold properties yet</p>
                 </>
               ) : (
                 <>
-                  <Archive className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-sm text-slate-500">No archived properties</p>
+                  <Archive className="w-8 h-8 text-stone-300 mx-auto mb-4" strokeWidth={1.25} />
+                  <p className="text-sm text-stone-500">No archived properties</p>
                 </>
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-6">
               {displayProperties.map(property => (
                 <PropertyCard
                   key={property.id}
