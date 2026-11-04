@@ -153,6 +153,13 @@ describe('charge creation', () => {
     });
   });
 
+  it('an office retail display price (retailCampaignPrice) never changes the wholesale charge', async () => {
+    db.seed('officeAdminInfo', HPH, { name: 'Harcourts Property Hub', status: 'active', officeAdminUids: ['hphAdmin'], retailCampaignPrice: 349 });
+    await billing.recordPropertyCharge(prop('p1', 'phil', '1 Phil St'));
+    expect(db._store.propertyCharges.p1).toMatchObject({ totalInc: 200, subtotalEx: 200, status: 'pending' });
+    expect(JSON.stringify(db._store.propertyCharges.p1)).not.toContain('349');
+  });
+
   it('records an independent agent\'s charge exactly as before (agent:{uid}, no office fields)', async () => {
     await billing.recordPropertyCharge(prop('p2', 'solo', '2 Solo St'));
     const charge = db._store.propertyCharges.p2;

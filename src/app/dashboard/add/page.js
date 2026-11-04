@@ -130,6 +130,14 @@ export default function AddPropertyPage() {
   const [pricingInfo, setPricingInfo] = useState({ pricePerListing: 200, gstRate: 0, paymentTermsDays: 14 });
   const [pricingLoaded, setPricingLoaded] = useState(false);
   const [pricingLoadFailed, setPricingLoadFailed] = useState(false);
+  // Office retail pricing (display + terms only; billing is untouched).
+  // 'unknown' until we know whether this agent's office shows a retail
+  // price — the standard $ figure is never shown while it's unknown.
+  const [retail, setRetail] = useState({ state: 'unknown', price: null, terms: '' });
+  const [retailFailed, setRetailFailed] = useState(false);
+  // True once the figure being shown has been confirmed by the server:
+  // the office retail price, or the standard price for everyone else.
+  const pricingReady = !retailFailed && (retail.state === 'retail' || (retail.state === 'none' && pricingLoaded));
 
   // UX state
   const [errors, setErrors] = useState({});
@@ -160,6 +168,12 @@ export default function AddPropertyPage() {
   // Load terms and conditions from Firestore
   useEffect(() => {
     if (!user) return;
+    if (retail.state === 'unknown') return;
+    if (retail.state === 'retail') {
+      setTermsText(retail.terms);
+      setTermsLoading(false);
+      return;
+    }
     const loadTerms = async () => {
       setTermsLoading(true);
       try {
@@ -177,7 +191,38 @@ export default function AddPropertyPage() {
       }
     };
     loadTerms();
-  }, [user, userData?.agent]);
+  }, [user, userData?.agent, retail.state, retail.terms]);
+
+  // Office agents may see a retail price and matching terms instead of
+  // the standard ones. Resolved server-side; a failure for an office
+  // member disables submission rather than falling back to the
+  // standard figure.
+  const loadRetailPricing = () => {
+    setRetailFailed(false);
+    authFetch('/api/agents/campaign-pricing')
+      .then((res) => {
+        if (!res.ok) throw new Error(`campaign-pricing returned ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        setRetail(data.retail
+          ? { state: 'retail', price: data.price, terms: data.terms }
+          : { state: 'none', price: null, terms: '' });
+      })
+      .catch((err) => {
+        console.error('Error loading campaign pricing:', err);
+        setRetailFailed(true);
+      });
+  };
+  useEffect(() => {
+    if (!user || authLoading) return;
+    if (!userData?.officeId) {
+      setRetail({ state: 'none', price: null, terms: '' });
+      return;
+    }
+    loadRetailPricing();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, userData?.officeId]);
 
   // Fetch the current campaign fee/GST/payment-terms for the pricing
   // disclosure below — a narrow public endpoint, not a direct read of
@@ -603,7 +648,7 @@ export default function AddPropertyPage() {
     // a pricing lookup that never actually confirmed a real value
     // must never let a submission (and its charge) through, no
     // matter how the button's disabled state was reached.
-    if (!pricingLoaded) {
+    if (!pricingReady) {
       setErrors({ step: 'Unable to confirm current pricing. Please wait a moment or refresh the page before submitting.' });
       return;
     }
@@ -1411,7 +1456,7 @@ export default function AddPropertyPage() {
               configurable setting (DEFAULT_BILLING_CYCLE_DAYS is a
               fixed constant in billingService.js), so that figure is
               safe to state directly. */}
-          {step === STEPS.TERMS && pricingLoadFailed && (
+          {step === STEPS.TERMS && pricingLoadFailed && retail.state === 'none' && (
             <div className="mb-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
               <p className="text-sm text-red-700">
                 Unable to confirm current pricing. Submission is disabled until this is confirmed.
@@ -1431,7 +1476,36 @@ export default function AddPropertyPage() {
               </button>
             </div>
           )}
-          {step === STEPS.TERMS && !pricingLoadFailed && (
+          {step === STEPS.TERMS && retailFailed && (
+            <div className="mb-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+              <p className="text-sm text-red-700">
+                Unable to confirm current pricing. Submission is disabled until this is confirmed.
+              </p>
+              <button
+                type="button"
+                onClick={loadRetailPricing}
+                className="text-sm font-semibold text-red-700 underline whitespace-nowrap"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {step === STEPS.TERMS && !retailFailed && retail.state === 'retail' && (
+            <div className="mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+              <p className="text-sm font-semibold text-slate-900">
+                Premarket campaign fee — ${retail.price} AUD per campaign
+              </p>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                The campaign fee is payable by the vendor through your agency.
+              </p>
+            </div>
+          )}
+          {step === STEPS.TERMS && !retailFailed && retail.state === 'unknown' && (
+            <div className="mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+              <p className="text-sm font-semibold text-slate-900">Confirming current pricing…</p>
+            </div>
+          )}
+          {step === STEPS.TERMS && !pricingLoadFailed && retail.state === 'none' && (
             <div className="mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
               <p className="text-sm font-semibold text-slate-900">
                 {pricingLoaded
@@ -1465,10 +1539,10 @@ export default function AddPropertyPage() {
             ) : (
               <button
                 onClick={handleSubmit}
-                disabled={isSubmitting || !termsAccepted || !pricingLoaded}
+                disabled={isSubmitting || !termsAccepted || !pricingReady}
                 className="px-8 py-3 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSubmitting ? 'Submitting...' : !pricingLoaded ? 'Confirming pricing…' : 'Submit Property'}
+                {isSubmitting ? 'Submitting...' : !pricingReady ? 'Confirming pricing…' : 'Submit Property'}
               </button>
             )}
           </div>
