@@ -1653,52 +1653,42 @@ function DashboardPage() {
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+              className="bg-[#faf9f7] rounded-md border border-stone-200 shadow-xl max-w-md w-full overflow-hidden"
             >
-              {/* Green header */}
-              <div className="bg-gradient-to-r from-emerald-500 to-green-500 px-8 pt-8 pb-6 text-center">
-                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle className="w-9 h-9 text-white" />
-                </div>
-                <h2 className="text-2xl font-bold text-white">
-                  {successModal === 'created' ? 'Property Created!' : 'Changes Saved!'}
+              <div className="px-8 pt-9 pb-2 text-center">
+                <div className="mx-auto mb-5 h-px w-10 bg-[#c64500]" aria-hidden="true" />
+                <CheckCircle className="w-7 h-7 text-[#c64500] mx-auto mb-3" />
+                <h2 className="font-serif text-2xl text-stone-900">
+                  {successModal === 'created' ? 'Property created' : 'Changes saved'}
                 </h2>
               </div>
 
-              {/* Body */}
-              <div className="px-8 py-6 space-y-5">
-                {/* Upload status */}
-                <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
-                  <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Upload className="w-4 h-4 text-amber-600" />
-                  </div>
+              <div className="px-8 py-6 space-y-4">
+                <div className="flex items-start gap-3 border-t border-stone-200 pt-5">
+                  <Upload className="w-4 h-4 text-stone-500 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-amber-900">Media uploading in the background</p>
-                    <p className="text-xs text-amber-700 mt-1">Your photos and video are being uploaded. This may take a minute depending on file sizes. You can keep using the dashboard while this happens.</p>
+                    <p className="text-sm font-medium text-stone-900">Media uploading in the background</p>
+                    <p className="text-xs text-stone-500 mt-1 leading-relaxed">Your photos and video are being uploaded. This may take a minute depending on file sizes. You can keep using the dashboard while this happens.</p>
                   </div>
                 </div>
 
-                {/* Visibility info */}
-                <div className="flex items-start gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
-                  <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Eye className="w-4 h-4 text-slate-600" />
-                  </div>
+                <div className="flex items-start gap-3 border-t border-stone-200 pt-5">
+                  <Eye className="w-4 h-4 text-stone-500 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">Your listing is set to Private</p>
-                    <p className="text-xs text-slate-600 mt-1">
+                    <p className="text-sm font-medium text-stone-900">Your listing is set to Private</p>
+                    <p className="text-xs text-stone-500 mt-1 leading-relaxed">
                       {successModal === 'created'
                         ? 'New listings start as private so you can review everything first. When you\'re ready for buyers to see it, tap the'
                         : 'Your listing is currently private. To make it visible to buyers, tap the'
                       }
-                      {' '}<span className="font-semibold text-emerald-600">Set Public</span> button on your property card.
+                      {' '}<span className="font-medium text-stone-900">Set Public</span> button on your property card.
                     </p>
                   </div>
                 </div>
 
-                {/* Action button */}
                 <button
                   onClick={() => setSuccessModal(null)}
-                  className="w-full py-3 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold rounded-xl shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 transition-all text-sm"
+                  className="w-full mt-2 py-3 bg-[#c64500] hover:bg-[#a63a00] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
                 >
                   Got it
                 </button>

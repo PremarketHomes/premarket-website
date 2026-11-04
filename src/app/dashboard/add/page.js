@@ -38,9 +38,7 @@ import {
   Building2,
   Search,
   Loader2,
-  FileText,
   GripVertical,
-  Clock,
 } from 'lucide-react';
 import { onSnapshot, query, where } from 'firebase/firestore';
 import AgentSelector from '../../components/AgentSelector';
@@ -55,11 +53,18 @@ const STEPS = {
   DETAILS: 4,
   IMAGES: 5,
   TITLE: 6,
-  EAGERNESS: 7,
-  TERMS: 8,
+  TERMS: 7,
 };
 
-const eagernessOptions = ['Very serious', 'Serious if the price is right', 'Just testing the waters'];
+const STEP_LABELS = {
+  [STEPS.ADDRESS]: 'Address',
+  [STEPS.TYPE]: 'Property type',
+  [STEPS.PRICE]: 'Expected price',
+  [STEPS.DETAILS]: 'Details',
+  [STEPS.IMAGES]: 'Media',
+  [STEPS.TITLE]: 'Listing',
+  [STEPS.TERMS]: 'Terms',
+};
 
 const homeTypes = ['House', 'Apartment', 'Villa', 'Townhouse', 'Acreage', 'Duplex', 'Land'];
 const homeFeatures = [
@@ -109,7 +114,6 @@ export default function AddPropertyPage() {
   const [showHeroPositioner, setShowHeroPositioner] = useState(false);
   const [positioningHero, setPositioningHero] = useState(false);
   const [video, setVideo] = useState(null);
-  const [eagerness, setEagerness] = useState(null);
   const [showSuburbOnly, setShowSuburbOnly] = useState(false);
 
   // Terms state
@@ -518,9 +522,6 @@ export default function AddPropertyPage() {
     if (step === STEPS.TITLE && !title.trim()) {
       newErrors.step = 'Please enter a title for the listing.';
     }
-    if (step === STEPS.EAGERNESS && eagerness === null) {
-      newErrors.step = 'Please select a sales timeline.';
-    }
     if (step === STEPS.TERMS && !termsAccepted) {
       newErrors.step = 'Please accept the terms and conditions to continue.';
     }
@@ -690,7 +691,10 @@ export default function AddPropertyPage() {
         visibility: false,
         acceptingOffers: true,
         campaignId: 'FqMZd0mWlNlSBl66s7BN',
-        isEager: eagerness,
+        // The "how eager are you to sell" question was removed from this
+        // flow. Kept as null so new properties keep the same shape; every
+        // reader (PHI scoring, CRM) already treats null as "not set".
+        isEager: null,
         clientName: null,
         clientEmail: null,
         clientPhone: null,
@@ -754,8 +758,8 @@ export default function AddPropertyPage() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" />
+      <div className="min-h-screen bg-[#faf9f7] flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-[#c64500]" />
       </div>
     );
   }
@@ -766,35 +770,40 @@ export default function AddPropertyPage() {
   const progressPercent = (step / totalSteps) * 100;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-[#faf9f7] flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+      <div className="bg-[#faf9f7]/95 backdrop-blur border-b border-stone-200 sticky top-0 z-10">
+        <div className="max-w-2xl mx-auto px-5 sm:px-8 pt-5 pb-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
               <button
                 onClick={() => step === STEPS.ADDRESS ? router.push('/dashboard') : onBack()}
-                className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                aria-label={step === STEPS.ADDRESS ? 'Back to dashboard' : 'Previous step'}
+                className="-ml-2 p-2 rounded-md text-stone-500 hover:text-stone-900 hover:bg-stone-100/70 transition-colors"
               >
-                <ArrowLeft className="w-5 h-5 text-slate-600" />
+                <ArrowLeft className="w-5 h-5" />
               </button>
-              <div>
-                <h1 className="text-lg font-bold text-slate-900">Add Property</h1>
-                <p className="text-xs text-slate-500">Step {step} of {totalSteps}</p>
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-stone-400">Add property</p>
+                <h1 className="font-serif text-[17px] leading-snug text-stone-900 truncate">{STEP_LABELS[step]}</h1>
               </div>
             </div>
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
-            >
-              <X className="w-5 h-5 text-slate-600" />
-            </button>
+            <div className="flex items-center gap-4 flex-shrink-0">
+              <p className="text-xs text-stone-500 tabular-nums">Step {step} of {totalSteps}</p>
+              <button
+                onClick={() => router.push('/dashboard')}
+                aria-label="Close and return to dashboard"
+                className="p-2 rounded-md text-stone-500 hover:text-stone-900 hover:bg-stone-100/70 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
-          {/* Progress Bar */}
-          <div className="mt-3 w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+          {/* Progress */}
+          <div className="mt-4 w-full h-px bg-stone-200 relative" role="progressbar" aria-valuemin={1} aria-valuemax={totalSteps} aria-valuenow={step}>
             <motion.div
-              className="h-full bg-gradient-to-r from-[#e48900] to-[#c64500]"
+              className="absolute left-0 top-[-0.5px] h-[2px] bg-[#c64500]"
               initial={{ width: 0 }}
               animate={{ width: `${progressPercent}%` }}
               transition={{ duration: 0.5, ease: 'easeOut' }}
@@ -804,56 +813,56 @@ export default function AddPropertyPage() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8">
+      <div className="flex-1 max-w-2xl mx-auto w-full px-5 sm:px-8 py-10 sm:py-14">
         <AnimatePresence mode="wait">
           <motion.div
             key={step}
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.25 }}
           >
             {/* Step 1: Address */}
             {step === STEPS.ADDRESS && (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <h2 className="text-2xl font-bold text-slate-900 mb-2">Where is the property?</h2>
-                <p className="text-slate-500 mb-6">Start typing and select from the suggestions.</p>
+              <div className="">
+                <h2 className="font-serif text-[28px] sm:text-3xl leading-tight text-stone-900 mb-2">Where is the property?</h2>
+                <p className="text-[15px] text-stone-500 mb-8">Start typing and select from the suggestions.</p>
 
                 {mapsLoaded ? (
                   <Autocomplete onLoad={(ref) => (autocompleteRef.current = ref)} onPlaceChanged={handlePlaceChanged}>
                     <div className="relative">
-                      <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                      <MapPin className="absolute left-4 top-1/2 -transtone-y-1/2 w-5 h-5 text-stone-400" />
                       <input
                         type="text"
                         placeholder="123 Main Street, Sydney NSW"
-                        className="w-full pl-12 pr-4 py-4 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
+                        className="w-full pl-12 pr-4 py-4 rounded-md border border-stone-300 bg-white focus:border-[#c64500] focus:ring-1 focus:ring-[#c64500]/30 outline-none transition-colors text-stone-900 text-base"
                       />
                     </div>
                   </Autocomplete>
                 ) : (
                   <div className="relative">
-                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                    <MapPin className="absolute left-4 top-1/2 -transtone-y-1/2 w-5 h-5 text-stone-300" />
                     <input
                       type="text"
                       placeholder="Loading address search..."
                       disabled
-                      className="w-full pl-12 pr-4 py-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-400 text-lg"
+                      className="w-full pl-12 pr-4 py-4 rounded-md border border-stone-200 bg-stone-50 text-stone-400 text-lg"
                     />
                   </div>
                 )}
 
                 {address && (
-                  <div className="mt-4 p-4 bg-orange-50 rounded-xl border border-orange-200">
-                    <p className="text-sm text-orange-800"><strong>Selected:</strong> {formattedAddress}</p>
+                  <div className="mt-4 p-4 bg-stone-100/60 rounded-md border border-stone-200">
+                    <p className="text-sm text-stone-800"><strong>Selected:</strong> {formattedAddress}</p>
                   </div>
                 )}
 
                 {/* Show Address Toggle */}
                 {address && (
-                  <div className="mt-6 flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="mt-6 flex items-center justify-between p-4 bg-stone-50 rounded-md border border-stone-200">
                     <div>
-                      <p className="text-sm font-medium text-slate-700">Hide street address</p>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-sm font-medium text-stone-700">Hide street address</p>
+                      <p className="text-xs text-stone-500 mt-0.5">
                         {showSuburbOnly
                           ? `Buyers will only see "${address}" — map will be hidden`
                           : 'Full address and map will be visible to buyers'}
@@ -862,10 +871,10 @@ export default function AddPropertyPage() {
                     <button
                       type="button"
                       onClick={() => setShowSuburbOnly(!showSuburbOnly)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${showSuburbOnly ? 'bg-orange-500' : 'bg-slate-300'}`}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${showSuburbOnly ? 'bg-[#c64500]' : 'bg-stone-300'}`}
                     >
                       <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${showSuburbOnly ? 'translate-x-6' : 'translate-x-1'}`}
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${showSuburbOnly ? 'transtone-x-6' : 'transtone-x-1'}`}
                       />
                     </button>
                   </div>
@@ -873,25 +882,25 @@ export default function AddPropertyPage() {
 
                 {/* AgentBox option */}
                 {agentboxConnected && (
-                  <div className="mt-6 pt-6 border-t border-slate-200">
+                  <div className="mt-6 pt-6 border-t border-stone-200">
                     <div className="flex items-center gap-2 mb-3">
-                      <div className="flex-1 h-px bg-slate-200" />
-                      <span className="text-xs font-medium text-slate-400 uppercase">or</span>
-                      <div className="flex-1 h-px bg-slate-200" />
+                      <div className="flex-1 h-px bg-stone-200" />
+                      <span className="text-xs font-medium text-stone-400 uppercase">or</span>
+                      <div className="flex-1 h-px bg-stone-200" />
                     </div>
                     <button
                       onClick={() => setShowAgentboxPicker(true)}
                       type="button"
-                      className="w-full flex items-center gap-4 px-5 py-4 rounded-xl border border-slate-200 hover:border-orange-300 hover:bg-orange-50/50 transition-all group"
+                      className="w-full flex items-center gap-4 px-5 py-4 rounded-md border border-stone-200 hover:border-stone-400 hover:bg-stone-100/50 transition-all group"
                     >
-                      <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <div className="w-10 h-10 bg-stone-900 rounded-md flex items-center justify-center flex-shrink-0">
                         <Building2 className="w-5 h-5 text-white" />
                       </div>
                       <div className="text-left flex-1">
-                        <p className="text-sm font-semibold text-slate-900 group-hover:text-orange-700 transition-colors">Find property via Agentbox</p>
-                        <p className="text-xs text-slate-500">Import address and details from your CRM listings</p>
+                        <p className="text-sm font-medium text-stone-900 group-hover:text-[#c64500] transition-colors">Find property via Agentbox</p>
+                        <p className="text-xs text-stone-500">Import address and details from your CRM listings</p>
                       </div>
-                      <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-orange-400 transition-colors" />
+                      <ChevronRight className="w-5 h-5 text-stone-300 group-hover:text-stone-500 transition-colors" />
                     </button>
                   </div>
                 )}
@@ -912,35 +921,35 @@ export default function AddPropertyPage() {
                     initial={{ opacity: 0, scale: 0.95, y: 10 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                    className="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl"
+                    className="bg-white rounded-md w-full max-w-2xl max-h-[80vh] flex flex-col shadow-xl"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {/* Header */}
-                    <div className="flex items-center justify-between p-5 border-b border-slate-200 flex-shrink-0">
+                    <div className="flex items-center justify-between p-5 border-b border-stone-200 flex-shrink-0">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-slate-900 rounded-lg flex items-center justify-center">
+                        <div className="w-9 h-9 bg-stone-900 rounded-md flex items-center justify-center">
                           <Building2 className="w-4.5 h-4.5 text-white" />
                         </div>
                         <div>
-                          <h2 className="text-lg font-bold text-slate-900">Select from Agentbox</h2>
-                          <p className="text-xs text-slate-500">{abListings.length} listings available</p>
+                          <h2 className="font-serif text-lg text-stone-900">Select from Agentbox</h2>
+                          <p className="text-xs text-stone-500">{abListings.length} listings available</p>
                         </div>
                       </div>
-                      <button onClick={() => setShowAgentboxPicker(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
-                        <X className="w-5 h-5 text-slate-400" />
+                      <button onClick={() => setShowAgentboxPicker(false)} className="p-2 hover:bg-stone-100 rounded-md transition-colors">
+                        <X className="w-5 h-5 text-stone-400" />
                       </button>
                     </div>
 
                     {/* Search */}
-                    <div className="px-5 py-3 border-b border-slate-100 flex-shrink-0">
+                    <div className="px-5 py-3 border-b border-stone-100 flex-shrink-0">
                       <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <Search className="absolute left-3 top-1/2 -transtone-y-1/2 w-4 h-4 text-stone-400" />
                         <input
                           type="text"
                           value={abSearch}
                           onChange={(e) => setAbSearch(e.target.value)}
                           placeholder="Search by address or suburb..."
-                          className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 bg-white transition-all"
+                          className="w-full pl-10 pr-4 py-2.5 border border-stone-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-[#c64500]/30 focus:border-[#c64500] bg-white transition-colors"
                         />
                       </div>
                     </div>
@@ -949,12 +958,12 @@ export default function AddPropertyPage() {
                     <div className="flex-1 overflow-y-auto p-3">
                       {abLoading ? (
                         <div className="flex items-center justify-center py-16">
-                          <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+                          <Loader2 className="w-6 h-6 animate-spin text-[#c64500]" />
                         </div>
                       ) : filteredAbListings.length === 0 ? (
                         <div className="text-center py-16">
-                          <Home className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                          <p className="text-sm text-slate-500">{abSearch ? 'No listings match your search' : 'No listings found'}</p>
+                          <Home className="w-10 h-10 text-stone-200 mx-auto mb-3" />
+                          <p className="text-sm text-stone-500">{abSearch ? 'No listings match your search' : 'No listings found'}</p>
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -969,31 +978,31 @@ export default function AddPropertyPage() {
                               <button
                                 key={listing.id}
                                 onClick={() => handleSelectAgentboxListing(listing)}
-                                className="w-full flex items-center gap-4 p-3 rounded-xl border border-slate-100 hover:border-orange-300 hover:bg-orange-50/30 transition-all text-left group"
+                                className="w-full flex items-center gap-4 p-3 rounded-md border border-stone-100 hover:border-stone-400 hover:bg-stone-100/50 transition-all text-left group"
                               >
-                                <div className="w-16 h-16 bg-slate-100 rounded-lg overflow-hidden flex-shrink-0">
+                                <div className="w-16 h-16 bg-stone-100 rounded-md overflow-hidden flex-shrink-0">
                                   {imgUrl ? (
                                     <img src={imgUrl} alt="" className="w-full h-full object-cover" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center">
-                                      <Home className="w-6 h-6 text-slate-300" />
+                                      <Home className="w-6 h-6 text-stone-300" />
                                     </div>
                                   )}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold text-slate-900 truncate group-hover:text-orange-700 transition-colors">{fullAddr}</p>
-                                  <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                                    {price && <span className="font-semibold text-slate-700">{price}</span>}
+                                  <p className="text-sm font-medium text-stone-900 truncate group-hover:text-[#c64500] transition-colors">{fullAddr}</p>
+                                  <div className="flex items-center gap-3 mt-1 text-xs text-stone-500">
+                                    {price && <span className="font-semibold text-stone-700">{price}</span>}
                                     {listing.bedrooms != null && <span className="flex items-center gap-0.5"><Bed className="w-3 h-3" />{listing.bedrooms}</span>}
                                     {listing.bathrooms != null && <span className="flex items-center gap-0.5"><Bath className="w-3 h-3" />{listing.bathrooms}</span>}
                                     {(listing.carSpaces != null || listing.garages != null) && <span className="flex items-center gap-0.5"><Car className="w-3 h-3" />{listing.carSpaces || listing.garages}</span>}
-                                    {listing.type && <span className="text-slate-400">{listing.type}</span>}
+                                    {listing.type && <span className="text-stone-400">{listing.type}</span>}
                                   </div>
                                 </div>
                                 {listing._imported && (
-                                  <span className="px-2 py-1 text-[10px] font-bold bg-emerald-50 text-emerald-600 rounded-full flex-shrink-0">Imported</span>
+                                  <span className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider bg-stone-100 text-stone-600 rounded-sm flex-shrink-0">Imported</span>
                                 )}
-                                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-orange-400 flex-shrink-0" />
+                                <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-stone-500 flex-shrink-0" />
                               </button>
                             );
                           })}
@@ -1007,19 +1016,19 @@ export default function AddPropertyPage() {
 
             {/* Step 2: Type */}
             {step === STEPS.TYPE && (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <h2 className="text-2xl font-bold text-slate-900 mb-2">Property type</h2>
-                <p className="text-slate-500 mb-6">Choose the one that fits best.</p>
+              <div className="">
+                <h2 className="font-serif text-[28px] sm:text-3xl leading-tight text-stone-900 mb-2">Property type</h2>
+                <p className="text-[15px] text-stone-500 mb-8">Choose the one that fits best.</p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {homeTypes.map((item, idx) => (
                     <button
                       key={idx}
                       onClick={() => setType(idx + 1)}
-                      className={`px-6 py-4 rounded-xl text-lg font-medium transition-all border ${
+                      className={`px-5 py-3.5 rounded-md text-[15px] font-medium transition-colors border ${
                         type === idx + 1
-                          ? 'bg-gradient-to-r from-[#e48900] to-[#c64500] text-white border-orange-500 shadow-lg'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-orange-300 hover:shadow-md'
+                          ? 'bg-[#c64500] text-white border-[#c64500]'
+                          : 'bg-white text-stone-700 border-stone-300 hover:border-stone-400'
                       }`}
                     >
                       {item}
@@ -1028,31 +1037,31 @@ export default function AddPropertyPage() {
                 </div>
 
                 {/* Listing Status Toggle */}
-                <div className="mt-8 pt-6 border-t border-slate-200">
-                  <label className="block text-sm font-medium text-slate-700 mb-3">Listing status</label>
+                <div className="mt-8 pt-6 border-t border-stone-200">
+                  <label className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-3">Listing status</label>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => setListingStatus('premarket')}
-                      className={`px-5 py-3.5 rounded-xl text-sm font-semibold transition-all border ${
+                      className={`px-5 py-3.5 rounded-md text-sm font-medium transition-colors border ${
                         listingStatus === 'premarket'
-                          ? 'bg-gradient-to-r from-[#e48900] to-[#c64500] text-white border-orange-500 shadow-lg'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-orange-300'
+                          ? 'bg-[#c64500] text-white border-[#c64500]'
+                          : 'bg-white text-stone-700 border-stone-300 hover:border-stone-400'
                       }`}
                     >
                       Pre-Market
                     </button>
                     <button
                       onClick={() => setListingStatus('on-market')}
-                      className={`px-5 py-3.5 rounded-xl text-sm font-semibold transition-all border ${
+                      className={`px-5 py-3.5 rounded-md text-sm font-medium transition-colors border ${
                         listingStatus === 'on-market'
-                          ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300'
+                          ? 'bg-stone-900 text-white border-stone-900'
+                          : 'bg-white text-stone-700 border-stone-300 hover:border-stone-400'
                       }`}
                     >
                       On Market
                     </button>
                   </div>
-                  <p className="text-xs text-slate-400 mt-2">
+                  <p className="text-xs text-stone-400 mt-2">
                     {listingStatus === 'premarket'
                       ? 'This property is not yet publicly listed \u2014 collect buyer opinions to validate pricing.'
                       : 'This property is currently listed on the market \u2014 collect buyer opinions alongside your campaign.'}
@@ -1063,12 +1072,12 @@ export default function AddPropertyPage() {
 
             {/* Step 3: Price */}
             {step === STEPS.PRICE && (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <h2 className="text-2xl font-bold text-slate-900 mb-2">Expected price</h2>
-                <p className="text-slate-500 mb-6">Give us a ballpark figure.</p>
+              <div className="">
+                <h2 className="font-serif text-[28px] sm:text-3xl leading-tight text-stone-900 mb-2">Expected price</h2>
+                <p className="text-[15px] text-stone-500 mb-8">Give us a ballpark figure.</p>
 
                 <div className="relative">
-                  <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-400" />
+                  <DollarSign className="absolute left-4 top-1/2 -transtone-y-1/2 w-6 h-6 text-stone-400" />
                   <input
                     type="text"
                     placeholder="750,000"
@@ -1077,7 +1086,7 @@ export default function AddPropertyPage() {
                       const numeric = (e.target.value || '').replace(/\D/g, '');
                       setPriceRaw(numeric);
                     }}
-                    className="w-full pl-12 pr-4 py-4 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-2xl font-semibold"
+                    className="w-full pl-12 pr-4 py-4 rounded-md border border-stone-300 bg-white focus:border-[#c64500] focus:ring-1 focus:ring-[#c64500]/30 outline-none transition-colors text-stone-900 text-2xl font-semibold"
                   />
                 </div>
               </div>
@@ -1085,66 +1094,66 @@ export default function AddPropertyPage() {
 
             {/* Step 4: Details */}
             {step === STEPS.DETAILS && (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <h2 className="text-2xl font-bold text-slate-900 mb-2">Property details</h2>
-                <p className="text-slate-500 mb-6">The basic details.</p>
+              <div className="">
+                <h2 className="font-serif text-[28px] sm:text-3xl leading-tight text-stone-900 mb-2">Property details</h2>
+                <p className="text-[15px] text-stone-500 mb-8">The basic details.</p>
 
                 <div className="space-y-4">
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Bedrooms</label>
+                      <label className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Bedrooms</label>
                       <input
                         type="number"
                         placeholder="3"
                         value={bedrooms}
                         onChange={(e) => setBedrooms(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
+                        className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white focus:border-[#c64500] focus:ring-1 focus:ring-[#c64500]/30 outline-none transition-colors text-stone-900 text-base"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Bathrooms</label>
+                      <label className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Bathrooms</label>
                       <input
                         type="number"
                         placeholder="2"
                         value={bathrooms}
                         onChange={(e) => setBathrooms(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
+                        className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white focus:border-[#c64500] focus:ring-1 focus:ring-[#c64500]/30 outline-none transition-colors text-stone-900 text-base"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Car Spaces</label>
+                      <label className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Car Spaces</label>
                       <input
                         type="number"
                         placeholder="2"
                         value={carSpaces}
                         onChange={(e) => setCarSpaces(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
+                        className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white focus:border-[#c64500] focus:ring-1 focus:ring-[#c64500]/30 outline-none transition-colors text-stone-900 text-base"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Land Size (sqm) - Optional</label>
+                    <label className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Land Size (sqm) - Optional</label>
                     <input
                       type="number"
                       placeholder="450"
                       value={squareFootage}
                       onChange={(e) => setSquareFootage(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
+                      className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white focus:border-[#c64500] focus:ring-1 focus:ring-[#c64500]/30 outline-none transition-colors text-stone-900 text-base"
                     />
                   </div>
 
                   <div className="pt-2">
-                    <label className="block text-sm font-medium text-slate-700 mb-3">Features (Optional)</label>
+                    <label className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-3">Features (Optional)</label>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {homeFeatures.map((feature) => (
                         <button
                           key={feature}
                           onClick={() => toggleFeature(feature)}
-                          className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-all border ${
+                          className={`px-3 py-2.5 rounded-md text-sm font-medium transition-colors border ${
                             features[feature]
-                              ? 'bg-gradient-to-r from-[#e48900] to-[#c64500] text-white border-orange-500'
-                              : 'bg-white text-slate-700 border-slate-200 hover:border-orange-300'
+                              ? 'bg-[#c64500] text-white border-[#c64500]'
+                              : 'bg-white text-stone-700 border-stone-300 hover:border-stone-400'
                           }`}
                         >
                           {feature}
@@ -1158,9 +1167,9 @@ export default function AddPropertyPage() {
 
             {/* Step 5: Media */}
             {step === STEPS.IMAGES && (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <h2 className="text-2xl font-bold text-slate-900 mb-1">Add media</h2>
-                <p className="text-slate-500 mb-6">Photos and an optional walkthrough video to showcase your property.</p>
+              <div className="">
+                <h2 className="font-serif text-[28px] sm:text-3xl leading-tight text-stone-900 mb-2">Add media</h2>
+                <p className="text-[15px] text-stone-500 mb-8">Photos and an optional walkthrough video to showcase your property.</p>
 
                 {/* Unified drop zone */}
                 <div
@@ -1168,17 +1177,17 @@ export default function AddPropertyPage() {
                   onDragLeave={() => setMediaDragging(false)}
                   onDrop={handleMediaDrop}
                   onClick={() => document.getElementById('media-upload').click()}
-                  className={`relative rounded-2xl p-10 text-center cursor-pointer transition-all duration-200 ${mediaDragging ? 'bg-orange-50 border-2 border-orange-400 scale-[1.01]' : 'bg-slate-50 border-2 border-dashed border-slate-200 hover:bg-orange-50/50 hover:border-orange-300'}`}
+                  className={`relative rounded-md p-10 text-center cursor-pointer transition-colors ${mediaDragging ? 'bg-stone-100/70 border border-dashed border-[#c64500]' : 'bg-white border border-dashed border-stone-300 hover:bg-stone-100/50 hover:border-stone-400'}`}
                 >
                   <div className="flex flex-col items-center gap-3">
-                    <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${mediaDragging ? 'bg-orange-100' : 'bg-slate-100'}`}>
-                      <ImageIcon className={`w-7 h-7 ${mediaDragging ? 'text-orange-500' : 'text-slate-400'}`} />
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${mediaDragging ? 'bg-white' : 'bg-stone-100'}`}>
+                      <ImageIcon className={`w-7 h-7 ${mediaDragging ? 'text-[#c64500]' : 'text-stone-400'}`} />
                     </div>
                     <div>
-                      <p className="text-base font-semibold text-slate-900">
+                      <p className="text-base font-semibold text-stone-900">
                         {mediaDragging ? 'Drop files here' : 'Click or drag files to upload'}
                       </p>
-                      <p className="text-sm text-slate-400 mt-1">Images (JPG, PNG, HEIC) and video (MP4, MOV, WebM)</p>
+                      <p className="text-sm text-stone-400 mt-1">Images (JPG, PNG, HEIC) and video (MP4, MOV, WebM)</p>
                     </div>
                   </div>
                   <input
@@ -1192,7 +1201,7 @@ export default function AddPropertyPage() {
                 </div>
 
                 {mediaError && (
-                  <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between">
+                  <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md flex items-center justify-between">
                     <p className="text-sm text-red-600">{mediaError}</p>
                     <button onClick={() => setMediaError(null)}>
                       <X className="w-4 h-4 text-red-400" />
@@ -1205,16 +1214,16 @@ export default function AddPropertyPage() {
                   <div className="mt-6">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <p className="text-sm font-medium text-slate-500">
+                        <p className="text-sm font-medium text-stone-500">
                           {images.length} photo{images.length !== 1 ? 's' : ''}{video ? ' + 1 video' : ''}
                         </p>
                         {images.length > 1 && (
-                          <p className="text-xs text-slate-400 mt-0.5">Drag to reorder. First image is the cover photo.</p>
+                          <p className="text-xs text-stone-400 mt-0.5">Drag to reorder. First image is the cover photo.</p>
                         )}
                       </div>
                       <button
                         onClick={() => document.getElementById('media-upload').click()}
-                        className="text-sm font-semibold text-orange-600 hover:text-orange-700 transition-colors"
+                        className="text-sm font-semibold text-[#c64500] hover:text-[#a63a00] transition-colors"
                       >
                         + Add more
                       </button>
@@ -1225,14 +1234,14 @@ export default function AddPropertyPage() {
                         <div className="relative group col-span-2 row-span-2">
                           <video
                             src={videoPreviewUrl}
-                            className="w-full h-full min-h-[14rem] object-cover rounded-xl border border-slate-200"
+                            className="w-full h-full min-h-[14rem] object-cover rounded-md border border-stone-200"
                             muted
                             playsInline
                             onMouseOver={(e) => e.target.play()}
                             onMouseOut={(e) => { e.target.pause(); e.target.currentTime = 0; }}
                           />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 rounded-xl transition-colors" />
-                          <span className="absolute bottom-2 left-2 px-2 py-1 bg-black/70 text-white text-xs font-medium rounded-lg flex items-center gap-1">
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 rounded-md transition-colors" />
+                          <span className="absolute bottom-2 left-2 px-2 py-1 bg-black/70 text-white text-xs font-medium rounded-md flex items-center gap-1">
                             <Video className="w-3 h-3" /> Video
                           </span>
                           <button
@@ -1251,7 +1260,7 @@ export default function AddPropertyPage() {
                         return (
                           <div
                             key={i}
-                            className={`relative group aspect-square ${dragIndex === i ? 'opacity-40' : ''} ${dragOverIndex === i && dragIndex !== i ? 'ring-2 ring-orange-400 rounded-xl' : ''}`}
+                            className={`relative group aspect-square ${dragIndex === i ? 'opacity-40' : ''} ${dragOverIndex === i && dragIndex !== i ? 'ring-2 ring-[#c64500] rounded-md' : ''}`}
                             draggable
                             onDragStart={() => setDragIndex(i)}
                             onDragOver={(e) => { e.preventDefault(); setDragOverIndex(i); }}
@@ -1264,17 +1273,17 @@ export default function AddPropertyPage() {
                             <img
                               src={src}
                               style={i === 0 && heroFocalPoint ? { objectPosition: heroFocalPoint } : undefined}
-                              className="w-full h-full object-cover rounded-xl border border-slate-200"
+                              className="w-full h-full object-cover rounded-md border border-stone-200"
                               alt={`upload-${i}`}
                               draggable={false}
                             />
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 rounded-xl transition-colors" />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 rounded-md transition-colors" />
                             <div className="absolute top-2 left-2 flex items-center gap-1">
                               <span className="w-7 h-7 bg-black/60 text-white rounded-full flex items-center justify-center cursor-grab active:cursor-grabbing">
                                 <GripVertical className="w-3.5 h-3.5" />
                               </span>
                               {i === 0 && (
-                                <span className="px-1.5 py-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-md">Cover</span>
+                                <span className="px-1.5 py-0.5 bg-[#c64500] text-white text-[10px] font-medium uppercase tracking-wider rounded-sm">Cover</span>
                               )}
                             </div>
                             {i === 0 && (
@@ -1302,29 +1311,29 @@ export default function AddPropertyPage() {
 
             {/* Step 6: Title & Description */}
             {step === STEPS.TITLE && (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <h2 className="text-2xl font-bold text-slate-900 mb-2">Listing details</h2>
-                <p className="text-slate-500 mb-6">Add a title and a short description for the listing.</p>
+              <div className="">
+                <h2 className="font-serif text-[28px] sm:text-3xl leading-tight text-stone-900 mb-2">Listing details</h2>
+                <p className="text-[15px] text-stone-500 mb-8">Add a title and a short description for the listing.</p>
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Title</label>
+                    <label className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Title</label>
                     <input
                       type="text"
                       placeholder="Beautiful family home in..."
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 text-lg"
+                      className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white focus:border-[#c64500] focus:ring-1 focus:ring-[#c64500]/30 outline-none transition-colors text-stone-900 text-base"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Description (Optional)</label>
+                    <label className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Description (Optional)</label>
                     <textarea
                       placeholder="Describe the property..."
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       rows={5}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all text-slate-900 resize-none"
+                      className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white focus:border-[#c64500] focus:ring-1 focus:ring-[#c64500]/30 outline-none transition-colors text-stone-900 resize-none"
                     />
                   </div>
 
@@ -1354,76 +1363,46 @@ export default function AddPropertyPage() {
               )}
             </AnimatePresence>
 
-            {/* Step 7: Sales Timeline */}
-            {step === STEPS.EAGERNESS && (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <div className="flex items-center gap-3 mb-2">
-                  <Clock className="w-6 h-6 text-orange-500" />
-                  <h2 className="text-2xl font-bold text-slate-900">Sales Timeline</h2>
-                </div>
-                <p className="text-slate-500 mb-6">How eager are you to sell?</p>
-
-                <div className="grid grid-cols-1 gap-3">
-                  {eagernessOptions.map((option, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setEagerness(idx)}
-                      className={`px-6 py-4 rounded-xl text-lg font-medium transition-all border text-left ${
-                        eagerness === idx
-                          ? 'bg-gradient-to-r from-[#e48900] to-[#c64500] text-white border-orange-500 shadow-lg'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-orange-300 hover:shadow-md'
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Step 9: Terms & Conditions */}
+            {/* Step 7: Terms & Conditions */}
             {step === STEPS.TERMS && (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <div className="flex items-center gap-3 mb-2">
-                  <FileText className="w-6 h-6 text-orange-500" />
-                  <h2 className="text-2xl font-bold text-slate-900">Terms & Conditions</h2>
-                </div>
-                <p className="text-slate-500 mb-6">Please read and accept the terms before submitting your property.</p>
+              <div className="">
+                <h2 className="font-serif text-[28px] sm:text-3xl leading-tight text-stone-900 mb-2">Terms &amp; Conditions</h2>
+                <p className="text-[15px] text-stone-500 mb-8">Please read and accept the terms before submitting your property.</p>
 
                 {termsLoading ? (
                   <div className="flex items-center justify-center py-12">
-                    <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+                    <Loader2 className="w-6 h-6 animate-spin text-[#c64500]" />
                   </div>
                 ) : termsText ? (
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 max-h-[400px] overflow-y-auto mb-6">
-                    <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{termsText}</p>
+                  <div className="bg-stone-50 border border-stone-200 rounded-md p-5 max-h-[400px] overflow-y-auto mb-6">
+                    <p className="text-sm text-stone-700 whitespace-pre-wrap leading-relaxed">{termsText}</p>
                   </div>
                 ) : (
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-6">
-                    <p className="text-sm text-slate-500 italic">Terms and conditions are being updated. By proceeding, you agree to the Premarket platform terms of use.</p>
+                  <div className="bg-stone-50 border border-stone-200 rounded-md p-5 mb-6">
+                    <p className="text-sm text-stone-500 italic">Terms and conditions are being updated. By proceeding, you agree to the Premarket platform terms of use.</p>
                   </div>
                 )}
 
                 <label
-                  className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                  className={`flex items-center gap-3 p-4 rounded-md border cursor-pointer transition-all ${
                     termsAccepted
-                      ? 'border-orange-400 bg-orange-50'
-                      : 'border-slate-200 hover:border-slate-300'
+                      ? 'border-[#c64500] bg-white'
+                      : 'border-stone-300 hover:border-stone-400'
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={termsAccepted}
                     onChange={(e) => setTermsAccepted(e.target.checked)}
-                    className="w-5 h-5 rounded border-slate-300 text-orange-500 focus:ring-orange-500/20 accent-orange-500"
+                    className="w-5 h-5 rounded border-stone-300 text-[#c64500] focus:ring-[#c64500]/20 accent-[#c64500]"
                   />
-                  <span className="text-sm font-medium text-slate-900">
+                  <span className="text-sm font-medium text-stone-900">
                     I have read and agree to the terms and conditions
                   </span>
                 </label>
 
                 {!termsAccepted && errors.step && (
-                  <p className="mt-3 text-sm text-orange-600 font-medium">You must accept the terms to continue.</p>
+                  <p className="mt-3 text-sm text-[#c64500] font-medium">You must accept the terms to continue.</p>
                 )}
               </div>
             )}
@@ -1433,7 +1412,7 @@ export default function AddPropertyPage() {
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4 text-center"
+                className="mt-4 bg-red-50 border border-red-200 rounded-md p-4 text-center"
               >
                 <p className="text-red-700 text-sm font-medium">{errors.step}</p>
               </motion.div>
@@ -1443,8 +1422,8 @@ export default function AddPropertyPage() {
       </div>
 
       {/* Bottom Navigation */}
-      <div className="bg-white border-t border-slate-200 sticky bottom-0 z-10">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4">
+      <div className="bg-[#faf9f7]/95 backdrop-blur border-t border-stone-200 sticky bottom-0 z-10">
+        <div className="max-w-2xl mx-auto px-5 sm:px-8 py-4">
           {/* Pricing disclosure — shown once, directly above Submit, on
               the terms/final step only. Figures come from the live
               /api/public/pricing-info endpoint (see pricingInfo
@@ -1457,7 +1436,7 @@ export default function AddPropertyPage() {
               fixed constant in billingService.js), so that figure is
               safe to state directly. */}
           {step === STEPS.TERMS && pricingLoadFailed && retail.state === 'none' && (
-            <div className="mb-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+            <div className="mb-3 bg-red-50 border border-red-200 rounded-md px-4 py-3 flex items-center justify-between gap-3">
               <p className="text-sm text-red-700">
                 Unable to confirm current pricing. Submission is disabled until this is confirmed.
               </p>
@@ -1477,7 +1456,7 @@ export default function AddPropertyPage() {
             </div>
           )}
           {step === STEPS.TERMS && retailFailed && (
-            <div className="mb-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+            <div className="mb-3 bg-red-50 border border-red-200 rounded-md px-4 py-3 flex items-center justify-between gap-3">
               <p className="text-sm text-red-700">
                 Unable to confirm current pricing. Submission is disabled until this is confirmed.
               </p>
@@ -1491,28 +1470,28 @@ export default function AddPropertyPage() {
             </div>
           )}
           {step === STEPS.TERMS && !retailFailed && retail.state === 'retail' && (
-            <div className="mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
-              <p className="text-sm font-semibold text-slate-900">
+            <div className="mb-3 bg-stone-100/60 border border-stone-200 rounded-md px-4 py-3">
+              <p className="text-sm font-medium text-stone-900">
                 Premarket campaign fee — ${retail.price} AUD per campaign
               </p>
-              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+              <p className="text-xs text-stone-600 mt-1 leading-relaxed">
                 The campaign fee is payable by the vendor through your agency.
               </p>
             </div>
           )}
           {step === STEPS.TERMS && !retailFailed && retail.state === 'unknown' && (
-            <div className="mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
-              <p className="text-sm font-semibold text-slate-900">Confirming current pricing…</p>
+            <div className="mb-3 bg-stone-100/60 border border-stone-200 rounded-md px-4 py-3">
+              <p className="text-sm font-medium text-stone-900">Confirming current pricing…</p>
             </div>
           )}
           {step === STEPS.TERMS && !pricingLoadFailed && retail.state === 'none' && (
-            <div className="mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
-              <p className="text-sm font-semibold text-slate-900">
+            <div className="mb-3 bg-stone-100/60 border border-stone-200 rounded-md px-4 py-3">
+              <p className="text-sm font-medium text-stone-900">
                 {pricingLoaded
                   ? `Premarket campaign fee — $${pricingInfo.pricePerListing} AUD (${pricingInfo.gstRate === 0 ? 'no GST charged' : 'plus GST'})`
                   : 'Confirming current pricing…'}
               </p>
-              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+              <p className="text-xs text-stone-600 mt-1 leading-relaxed">
                 By submitting this property, you acknowledge that your agency will be charged ${pricingInfo.pricePerListing}. Charges are consolidated into one agency invoice every 30 days, with payment due within {pricingInfo.paymentTermsDays} days of issue.
               </p>
             </div>
@@ -1521,7 +1500,7 @@ export default function AddPropertyPage() {
             {step > STEPS.ADDRESS ? (
               <button
                 onClick={onBack}
-                className="px-5 py-3 rounded-xl bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition-colors"
+                className="px-5 py-3 rounded-md border border-stone-300 text-stone-700 text-sm font-medium tracking-wide hover:bg-stone-100/70 transition-colors"
               >
                 Back
               </button>
@@ -1532,7 +1511,7 @@ export default function AddPropertyPage() {
             {step < STEPS.TERMS ? (
               <button
                 onClick={onNext}
-                className="px-8 py-3 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all"
+                className="px-8 py-3 bg-[#c64500] hover:bg-[#a63a00] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
               >
                 Continue
               </button>
@@ -1540,7 +1519,7 @@ export default function AddPropertyPage() {
               <button
                 onClick={handleSubmit}
                 disabled={isSubmitting || !termsAccepted || !pricingReady}
-                className="px-8 py-3 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-8 py-3 bg-[#c64500] hover:bg-[#a63a00] text-white text-sm font-medium tracking-wide rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? 'Submitting...' : !pricingReady ? 'Confirming pricing…' : 'Submit Property'}
               </button>
@@ -1552,10 +1531,10 @@ export default function AddPropertyPage() {
       {/* Saving Overlay */}
       {isSubmitting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-2xl p-10 shadow-2xl text-center max-w-md mx-4">
-            <div className="w-14 h-14 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-5"></div>
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Creating listing...</h2>
-            <p className="text-slate-500 text-sm">This will only take a moment.</p>
+          <div className="bg-white rounded-md p-10 shadow-xl text-center max-w-md mx-4">
+            <div className="w-14 h-14 border-4 border-[#c64500] border-t-transparent rounded-full animate-spin mx-auto mb-5"></div>
+            <h2 className="font-serif text-xl text-stone-900 mb-2">Creating listing...</h2>
+            <p className="text-stone-500 text-sm">This will only take a moment.</p>
           </div>
         </div>
       )}

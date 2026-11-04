@@ -15,9 +15,10 @@ const stepsOf = (src) => {
 };
 
 describe('Add Property', () => {
-  it('has 8 contiguous steps ending at TERMS, with no client step', () => {
+  it('has 7 contiguous steps ending at TERMS, with no client or eagerness step', () => {
     const steps = stepsOf(add);
-    expect(steps.map(([, n]) => n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(steps.map(([, n]) => n)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(steps.map(([k]) => k)).not.toContain('EAGERNESS');
     expect(steps.at(-1)[0]).toBe('TERMS');
     expect(steps.map(([k]) => k)).not.toContain('CLIENT_INFO');
   });
