@@ -3,7 +3,9 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 
 const require = createRequire(import.meta.url);
-const { activateLeadership, evaluateAccount, formatReport, parseArgs, isAgent } = require('../../scripts/activate-leadership');
+const {
+  activateLeadership, evaluateAccount, formatReport, parseArgs, isAgent, resolveFirebaseTarget, initFirebase, EXPECTED_PROJECT_ID,
+} = require('../../scripts/activate-leadership');
 
 const OFFICE = 'hph';
 const AUTH = {
@@ -148,5 +150,92 @@ describe('the script file itself', () => {
   });
   it('does not run when imported (only when executed directly)', () => {
     expect(src).toMatch(/require\.main === module/);
+  });
+});
+
+
+describe('Firebase project selection and credentials', () => {
+  const PK = '-----BEGIN PRIVATE KEY-----\\nFAKEKEYMATERIAL\\n-----END PRIVATE KEY-----\\n';
+  const sa = (over = {}) => JSON.stringify({ type: 'service_account', project_id: 'premarket-homes', client_email: 'svc@premarket-homes.iam.gserviceaccount.com', private_key: 'FAKE-KEY', ...over });
+  const fakeAdmin = (apps = []) => {
+    const calls = { init: [], cert: [], adc: 0 };
+    return {
+      calls,
+      getApps: () => apps,
+      cert: (spec) => { calls.cert.push(spec); return { kind: 'cert' }; },
+      applicationDefault: () => { calls.adc += 1; return { kind: 'adc' }; },
+      initializeApp: (opts) => { calls.init.push(opts); return { options: { projectId: opts.projectId } }; },
+    };
+  };
+
+  it('always targets premarket-homes', () => {
+    expect(EXPECTED_PROJECT_ID).toBe('premarket-homes');
+    expect(resolveFirebaseTarget({})).toEqual({ projectId: 'premarket-homes', kind: 'application-default' });
+  });
+
+  it('with no credential variables it uses the signed-in Google credentials and names the project explicitly', () => {
+    const admin = fakeAdmin();
+    const { app, target } = initFirebase({}, admin);
+    expect(target.kind).toBe('application-default');
+    expect(admin.calls.adc).toBe(1);
+    expect(admin.calls.cert).toHaveLength(0);
+    expect(admin.calls.init).toEqual([{ credential: { kind: 'adc' }, projectId: 'premarket-homes' }]);
+    expect(app.options.projectId).toBe('premarket-homes');
+  });
+
+  it('uses the application\'s own service-account variable when present (premarket-homes only)', () => {
+    const admin = fakeAdmin();
+    initFirebase({ FIREBASE_SERVICE_ACCOUNT: sa() }, admin);
+    expect(admin.calls.cert).toHaveLength(1);
+    expect(admin.calls.init[0].projectId).toBe('premarket-homes');
+    expect(admin.calls.adc).toBe(0);
+  });
+
+  it('supports the application\'s split FIREBASE_* variables, restoring newlines in the key', () => {
+    const admin = fakeAdmin();
+    initFirebase({ FIREBASE_PROJECT_ID: 'premarket-homes', FIREBASE_CLIENT_EMAIL: 'svc@premarket-homes.iam.gserviceaccount.com', FIREBASE_PRIVATE_KEY: PK }, admin);
+    expect(admin.calls.cert[0]).toMatchObject({ projectId: 'premarket-homes', clientEmail: 'svc@premarket-homes.iam.gserviceaccount.com' });
+    expect(admin.calls.cert[0].privateKey).toContain('\n');
+    expect(admin.calls.cert[0].privateKey).not.toContain('\\n');
+  });
+
+  it.each([
+    ['a service account for another project', { FIREBASE_SERVICE_ACCOUNT: sa({ project_id: 'some-other-project' }) }, /not "premarket-homes"/],
+    ['FIREBASE_PROJECT_ID for another project', { FIREBASE_PROJECT_ID: 'some-other-project', FIREBASE_CLIENT_EMAIL: 'a@b', FIREBASE_PRIVATE_KEY: 'k' }, /not "premarket-homes"/],
+    ['GOOGLE_CLOUD_PROJECT naming another project', { GOOGLE_CLOUD_PROJECT: 'staging-project' }, /GOOGLE_CLOUD_PROJECT.*not "premarket-homes"/],
+    ['GCLOUD_PROJECT naming another project', { GCLOUD_PROJECT: 'staging-project' }, /GCLOUD_PROJECT/],
+    ['malformed service-account JSON', { FIREBASE_SERVICE_ACCOUNT: '{not json' }, /not valid JSON/],
+    ['a service account missing its key', { FIREBASE_SERVICE_ACCOUNT: sa({ private_key: undefined }) }, /missing client_email or private_key/],
+    ['FIREBASE_PROJECT_ID without a key or email', { FIREBASE_PROJECT_ID: 'premarket-homes' }, /missing/],
+  ])('stops safely for %s, before starting Firebase', (_n, env, message) => {
+    const admin = fakeAdmin();
+    expect(() => initFirebase(env, admin)).toThrow(message);
+    expect(admin.calls.init).toHaveLength(0);
+    expect(admin.calls.cert).toHaveLength(0);
+  });
+
+  it('accepts GOOGLE_CLOUD_PROJECT when it names premarket-homes', () => {
+    expect(() => resolveFirebaseTarget({ GOOGLE_CLOUD_PROJECT: 'premarket-homes' })).not.toThrow();
+  });
+
+  it('error messages never echo credential values', () => {
+    const secrets = { FIREBASE_SERVICE_ACCOUNT: sa({ project_id: 'other', private_key: 'SUPERSECRETKEY' }) };
+    try { resolveFirebaseTarget(secrets); } catch (e) { expect(e.message).not.toContain('SUPERSECRETKEY'); expect(e.message).not.toContain('svc@'); }
+    try { resolveFirebaseTarget({ FIREBASE_SERVICE_ACCOUNT: '{"private_key":"SUPERSECRETKEY"' }); } catch (e) { expect(e.message).not.toContain('SUPERSECRETKEY'); }
+  });
+
+  it('refuses to run if the SDK reports a different project, or was already initialised', () => {
+    const wrong = fakeAdmin();
+    wrong.initializeApp = () => ({ options: { projectId: 'surprise' } });
+    expect(() => initFirebase({}, wrong)).toThrow(/"surprise", not "premarket-homes"/);
+    expect(() => initFirebase({}, fakeAdmin([{}]))).toThrow(/already initialised/);
+  });
+
+  it('the script passes the explicit app to Firestore and Auth, and has no private keys or project ids hard-coded beyond premarket-homes', () => {
+    const raw = fs.readFileSync('scripts/activate-leadership.js', 'utf8');
+    expect(raw).toMatch(/getFirestore\(app\)/);
+    expect(raw).toMatch(/getAuth\(app\)\.getUserByEmail/);
+    expect(raw).not.toMatch(/BEGIN (RSA )?PRIVATE KEY|serviceAccountKey|\.json['"]/);
+    expect(raw.match(/premarket-[a-z]+/g).every((m) => m === 'premarket-homes')).toBe(true);
   });
 });

@@ -18,8 +18,16 @@
  *   - does not belong to a DIFFERENT office
  * (--remove only needs the account to exist, so access can always be taken away.)
  *
- * Needs Admin credentials (GOOGLE_APPLICATION_CREDENTIALS) for the production Firebase project.
+ * Credentials: no keys are ever typed into this script or its arguments. It always targets the
+ * `premarket-homes` project, and picks credentials the same way the application does:
+ *   1. FIREBASE_SERVICE_ACCOUNT (JSON) or FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY
+ *      from the environment, if set; otherwise
+ *   2. Google Application Default Credentials: an authenticated `gcloud auth application-default login`
+ *      session or GOOGLE_APPLICATION_CREDENTIALS pointing at a key file.
+ * If any credential or environment variable names a different project, it stops before touching anything.
  */
+
+const EXPECTED_PROJECT_ID = 'premarket-homes';
 
 function parseArgs(argv) {
   const out = { emails: [], execute: false, remove: false, office: null };
@@ -31,6 +39,50 @@ function parseArgs(argv) {
     else throw new Error(`Unknown argument: ${argv[i]}`);
   }
   return out;
+}
+
+/**
+ * Decides which Firebase project and credential to use, from `env`. Pure and read-only. Throws (without
+ * echoing any secret value) when anything points at a project other than premarket-homes, or when a
+ * credential is malformed. Returns { projectId, kind: 'service-account' | 'application-default', certSpec? }.
+ */
+function resolveFirebaseTarget(env = process.env) {
+  const wrongProject = (where, found) => new Error(`${where} is for project "${found}", not "${EXPECTED_PROJECT_ID}"; refusing to continue`);
+
+  for (const name of ['GOOGLE_CLOUD_PROJECT', 'GCLOUD_PROJECT', 'GCP_PROJECT']) {
+    if (env[name] && env[name] !== EXPECTED_PROJECT_ID) throw wrongProject(`Environment variable ${name}`, env[name]);
+  }
+
+  if (env.FIREBASE_SERVICE_ACCOUNT) {
+    let sa;
+    try { sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT); } catch { throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON'); }
+    if (!sa || typeof sa !== 'object') throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON');
+    if (sa.project_id !== EXPECTED_PROJECT_ID) throw wrongProject('FIREBASE_SERVICE_ACCOUNT', sa.project_id || 'unknown');
+    if (!sa.client_email || !sa.private_key) throw new Error('FIREBASE_SERVICE_ACCOUNT is missing client_email or private_key');
+    return { projectId: EXPECTED_PROJECT_ID, kind: 'service-account', certSpec: sa };
+  }
+
+  if (env.FIREBASE_PROJECT_ID) {
+    if (env.FIREBASE_PROJECT_ID !== EXPECTED_PROJECT_ID) throw wrongProject('FIREBASE_PROJECT_ID', env.FIREBASE_PROJECT_ID);
+    if (!env.FIREBASE_CLIENT_EMAIL || !env.FIREBASE_PRIVATE_KEY) throw new Error('FIREBASE_PROJECT_ID is set but FIREBASE_CLIENT_EMAIL or FIREBASE_PRIVATE_KEY is missing');
+    return {
+      projectId: EXPECTED_PROJECT_ID,
+      kind: 'service-account',
+      certSpec: { projectId: EXPECTED_PROJECT_ID, clientEmail: env.FIREBASE_CLIENT_EMAIL, privateKey: env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') },
+    };
+  }
+
+  return { projectId: EXPECTED_PROJECT_ID, kind: 'application-default' };
+}
+
+/** Starts the Admin SDK for premarket-homes only. `admin` is { initializeApp, applicationDefault, cert, getApps }. */
+function initFirebase(env, admin) {
+  const target = resolveFirebaseTarget(env);
+  if (admin.getApps().length) throw new Error('Firebase was already initialised in this process; refusing to reuse it');
+  const credential = target.kind === 'service-account' ? admin.cert(target.certSpec) : admin.applicationDefault();
+  const app = admin.initializeApp({ credential, projectId: target.projectId });
+  if (app.options.projectId !== EXPECTED_PROJECT_ID) throw new Error(`Firebase initialised for "${app.options.projectId}", not "${EXPECTED_PROJECT_ID}"`);
+  return { app, target };
 }
 
 // Same rules as src/app/utils/roles.js.
@@ -110,16 +162,17 @@ async function main() {
   const { office: officeId, emails, execute, remove } = parseArgs(process.argv.slice(2));
   if (!officeId || emails.length === 0) throw new Error('Usage: --office <officeId> --email <address> [--email ...] [--execute] [--remove]');
 
-  const { initializeApp, applicationDefault, getApps } = require('firebase-admin/app');
+  const { initializeApp, applicationDefault, cert, getApps } = require('firebase-admin/app');
   const { getAuth } = require('firebase-admin/auth');
   const { getFirestore, FieldValue } = require('firebase-admin/firestore');
-  if (!getApps().length) initializeApp({ credential: applicationDefault() });
-  const db = getFirestore();
+  const { app, target } = initFirebase(process.env, { initializeApp, applicationDefault, cert, getApps });
+  console.log(`Project: ${app.options.projectId} (credentials: ${target.kind === 'service-account' ? 'service account from environment' : 'Google Application Default Credentials'})`);
+  const db = getFirestore(app);
   const infoRef = (id) => db.collection('officeAdminInfo').doc(id);
 
   const result = await activateLeadership({ officeId, emails, execute, remove }, {
     async getOffice(id) { const s = await infoRef(id).get(); return s.exists ? s.data() : null; },
-    getAuthUserByEmail: (email) => getAuth().getUserByEmail(email),
+    getAuthUserByEmail: (email) => getAuth(app).getUserByEmail(email),
     async getUserDoc(uid) { const s = await db.collection('users').doc(uid).get(); return s.exists ? s.data() : null; },
     async writeLeadership({ officeId: id, uids, remove: rm }) {
       await infoRef(id).update({
@@ -145,7 +198,7 @@ async function main() {
   console.log(`\nDone: ${remove ? 'removed' : 'added'} ${result.uids.length} uid(s)${result.noChange ? ' (no change — already in that state)' : ''}.`);
 }
 
-module.exports = { parseArgs, isAgent, evaluateAccount, formatReport, activateLeadership };
+module.exports = { EXPECTED_PROJECT_ID, resolveFirebaseTarget, initFirebase, parseArgs, isAgent, evaluateAccount, formatReport, activateLeadership };
 
 if (require.main === module) {
   main().catch((err) => { console.error(err.message); process.exit(1); });
