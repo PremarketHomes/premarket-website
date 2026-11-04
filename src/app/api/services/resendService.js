@@ -705,9 +705,9 @@ export async function sendLeadershipInviteEmail(email, firstName, officeName, in
   const office = esc(officeName);
   const bodyHTML = `
     ${eyebrow('Leadership Hub')}
-    ${heading(`You've been invited to the ${office} Leadership Hub`)}
+    ${heading(`You've been invited to the Leadership Hub`)}
     ${greeting(esc(firstName))}
-    ${lead(`The Leadership Hub gives you a clear view of how ${office} is using Premarket: campaigns, buyer opinions, agent adoption and a leaderboard to recognise your top performers.`)}
+    ${lead(`Premarket's Leadership Hub gives you a clear view of how ${office} is using Premarket: campaigns, buyer opinions, agent adoption and a leaderboard to recognise your top performers.`)}
     ${detailList([
       ['Agency', office],
       ['Your login', esc(email)],
@@ -734,12 +734,12 @@ export async function sendLeadershipInviteEmail(email, firstName, officeName, in
 
   return sendEmail({
     to: email,
-    subject: `Your ${officeName} Leadership Hub invitation`,
+    subject: `Your Leadership Hub invitation \u2014 ${officeName}`,
     html: wrapEmail({
-      previewText: `You've been invited to the ${office} Leadership Hub on Premarket.`,
+      previewText: `You've been invited to the Leadership Hub for ${office} on Premarket.`,
       bodyHTML,
       recipientEmail: email,
-      reason: `You're receiving this because a Premarket administrator invited you to the ${esc(officeName)} Leadership Hub.`,
+      reason: `You're receiving this because a Premarket administrator invited you to the Leadership Hub for ${esc(officeName)}.`,
       showUnsubscribe: false,
     }),
   });
