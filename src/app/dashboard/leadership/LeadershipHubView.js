@@ -7,7 +7,7 @@ import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 import { Trophy, ArrowUpDown, ArrowLeft, Info, User, FileText, LogOut } from 'lucide-react';
-import { ORANGE, CHARCOAL, fmtInt, fmtPrice, fmtDate, fmtMonth, initials, STATUS_LABEL } from './format';
+import { ORANGE, CHARCOAL, fmtInt, campaignPrice, fmtDate, fmtMonth, initials, STATUS_LABEL } from './format';
 
 const PERIODS = [
   { id: 'week', label: 'This Week' },
@@ -328,7 +328,7 @@ function Portfolio({ data, reportBase, sample }) {
                 <div className="p-4">
                   <p className="font-serif text-lg leading-snug text-stone-900 line-clamp-2">{p.address || 'Address unavailable'}</p>
                   <p className="text-xs text-stone-500 mt-1">{p.agentName} · {p.listingStatus === 'on-market' ? 'On market' : 'Pre-market'} · {fmtDate(p.createdAt, data.timezone)}</p>
-                  <p className="font-serif text-xl text-stone-900 mt-2">{fmtPrice(p.status === 'sold' && p.soldPrice ? p.soldPrice : p.price)}</p>
+                  {(() => { const price = campaignPrice(p); return <p className={price.provided ? 'font-serif text-xl text-stone-900 mt-2' : 'text-sm text-stone-400 mt-2.5'}>{price.text}</p>; })()}
                   <dl className="mt-3 pt-3 border-t border-stone-100 grid grid-cols-3 text-center">
                     <div><dd className="font-serif text-lg tabular-nums">{fmtInt(p.opinions)}</dd><dt className={eyebrow}>Opinions</dt></div>
                     <div><dd className="font-serif text-lg tabular-nums">{fmtInt(p.registrations)}</dd><dt className={eyebrow}>Registered</dt></div>

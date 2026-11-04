@@ -7,7 +7,7 @@ import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 import { ArrowLeft, ArrowUpDown, LogOut, MessageCircle, Star, AlertCircle, Info } from 'lucide-react';
-import { ORANGE, CHARCOAL, fmtInt, fmtPrice, fmtDate, fmtMonth, STATUS_LABEL } from './format';
+import { ORANGE, CHARCOAL, fmtInt, campaignPrice, fmtDate, fmtMonth, STATUS_LABEL } from './format';
 import { Avatar, Section, Kpi, ChartCard, SimpleTable, tooltipStyle, card, eyebrow } from './LeadershipHubView';
 
 const STATUS_STYLE = {
@@ -119,7 +119,7 @@ function PropertyTable({ data, reportBase, sample }) {
                   {p.thumbnail ? <img src={p.thumbnail} alt="" className="w-10 h-10 rounded object-cover shrink-0" loading="lazy" /> : <div className="w-10 h-10 rounded bg-stone-100 shrink-0" />}
                   <div className="min-w-0">
                     <p className="truncate text-stone-900 max-w-[280px]">{p.address || 'Address unavailable'}</p>
-                    <p className="text-xs text-stone-400">{fmtPrice(p.status === 'sold' && p.soldPrice ? p.soldPrice : p.price)}{p.daysLive != null ? ` · ${p.daysLive} day${p.daysLive === 1 ? '' : 's'} since created` : ''}</p>
+                    <p className="text-xs text-stone-400">{campaignPrice(p).text}{p.daysLive != null ? ` · ${p.daysLive} day${p.daysLive === 1 ? '' : 's'} since created` : ''}</p>
                   </div>
                 </div>
               );

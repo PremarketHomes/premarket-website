@@ -6,7 +6,7 @@ import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../../../context/AuthContext';
 import { useRequireAgent } from '../../../../hooks/useRequireAgent';
 import { authFetch } from '../../../../utils/authFetch';
-import { fmtDate, fmtInt, fmtPrice, STATUS_LABEL } from '../../format';
+import { fmtDate, fmtInt, fmtPrice, campaignPrice, STATUS_LABEL } from '../../format';
 
 /** Read-only, buyer-redacted campaign report for the Leadership Hub. Offers no actions of any kind. */
 export default function LeadershipReportPage({ params }) {
@@ -52,7 +52,7 @@ export default function LeadershipReportPage({ params }) {
             </div>
             {p.imageUrls?.[0] && <img src={p.imageUrls[0]} alt="" className="mt-6 w-full h-64 object-cover rounded-md border border-stone-200" />}
             <h1 className="mt-6 font-serif text-3xl text-stone-900">{p.formattedAddress || p.address || 'Address unavailable'}</h1>
-            <p className="text-sm text-stone-500 mt-1">{r.listingAgent.name} · {STATUS_LABEL[p.status]} · Created {fmtDate(p.createdAt)} · {fmtPrice(p.status === 'sold' && p.soldPrice ? p.soldPrice : p.price)}</p>
+            <p className="text-sm text-stone-500 mt-1">{r.listingAgent.name} · {STATUS_LABEL[p.status]} · Created {fmtDate(p.createdAt)} · {campaignPrice(p).text}</p>
 
             <dl className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[['Opinions', r.totals.opinions], ['Registered', r.totals.registrations], ['Likes', r.totals.likes], ['Views', p.views]].map(([label, value]) => (
@@ -74,7 +74,7 @@ export default function LeadershipReportPage({ params }) {
                   {r.opinions.map((o, i) => (
                     <tr key={o.id} className="border-b border-stone-100 last:border-b-0">
                       <td className="px-4 py-3 text-stone-700">{o.buyerName || `Buyer ${i + 1}`}</td>
-                      <td className="px-4 py-3 tabular-nums">{o.offerAmount ? fmtPrice(o.offerAmount) : '—'}</td>
+                      <td className="px-4 py-3 tabular-nums">{fmtPrice(o.offerAmount, '—')}</td>
                       <td className="px-4 py-3 text-stone-600">{fmtDate(o.createdAt)}</td>
                       <td className="px-4 py-3">{o.serious ? <span className="px-2 py-0.5 rounded text-xs bg-[#fdf1df] text-[#a85f00]">Registered</span> : <span className="text-stone-400">Opinion only</span>}</td>
                       <td className="px-4 py-3 text-stone-600">{o.timeframe || '—'}</td>

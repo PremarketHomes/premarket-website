@@ -28,7 +28,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { redactOffersForTeam, redactLikesForTeam } from './teamRedaction';
 import { serializeForClient } from './propertyAccessService';
 import {
-  LEADERSHIP_TIMEZONE, propertyStatus, buildLeadershipData, buildAgentProfile, rankAgents, fullName,
+  LEADERSHIP_TIMEZONE, propertyStatus, buildLeadershipData, buildAgentProfile, rankAgents, fullName, safeCount,
 } from './leadershipMetrics';
 
 export { LEADERSHIP_TIMEZONE, buildLeadershipData, buildAgentProfile, rankAgents };
@@ -199,8 +199,8 @@ export async function getLeadershipPropertyReport(db, scope, propertyId) {
       id: propertyId,
       ...pick,
       status: propertyStatus(property),
-      views: property.stats?.views || 0,
-      uniqueViews: property.stats?.uniqueViews || 0,
+      views: safeCount(property.stats?.views),
+      uniqueViews: safeCount(property.stats?.uniqueViews),
     }),
     listingAgent: { name: fullName(owner) || 'Agent', avatar: owner.avatar || null },
     totals: {

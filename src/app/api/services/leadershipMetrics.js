@@ -65,6 +65,9 @@ export const monthKey = (date, tz = LEADERSHIP_TIMEZONE) => {
 
 /* ─────────────────────────────── aggregation ─────────────────────────────── */
 
+/** A stored count as a whole number; anything else (text, NaN, negative) is 0, so totals can never become NaN or a string. */
+export const safeCount = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0; };
+
 export const fullName = (u) => `${u.firstName || ''} ${u.lastName || ''}`.trim() || null;
 
 /** Deterministic ordering: opinions, then registrations, then campaigns (all desc), then name, then uid. */
@@ -157,7 +160,7 @@ export function buildLeadershipData({ members: allMembers, pendingInvites = [], 
       soldPrice: p.soldPrice ?? null,
       opinions: counts.opinions,
       registrations: counts.registrations,
-      views: p.stats?.views || 0,
+      views: safeCount(p.stats?.views),
       createdAt: toIso(p.createdAt),
     };
   });
