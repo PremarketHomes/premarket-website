@@ -90,7 +90,12 @@ export function rankAgents(rows) {
  * Pure: turns raw records into everything the Hub shows. No I/O, so it is
  * exercised directly by the unit tests.
  */
-export function buildLeadershipData({ members, pendingInvites = [], properties, opinions, lastSignIns = {}, now = new Date(), tz = LEADERSHIP_TIMEZONE }) {
+// Leadership accounts are not agents: they never appear in rankings, adoption figures or attention lists,
+// even if one were ever (wrongly) linked to the office.
+const isLeadershipOnlyMember = (u) => !!u?.roles?.includes?.('leadership') && !(u.agent || u.isAgent || u.roles.includes('agent')) && !(u.isBuyer || u.roles.includes('buyer'));
+
+export function buildLeadershipData({ members: allMembers, pendingInvites = [], properties, opinions, lastSignIns = {}, now = new Date(), tz = LEADERSHIP_TIMEZONE }) {
+  const members = allMembers.filter((m) => !isLeadershipOnlyMember(m));
   const memberByUid = new Map(members.map((m) => [m.uid, m]));
   const starts = periodStarts(now, tz);
 

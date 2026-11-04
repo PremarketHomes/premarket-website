@@ -452,6 +452,11 @@ service cloud.firestore {
     //   All reads go through /api/teams/* and the redacted report level in
     //   propertyAccessService.js (Admin SDK); the client is granted nothing.
     // ═══════════════════════════════════════════════════════════
+    // Leadership Hub invitations (hashed single-use tokens) and their audit trail. Server-only: they are
+    // written and read exclusively by the superAdmin routes and the invitation-acceptance routes (Admin SDK).
+    match /leadershipInvites/{inviteId} { allow read, write: if false; }
+    match /leadershipAudit/{entryId} { allow read, write: if false; }
+
     match /teams/{teamId} { allow read, write: if false; }
     match /teamInvites/{inviteId} { allow read, write: if false; }
     // Per-sender daily invitation-attempt counter (rate limiting). Server-only.

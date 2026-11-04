@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../context/AuthContext';
-import { isBuyerOnly } from '../utils/roles';
+import { isBuyerOnly, isLeadershipOnly } from '../utils/roles';
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 
 /**
@@ -14,6 +14,7 @@ import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 export function useRequireAgent() {
   const { user, userData, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (loading) return;
@@ -24,6 +25,11 @@ export function useRequireAgent() {
     }
     if (isBuyerOnly(userData)) {
       router.replace('/buyer-dashboard');
+      return;
     }
-  }, [user, userData, loading, router]);
+    // Leadership-only accounts have no agent dashboard: keep them within the Leadership Hub.
+    if (isLeadershipOnly(userData) && !(pathname || '').startsWith('/dashboard/leadership')) {
+      router.replace('/dashboard/leadership');
+    }
+  }, [user, userData, loading, router, pathname]);
 }

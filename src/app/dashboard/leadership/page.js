@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { useRequireAgent } from '../../hooks/useRequireAgent';
+import { isLeadershipOnly } from '../../utils/roles';
 import { authFetch } from '../../utils/authFetch';
 import LeadershipHubView from './LeadershipHubView';
 
@@ -14,7 +15,7 @@ import LeadershipHubView from './LeadershipHubView';
 export default function LeadershipPage() {
   useRequireAgent();
   const router = useRouter();
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, userData, loading: authLoading, signOut } = useAuth();
   const [state, setState] = useState({ status: 'loading', data: null });
 
   const load = useCallback(async () => {
@@ -39,7 +40,7 @@ export default function LeadershipPage() {
     if (state.status === 'denied') router.replace('/dashboard');
   }, [state.status, router]);
 
-  if (state.status === 'ready') return <LeadershipHubView data={state.data} onSignOut={signOut} />;
+  if (state.status === 'ready') return <LeadershipHubView data={state.data} onSignOut={signOut} leadershipOnly={isLeadershipOnly(userData)} />;
 
   return (
     <div className="min-h-screen bg-[#faf9f7] flex items-center justify-center px-4 text-center">

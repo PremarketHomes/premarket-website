@@ -14,7 +14,8 @@ vi.mock('resend', () => ({
 
 const replace = vi.fn();
 const stableRouter = { push: vi.fn(), replace };
-vi.mock('next/navigation', () => ({ useRouter: () => stableRouter }));
+let currentPath = '/dashboard';
+vi.mock('next/navigation', () => ({ useRouter: () => stableRouter, usePathname: () => currentPath }));
 let authState;
 vi.mock('../../src/app/context/AuthContext', () => ({ useAuth: () => authState }));
 
@@ -122,6 +123,31 @@ describe('useRequireAgent (guard used by every agent dashboard page)', () => {
     authState = { user: { uid: 'b' }, userData: { isBuyer: true, roles: ['buyer'] }, loading: false };
     render(React.createElement(Probe));
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/buyer-dashboard'));
+  });
+
+  it('a leadership-only account is sent to the Leadership Hub from any other dashboard page, but left alone inside it', async () => {
+    authState = { user: { uid: 'l' }, userData: { roles: ['leadership'] }, loading: false };
+    currentPath = '/dashboard';
+    render(React.createElement(Probe));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/dashboard/leadership'));
+    cleanup(); replace.mockClear();
+    currentPath = '/dashboard/settings';
+    render(React.createElement(Probe));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/dashboard/leadership'));
+    cleanup(); replace.mockClear();
+    for (const inside of ['/dashboard/leadership', '/dashboard/leadership/agent/abc', '/dashboard/leadership/profile']) {
+      currentPath = inside;
+      render(React.createElement(Probe));
+      cleanup();
+    }
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('an account that is an agent as well as a leader is not restricted to the Hub', () => {
+    authState = { user: { uid: 'm' }, userData: { roles: ['agent', 'leadership'] }, loading: false };
+    currentPath = '/dashboard';
+    render(React.createElement(Probe));
+    expect(replace).not.toHaveBeenCalled();
   });
 });
 

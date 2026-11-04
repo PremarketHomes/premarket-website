@@ -695,3 +695,52 @@ export async function sendTeamInviteEmail(email, firstName, inviterName, officeN
 }
 
 export { getResend as resend };
+
+/**
+ * Leadership Hub invitation — sent by a superAdmin to an agency principal or coach. The link is personal,
+ * single-use and valid for 7 days. Never contains a password; a new person sets their own on arrival,
+ * and an existing Premarket user simply signs in to accept (nothing about their account is changed).
+ */
+export async function sendLeadershipInviteEmail(email, firstName, officeName, inviteLink, { existing = false } = {}) {
+  const office = esc(officeName);
+  const bodyHTML = `
+    ${eyebrow('Leadership Hub')}
+    ${heading(`You've been invited to the ${office} Leadership Hub`)}
+    ${greeting(esc(firstName))}
+    ${lead(`The Leadership Hub gives you a clear view of how ${office} is using Premarket: campaigns, buyer opinions, agent adoption and a leaderboard to recognise your top performers.`)}
+    ${detailList([
+      ['Agency', office],
+      ['Your login', esc(email)],
+      ['Access', 'Office-wide, read-only'],
+    ], 'Your invitation')}
+    ${ctaButton(existing ? 'Accept invitation' : 'Set up your account', inviteLink, { fallback: true })}
+    ${divider()}
+    ${steps(existing ? [
+      'Select <strong>Accept invitation</strong>.',
+      'Sign in with your existing Premarket account. Your account and settings stay exactly as they are.',
+      'Open the Leadership Hub from your dashboard.',
+    ] : [
+      'Select <strong>Set up your account</strong>.',
+      'Choose your own password. We never email passwords.',
+      'Complete your profile and arrive in your Leadership Hub.',
+    ])}
+    ${infoBox(`
+      <p class="t-body" style="margin:0; font-size:13px; color:${COLORS.body}; line-height:1.65;">
+        <strong class="t-ink" style="color:${COLORS.ink};">This link is personal to you</strong>, works once, and stays valid for 7 days. Buyer names and contact details are never shown in the Hub. If you weren't expecting this email, you can safely ignore it.
+      </p>
+    `, { tone: 'warm' })}
+    ${signature()}
+  `;
+
+  return sendEmail({
+    to: email,
+    subject: `Your ${officeName} Leadership Hub invitation`,
+    html: wrapEmail({
+      previewText: `You've been invited to the ${office} Leadership Hub on Premarket.`,
+      bodyHTML,
+      recipientEmail: email,
+      reason: `You're receiving this because a Premarket administrator invited you to the ${esc(officeName)} Leadership Hub.`,
+      showUnsubscribe: false,
+    }),
+  });
+}

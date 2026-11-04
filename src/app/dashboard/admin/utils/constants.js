@@ -13,6 +13,7 @@ import {
   Plug,
   Sparkles,
   BookOpen,
+  Trophy,
 } from 'lucide-react';
 
 export const TABS = [
@@ -48,6 +49,7 @@ export const NAV_SECTIONS = [
     label: 'Platform',
     items: [
       { key: 'invoicing', label: 'Invoicing', icon: FileText, type: 'route', href: '/dashboard/admin/invoicing' },
+      { key: 'leadership', label: 'Leadership', icon: Trophy, type: 'route', href: '/dashboard/admin/leadership' },
       { key: 'crm', label: 'CRM', icon: Contact2, type: 'route', href: '/dashboard/crm' },
       { key: 'integrations', label: 'Integrations', icon: Plug, type: 'route', href: '/dashboard/integrations' },
       { key: 'cron', label: 'Cron Jobs', icon: Clock, type: 'tab' },

@@ -440,7 +440,7 @@ function Trends({ data }) {
 
 /* ───────────────────────────── Shell ───────────────────────────── */
 
-export default function LeadershipHubView({ data, sample = false, onSignOut, reportBase = '/dashboard/leadership/report', agentBase = '/dashboard/leadership/agent', agentQuery = '' }) {
+export default function LeadershipHubView({ data, sample = false, leadershipOnly = false, onSignOut, reportBase = '/dashboard/leadership/report', agentBase = '/dashboard/leadership/agent', agentQuery = '' }) {
   const hrefFor = (uid) => `${agentBase}/${uid}${agentQuery}`;
   const { overview: o, leader } = data;
   const [now] = useState(() => new Date(data.generatedAt));
@@ -456,7 +456,8 @@ export default function LeadershipHubView({ data, sample = false, onSignOut, rep
             <span className="hidden sm:block text-[11px] uppercase tracking-[0.16em] text-stone-500">Leadership Hub</span>
           </div>
           <div className="flex items-center gap-1">
-            {!sample && <Link href="/dashboard" className="flex items-center gap-2 px-3 py-2 text-[13px] text-stone-500 hover:text-stone-900"><ArrowLeft className="w-4 h-4" strokeWidth={1.5} />Dashboard</Link>}
+            {!sample && !leadershipOnly && <Link href="/dashboard" className="flex items-center gap-2 px-3 py-2 text-[13px] text-stone-500 hover:text-stone-900"><ArrowLeft className="w-4 h-4" strokeWidth={1.5} />Dashboard</Link>}
+            {!sample && <Link href="/dashboard/leadership/profile" className="flex items-center gap-2 px-3 py-2 text-[13px] text-stone-500 hover:text-stone-900"><User className="w-4 h-4" strokeWidth={1.5} />Profile</Link>}
             {onSignOut && <button onClick={onSignOut} className="flex items-center gap-2 px-3 py-2 text-[13px] text-stone-500 hover:text-stone-900"><LogOut className="w-4 h-4" strokeWidth={1.5} />Sign out</button>}
           </div>
         </div>
@@ -469,6 +470,9 @@ export default function LeadershipHubView({ data, sample = false, onSignOut, rep
       )}
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-8 py-8 sm:py-10">
+        {!sample && !leader.avatar && (
+          <p className="mb-6 text-xs text-stone-500 rounded-md border border-stone-200 bg-white px-4 py-2.5">Add a profile photo so the Hub feels like yours. <Link href="/dashboard/leadership/profile" className="text-[#c64500] font-medium hover:text-[#a63a00]">Update your profile</Link></p>
+        )}
         <div className="flex items-center gap-4">
           <Avatar name={leader.firstName} src={leader.avatar} size="w-14 h-14" text="text-base" />
           <div>
