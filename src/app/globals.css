@@ -111,3 +111,21 @@ body {
 .phi-popup .mapboxgl-popup-tip {
   border-top-color: #1e293b !important;
 }
+
+/* Dashboard "Add Property" call to action: a soft brand-orange ring that
+   pulses outward. Paused on hover/focus; off for reduced-motion users. */
+@keyframes addPropertyPulse {
+  0% { box-shadow: 0 0 0 0 rgba(227, 129, 0, 0.45); }
+  70% { box-shadow: 0 0 0 12px rgba(227, 129, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(227, 129, 0, 0); }
+}
+.add-property-pulse {
+  animation: addPropertyPulse 2.6s ease-out infinite;
+}
+.add-property-pulse:hover,
+.add-property-pulse:focus-visible {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .add-property-pulse { animation: none; }
+}

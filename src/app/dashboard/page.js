@@ -704,7 +704,7 @@ function EmptyState() {
       </p>
       <Link
         href="/dashboard/add"
-        className="inline-flex items-center gap-2 px-6 py-3 bg-[#c64500] hover:bg-[#a63a00] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
+        className="add-property-pulse inline-flex items-center gap-2 px-6 py-3 bg-[#e38100] hover:bg-[#cc7400] text-white text-sm font-semibold tracking-wide rounded-md transition-colors"
       >
         <Plus className="w-4 h-4" strokeWidth={1.75} />
         Add Your First Property
@@ -1401,7 +1401,7 @@ function DashboardPage() {
             </button>
             <span className="font-serif text-lg text-stone-900">Dashboard</span>
             <Link href="/dashboard/add" className="p-2 hover:bg-stone-100 rounded-md" aria-label="Add property">
-              <Plus className="w-5 h-5 text-stone-700" strokeWidth={1.5} />
+              <Plus className="w-5 h-5 text-[#e38100]" strokeWidth={2} />
             </Link>
           </div>
         </div>
@@ -1456,7 +1456,7 @@ function DashboardPage() {
             </div>
             <Link
               href="/dashboard/add"
-              className="hidden sm:inline-flex shrink-0 items-center gap-2 px-5 py-2.5 bg-[#c64500] hover:bg-[#a63a00] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
+              className="add-property-pulse hidden sm:inline-flex shrink-0 items-center gap-2 px-6 py-3 bg-[#e38100] hover:bg-[#cc7400] text-white text-sm font-semibold tracking-wide rounded-md transition-colors"
             >
               <Plus className="w-4 h-4" strokeWidth={1.75} />
               Add Property
@@ -1563,7 +1563,7 @@ function DashboardPage() {
               href="/dashboard/add"
               className="sm:hidden bg-white rounded-md border border-stone-200 px-5 py-4 flex items-center gap-4 hover:border-stone-300 transition-colors group"
             >
-              <Plus className="w-5 h-5 text-[#c64500]" strokeWidth={1.5} />
+              <Plus className="w-5 h-5 text-[#e38100]" strokeWidth={1.5} />
               <div className="flex-1">
                 <p className="text-sm font-medium text-stone-900">Add Property</p>
                 <p className="text-xs text-stone-500">List a new property for your client</p>
