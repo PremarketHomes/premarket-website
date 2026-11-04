@@ -68,10 +68,13 @@ function makeDb() {
   function query(c, filters = []) {
     return {
       _c: c,
-      where: (f, op, v) => { if (op !== '==') throw new Error('only =='); return query(c, [...filters, [f, v]]); },
+      where: (f, op, v) => {
+        if (op !== '==' && op !== 'in') throw new Error('only == and in');
+        return query(c, [...filters, [f, v, op]]);
+      },
       limit: () => query(c, filters),
       get: async () => {
-        const docs = Object.keys(store[c] || {}).map((id) => snapOf(c, id)).filter((s) => filters.every(([f, v]) => s.data()[f] === v));
+        const docs = Object.keys(store[c] || {}).map((id) => snapOf(c, id)).filter((s) => filters.every(([f, v, op]) => (op === 'in' ? v.includes(s.data()[f]) : s.data()[f] === v)));
         return { empty: !docs.length, size: docs.length, docs };
       },
     };
@@ -823,6 +826,22 @@ describe('team properties list', () => {
     makeTeam('T1', ['alice', 'bob'], { creator: 'bob' });
     await (await svc()).removeTeamMember({ actorUid: 'bob', targetUid: 'alice' });
     await fails((await svc()).listTeamProperties('alice'), 403, 'no-team');
+  });
+  it('adds an anonymous opinion COUNT per teammate property — never an offer, amount or buyer detail', async () => {
+    makeTeam('T1', ['alice', 'bob']);
+    db.seed('offers', 'offer3', { propertyId: 'bobProp', type: 'interest', serious: true, buyerName: SECRET_NAME }); // not an opinion
+    db.seed('offers', 'offerOther', { propertyId: 'zedProp', type: 'opinion' }); // someone else's property
+    const out = await (await svc()).listTeamProperties('alice');
+    expect(out.properties[0].opinions).toBe(2); // offer1 + offer2 only
+    const json = JSON.stringify(out);
+    expect(json).not.toContain(SECRET_NAME);
+    expect(json).not.toMatch(/offerAmount|880000|850000|bea@buyer|sess-/);
+  });
+  it('does not share a property its owner has hidden from their own view', async () => {
+    makeTeam('T1', ['alice', 'bob']);
+    db.seed('properties', 'bobHidden', { userId: 'bob', formattedAddress: '3 Hidden St', hidden: true, archived: true, createdAt: ts('2026-09-03T00:00:00Z') });
+    const out = await (await svc()).listTeamProperties('alice');
+    expect(out.properties.map((p) => p.id)).toEqual(['bobProp']);
   });
   it('never includes a teammate who has left the office', async () => {
     makeTeam('T1', ['alice', 'bob', 'carol']);

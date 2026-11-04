@@ -490,9 +490,30 @@ export async function getTeamOverview(uid) {
 /* ─────────────────────────── team properties ─────────────────────────── */
 
 /**
+ * Buyer-opinion counts for a set of properties, computed server-side because
+ * `offers` is not client-readable for anyone but the property's own agent.
+ * Only a COUNT per property is returned (type === 'opinion', the same rule the
+ * agent's own dashboard uses) — never an offer, amount or buyer detail.
+ */
+async function countOpinionsByProperty(propertyIds) {
+  const counts = Object.fromEntries(propertyIds.map((id) => [id, 0]));
+  for (let i = 0; i < propertyIds.length; i += 30) {
+    const batch = propertyIds.slice(i, i + 30);
+    const snap = await adminDb.collection('offers').where('propertyId', 'in', batch).get();
+    for (const d of snap.docs) {
+      const o = d.data();
+      if (o.type === 'opinion' && counts[o.propertyId] !== undefined) counts[o.propertyId] += 1;
+    }
+  }
+  return counts;
+}
+
+/**
  * The listings of the caller's teammates (not their own), as minimal read-only
- * rows: no offers, buyer data, phone numbers or billing. Membership and office
- * status are re-read on every call.
+ * rows: no offers, buyer data, phone numbers or billing — only the anonymous
+ * `opinions` count. Properties an owner has removed from their own view
+ * (`hidden`) are not shared. Membership and office status are re-read on every
+ * call, so leaving a team ends visibility immediately.
  */
 export async function listTeamProperties(uid) {
   const me = await loadMember(direct, uid);
@@ -503,13 +524,17 @@ export async function listTeamProperties(uid) {
   const lists = await Promise.all(
     mates.map(async (m) => {
       const snap = await adminDb.collection('properties').where('userId', '==', m.uid).get();
-      return snap.docs.map((d) => ({
-        ...toOfficeTeamProperty(d.id, d.data()),
-        owner: { uid: m.uid, name: displayName(m) || m.email || 'Teammate' },
-      }));
+      return snap.docs
+        .filter((d) => d.data().hidden !== true)
+        .map((d) => ({
+          ...toOfficeTeamProperty(d.id, d.data()),
+          owner: { uid: m.uid, name: displayName(m) || m.email || 'Teammate' },
+        }));
     }),
   );
   const properties = lists.flat().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, MAX_TEAM_PROPERTIES);
+  const opinionCounts = properties.length ? await countOpinionsByProperty(properties.map((p) => p.id)) : {};
+  for (const p of properties) p.opinions = opinionCounts[p.id] || 0;
   const counts = properties.reduce((acc, p) => { acc[p.status] = (acc[p.status] || 0) + 1; return acc; }, {});
   return { properties, counts, total: properties.length };
 }

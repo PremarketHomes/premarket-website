@@ -11,6 +11,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../context/AuthContext';
 import { authFetch } from '../utils/authFetch';
 import { isBuyerOnly } from '../utils/roles';
+import { teamPropertiesFrom, listForView, computeStats } from '../utils/teamPortfolio';
 import { db } from '../firebase/clientApp';
 import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, orderBy, deleteField, serverTimestamp } from 'firebase/firestore';
 import { formatPrice, formatDate } from '../utils/formatters';
@@ -266,7 +267,10 @@ function StatCard({ label, value }) {
 }
 
 // --- Property Card ---
-function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archiving, isArchived, isSold, onHide, teamAgents }) {
+function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archiving, isArchived, isSold, onHide, teamAgents, showListedBy }) {
+  // A teammate's listing is a read-only copy: it can be previewed and its (redacted)
+  // report opened, but never edited, archived or hidden from here.
+  const isTeamListing = property.isTeamListing === true;
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -342,6 +346,11 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
 
       {/* Details — address clickable to preview listing */}
       <div className="p-5 flex flex-col flex-1">
+        {showListedBy && (
+          <p className="text-[10px] uppercase tracking-[0.14em] text-stone-400 mb-2 truncate">
+            Listed by {isTeamListing ? property.listedBy : 'you'}
+          </p>
+        )}
         <a
           href={`/find-property?propertyId=${property.id}`}
           target="_blank"
@@ -388,14 +397,16 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           >
             View Report
           </Link>
-          <Link
-            href={`/dashboard/edit/${property.id}`}
-            className="px-3 py-2 text-xs font-medium tracking-wide text-stone-500 hover:text-stone-900 rounded-md transition-colors flex items-center gap-1.5"
-          >
-            <Pencil className="w-3 h-3" strokeWidth={1.5} />
-            Edit
-          </Link>
-          {isArchived && !isSold && onHide && (
+          {!isTeamListing && (
+            <Link
+              href={`/dashboard/edit/${property.id}`}
+              className="px-3 py-2 text-xs font-medium tracking-wide text-stone-500 hover:text-stone-900 rounded-md transition-colors flex items-center gap-1.5"
+            >
+              <Pencil className="w-3 h-3" strokeWidth={1.5} />
+              Edit
+            </Link>
+          )}
+          {!isTeamListing && isArchived && !isSold && onHide && (
             <button
               onClick={() => onHide(property)}
               className="px-3 py-2 text-xs font-medium text-stone-400 hover:text-red-700 rounded-md transition-colors flex items-center gap-1"
@@ -1078,6 +1089,9 @@ function DashboardPage() {
   const [brandingNudgeDismissed, setBrandingNudgeDismissed] = useState(true);
   const [teamAgents, setTeamAgents] = useState([]);
   const [filterAgentId, setFilterAgentId] = useState('');
+  // Shared team portfolio: teammates' read-only listings (server-authorised) and the chosen view.
+  const [teamRows, setTeamRows] = useState([]);
+  const [teamView, setTeamView] = useState('all'); // 'all' | 'mine' | 'team'
 
   // Logo onboarding for agents without a logo
   useEffect(() => {
@@ -1210,6 +1224,37 @@ function DashboardPage() {
     fetchAgents();
   }, [user]);
 
+  // Teammates' listings. Teams only exist inside an office, so only office-linked agents
+  // ask. The SERVER decides membership on every call (userData is read once at sign-in, so
+  // `teamId` here can be stale after joining/leaving): no team, or a team just left, answers
+  // 403 and the shared rows simply disappear. Re-fetched when the tab regains focus.
+  const inOffice = !!userData?.officeId;
+  useEffect(() => {
+    if (!user || !inOffice) {
+      setTeamRows([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await authFetch('/api/teams/properties');
+        if (!res.ok) throw new Error(`team properties ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) setTeamRows(Array.isArray(data.properties) ? data.properties : []);
+      } catch (err) {
+        // Not in a team (403) or a transient error: never blocks the dashboard.
+        if (!cancelled) setTeamRows([]);
+      }
+    };
+    load();
+    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [user, inOffice]);
+
   const handleSignOut = async () => {
     await signOut();
     router.push('/');
@@ -1302,13 +1347,32 @@ function DashboardPage() {
 
   // Always the signed-in person's own name — never the agency/company name.
   const userName = [userData?.firstName, userData?.lastName].filter(Boolean).join(' ') || user?.displayName || 'there';
-  const activeProperties = properties.filter(p => p.archived !== true && p.hidden !== true);
+  // The agent's own properties plus teammates' (never the same id twice), narrowed by the
+  // All / Mine / Team switch. Teammate rows are read-only copies; ownership is untouched.
+  const isActiveP = (p) => p.archived !== true && p.hidden !== true;
   // Sold is a distinct reason for being archived — kept separate from the
   // general Archive tab so the two features don't overlap.
-  const soldProperties = properties.filter(p => p.archived === true && p.archivedReason === 'sold' && p.hidden !== true);
-  const archivedProperties = properties.filter(p => p.archived === true && p.archivedReason !== 'sold' && p.hidden !== true);
-  const liveProperties = activeProperties.filter(p => p.visibility === true);
-  const totalViews = activeProperties.reduce((sum, p) => sum + (p.stats?.views || 0), 0);
+  const isSoldP = (p) => p.archived === true && p.archivedReason === 'sold' && p.hidden !== true;
+  const isArchivedP = (p) => p.archived === true && p.archivedReason !== 'sold' && p.hidden !== true;
+  const teamProperties = teamPropertiesFrom(teamRows, properties, user?.uid);
+  const hasTeamListings = teamProperties.length > 0;
+  const view = hasTeamListings ? teamView : 'mine';
+  const viewProperties = listForView(view, properties, teamProperties);
+  const activeProperties = viewProperties.filter(isActiveP);
+  const soldProperties = viewProperties.filter(isSoldP);
+  const archivedProperties = viewProperties.filter(isArchivedP);
+  const stats = computeStats({
+    view,
+    ownActive: properties.filter(isActiveP),
+    teamActive: teamProperties.filter(isActiveP),
+    ownOpinions: opinionsCount,
+    teamAll: teamProperties,
+  });
+  const tabFilter = activeTab === 'sold' ? isSoldP : activeTab === 'archived' ? isArchivedP : isActiveP;
+  const viewCounts = {
+    mine: properties.filter(tabFilter).length,
+    team: teamProperties.filter(tabFilter).length,
+  };
   const currentTabProperties = activeTab === 'sold' ? soldProperties : activeTab === 'archived' ? archivedProperties : activeProperties;
   const agentFilteredProperties = filterAgentId
     ? currentTabProperties.filter(p => p.agentId === filterAgentId)
@@ -1428,13 +1492,36 @@ function DashboardPage() {
             </div>
           )}
 
+          {/* Team portfolio switch — only when teammates have listings to show */}
+          {hasTeamListings && (
+            <div className="flex items-center gap-1 -mt-2" role="tablist" aria-label="Property view">
+              {[
+                ['all', 'All', viewCounts.mine + viewCounts.team],
+                ['mine', 'Mine', viewCounts.mine],
+                ['team', 'Team', viewCounts.team],
+              ].map(([id, label, count]) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={view === id}
+                  onClick={() => setTeamView(id)}
+                  className={`px-3 py-1.5 text-[13px] tracking-wide rounded-md transition-colors ${
+                    view === id ? 'bg-stone-900 text-white' : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100/70'
+                  }`}
+                >
+                  {label} <span className={view === id ? 'text-stone-300' : 'text-stone-400'}>{count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Overview Stats */}
           {activeTab === 'overview' && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200 border border-stone-200 rounded-md overflow-hidden">
-              <StatCard label="Total Properties" value={propertiesLoading ? '...' : activeProperties.length} />
-              <StatCard label="Public Listings" value={propertiesLoading ? '...' : liveProperties.length} />
-              <StatCard label="Total Views" value={propertiesLoading ? '...' : totalViews} />
-              <StatCard label="Buyer Opinions" value={propertiesLoading ? '...' : opinionsCount} />
+              <StatCard label="Total Properties" value={propertiesLoading ? '...' : stats.properties} />
+              <StatCard label="Public Listings" value={propertiesLoading ? '...' : stats.live} />
+              <StatCard label="Total Views" value={propertiesLoading ? '...' : stats.views} />
+              <StatCard label="Buyer Opinions" value={propertiesLoading ? '...' : stats.opinions} />
             </div>
           )}
 
@@ -1490,7 +1577,7 @@ function DashboardPage() {
             <div className="flex items-center justify-center py-20">
               <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#c64500] border-t-transparent" />
             </div>
-          ) : activeTab !== 'archived' && activeTab !== 'sold' && properties.length === 0 ? (
+          ) : activeTab !== 'archived' && activeTab !== 'sold' && properties.length === 0 && !hasTeamListings ? (
             <EmptyState />
           ) : displayProperties.length === 0 ? (
             <div className="bg-white rounded-md border border-stone-200 px-6 py-16 text-center">
@@ -1499,6 +1586,8 @@ function DashboardPage() {
                   <CheckCircle className="w-8 h-8 text-stone-300 mx-auto mb-4" strokeWidth={1.25} />
                   <p className="text-sm text-stone-500">No sold properties yet</p>
                 </>
+              ) : activeTab === 'overview' ? (
+                <p className="text-sm text-stone-500">No properties in this view</p>
               ) : (
                 <>
                   <Archive className="w-8 h-8 text-stone-300 mx-auto mb-4" strokeWidth={1.25} />
@@ -1520,6 +1609,7 @@ function DashboardPage() {
                   isSold={property.archivedReason === 'sold'}
                   onHide={handleHideProperty}
                   teamAgents={teamAgents}
+                  showListedBy={hasTeamListings}
                 />
               ))}
             </div>
