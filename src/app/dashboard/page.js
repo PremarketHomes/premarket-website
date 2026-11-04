@@ -19,6 +19,7 @@ import { normalizeE164, formatDisplayPhone } from '../utils/phone';
 import { shouldShowMobilePrompt } from '../utils/mobileConfirmation';
 import {
   LayoutDashboard,
+  Trophy,
   Home,
   Plus,
   LogOut,
@@ -79,6 +80,16 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
   const sidebarOfficeId = userData?.officeId || null;
   const officeBrand = useOfficeBrand(sidebarOfficeId);
   const agencyTitle = sidebarOfficeId ? null : userData?.companyName;
+  // Leadership is authorised server-side only; this just decides whether to show the link.
+  const [isLeader, setIsLeader] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    authFetch('/api/leadership/access')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (!cancelled && b?.leader === true) setIsLeader(true); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   const navItems = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'sold', label: 'Sold', icon: CheckCircle },
@@ -98,6 +109,9 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/settings' },
     ...(userData?.isOfficeAdmin === true
       ? [{ id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' }]
+      : []),
+    ...(isLeader
+      ? [{ id: 'leadership', label: 'Leadership Hub', icon: Trophy, href: '/dashboard/leadership' }]
       : []),
     ...(userData?.superAdmin === true
       ? [{ id: 'admin', label: 'Admin', icon: Shield, href: '/dashboard/admin' }]
