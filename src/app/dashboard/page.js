@@ -1656,8 +1656,8 @@ function DashboardPage() {
               className="bg-[#faf9f7] rounded-md border border-stone-200 shadow-xl max-w-md w-full overflow-hidden"
             >
               <div className="px-8 pt-9 pb-2 text-center">
-                <div className="mx-auto mb-5 h-px w-10 bg-[#c64500]" aria-hidden="true" />
-                <CheckCircle className="w-7 h-7 text-[#c64500] mx-auto mb-3" />
+                <div className="mx-auto mb-5 h-px w-10 bg-[#e38100]" aria-hidden="true" />
+                <CheckCircle className="w-7 h-7 text-[#e38100] mx-auto mb-3" />
                 <h2 className="font-serif text-2xl text-stone-900">
                   {successModal === 'created' ? 'Property created' : 'Changes saved'}
                 </h2>
@@ -1688,7 +1688,7 @@ function DashboardPage() {
 
                 <button
                   onClick={() => setSuccessModal(null)}
-                  className="w-full mt-2 py-3 bg-[#c64500] hover:bg-[#a63a00] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
+                  className="w-full mt-2 py-3 bg-[#e38100] hover:bg-[#cc7400] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
                 >
                   Got it
                 </button>
