@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import LeadershipHubView from '../LeadershipHubView';
-import { SAMPLE_HUB } from '../fixture';
+import { sampleHub } from '../fixture';
 
 /**
  * Preview-only walkthrough of the Leadership Hub with INVENTED sample data, so the interface can be
@@ -15,5 +15,5 @@ export default async function LeadershipPreviewPage({ searchParams }) {
   if (env === 'production') notFound();
   const { as } = await searchParams;
   const name = String(as || '').toLowerCase() === 'trevor' ? 'Trevor' : 'David';
-  return <LeadershipHubView data={SAMPLE_HUB(name)} sample />;
+  return <LeadershipHubView data={sampleHub(name)} sample agentBase="/dashboard/leadership/preview/agent" agentQuery={`?as=${name.toLowerCase()}`} />;
 }

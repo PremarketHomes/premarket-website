@@ -25,14 +25,16 @@
  */
 
 import { getAuth } from 'firebase-admin/auth';
-import { propertyStatus } from './officeTeamService';
 import { redactOffersForTeam, redactLikesForTeam } from './teamRedaction';
 import { serializeForClient } from './propertyAccessService';
+import {
+  LEADERSHIP_TIMEZONE, propertyStatus, buildLeadershipData, buildAgentProfile, rankAgents, fullName,
+} from './leadershipMetrics';
 
-export const LEADERSHIP_TIMEZONE = 'Australia/Sydney';
+export { LEADERSHIP_TIMEZONE, buildLeadershipData, buildAgentProfile, rankAgents };
+
 const IN_LIMIT = 30;
 const AUTH_LIMIT = 100;
-const MAX_TREND_MONTHS = 12;
 
 export class LeadershipError extends Error {
   constructor(message, status) {
@@ -73,54 +75,6 @@ export async function requireLeadership(db, uid) {
     },
   };
 }
-
-/* ───────────────────────────── time helpers ───────────────────────────── */
-
-const toDate = (t) => {
-  if (!t) return null;
-  if (typeof t.toDate === 'function') return t.toDate();
-  const d = new Date(t);
-  return Number.isNaN(d.getTime()) ? null : d;
-};
-const toIso = (t) => toDate(t)?.toISOString() || null;
-
-function zonedParts(date, tz) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', weekday: 'short',
-  }).formatToParts(date).reduce((a, p) => ({ ...a, [p.type]: p.value }), {});
-  return {
-    y: +parts.year, m: +parts.month, d: +parts.day,
-    h: +parts.hour, mi: +parts.minute, s: +parts.second,
-    dow: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(parts.weekday),
-  };
-}
-
-/** The UTC instant at which local midnight of (y, m, d) happens in `tz`. */
-function zonedMidnight(y, m, d, tz) {
-  let guess = Date.UTC(y, m - 1, d);
-  for (let i = 0; i < 2; i++) {
-    const p = zonedParts(new Date(guess), tz);
-    const asUtc = Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s);
-    guess -= asUtc - Date.UTC(y, m - 1, d);
-  }
-  return new Date(guess);
-}
-
-/** Calendar week (Mon–Sun) and calendar month containing `now`, in `tz`. */
-export function periodStarts(now = new Date(), tz = LEADERSHIP_TIMEZONE) {
-  const p = zonedParts(now, tz);
-  const monday = new Date(Date.UTC(p.y, p.m - 1, p.d - p.dow));
-  return {
-    week: zonedMidnight(monday.getUTCFullYear(), monday.getUTCMonth() + 1, monday.getUTCDate(), tz),
-    month: zonedMidnight(p.y, p.m, 1, tz),
-  };
-}
-
-const monthKey = (date, tz = LEADERSHIP_TIMEZONE) => {
-  const p = zonedParts(date, tz);
-  return `${p.y}-${String(p.m).padStart(2, '0')}`;
-};
 
 /* ─────────────────────────────── loaders ─────────────────────────────── */
 
@@ -175,207 +129,36 @@ async function loadLastSignIns(uids) {
   return out;
 }
 
-/* ─────────────────────────────── aggregation ─────────────────────────────── */
 
-const fullName = (u) => `${u.firstName || ''} ${u.lastName || ''}`.trim() || null;
-
-/** Deterministic ordering: opinions, then registrations, then campaigns (all desc), then name, then uid. */
-export function rankAgents(rows) {
-  const cmp = (a, b) =>
-    b.opinions - a.opinions
-    || b.registrations - a.registrations
-    || b.campaigns - a.campaigns
-    || (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' })
-    || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0);
-  const sorted = [...rows].sort(cmp);
-  // Competition ranking: agents level on every counted metric share a position.
-  let rank = 0;
-  return sorted.map((r, i) => {
-    const prev = sorted[i - 1];
-    const tied = prev && prev.opinions === r.opinions && prev.registrations === r.registrations && prev.campaigns === r.campaigns;
-    if (!tied) rank = i + 1;
-    return { ...r, rank };
-  });
-}
-
-/**
- * Pure: turns raw records into everything the Hub shows. No I/O, so it is
- * exercised directly by the unit tests.
- */
-export function buildLeadershipData({ members, pendingInvites = [], properties, opinions, lastSignIns = {}, now = new Date(), tz = LEADERSHIP_TIMEZONE }) {
-  const memberByUid = new Map(members.map((m) => [m.uid, m]));
-  const starts = periodStarts(now, tz);
-
-  // Only campaigns of CURRENT members that the agent hasn't removed.
-  const campaigns = properties.filter((p) => memberByUid.has(p.userId) && p.hidden !== true);
-  const campaignById = new Map(campaigns.map((p) => [p.id, p]));
-
-  const perProperty = new Map();
-  const perAgent = new Map(members.map((m) => [m.uid, {
-    uid: m.uid,
-    opinions: { all: 0, month: 0, week: 0, last30: 0 },
-    registrations: { all: 0, month: 0, week: 0, last30: 0 },
-  }]));
-  const monthly = new Map();
-  const bump = (key, field) => {
-    const row = monthly.get(key) || { month: key, opinions: 0, registrations: 0, campaigns: 0 };
-    row[field] += 1;
-    monthly.set(key, row);
-  };
-
-  const last30Start = new Date(now.getTime() - 30 * 86400000);
-  for (const o of opinions) {
-    const prop = campaignById.get(o.propertyId);
-    if (!prop) continue; // not a campaign of a current member
-    const when = toDate(o.createdAt) || toDate(o.createdAtIso);
-    const reg = o.serious === true;
-
-    const pp = perProperty.get(prop.id) || { opinions: 0, registrations: 0 };
-    pp.opinions += 1;
-    if (reg) pp.registrations += 1;
-    perProperty.set(prop.id, pp);
-
-    const a = perAgent.get(prop.userId); // original listing agent
-    const add = (bucket) => { a.opinions[bucket] += 1; if (reg) a.registrations[bucket] += 1; };
-    add('all');
-    if (when) {
-      if (when >= starts.month) add('month');
-      if (when >= starts.week) add('week');
-      if (when >= last30Start) add('last30');
-      bump(monthKey(when, tz), 'opinions');
-      if (reg) bump(monthKey(when, tz), 'registrations');
-    }
-  }
-
-  const propertyRows = campaigns.map((p) => {
-    const counts = perProperty.get(p.id) || { opinions: 0, registrations: 0 };
-    const owner = memberByUid.get(p.userId);
-    return {
-      id: p.id,
-      address: p.formattedAddress || p.address || null,
-      thumbnail: Array.isArray(p.imageUrls) && p.imageUrls.length ? p.imageUrls[0] : null,
-      agentUid: p.userId,
-      agentName: fullName(owner) || owner.email || 'Agent',
-      status: propertyStatus(p),
-      listingStatus: p.listingStatus === 'on-market' ? 'on-market' : 'pre-market',
-      price: p.price ?? null,
-      soldPrice: p.soldPrice ?? null,
-      opinions: counts.opinions,
-      registrations: counts.registrations,
-      views: p.stats?.views || 0,
-      createdAt: toIso(p.createdAt),
-    };
-  });
-  propertyRows.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || (a.id < b.id ? -1 : 1));
-
-  for (const p of campaigns) {
-    const when = toDate(p.createdAt);
-    if (when) bump(monthKey(when, tz), 'campaigns');
-  }
-
-  const agentRows = members.map((m) => {
-    const mine = propertyRows.filter((p) => p.agentUid === m.uid);
-    const agg = perAgent.get(m.uid);
-    const latest = mine.reduce((acc, p) => (p.createdAt && (!acc || p.createdAt > acc) ? p.createdAt : acc), null);
-    const activated = m.accountStatus !== 'invited';
-    return {
-      uid: m.uid,
-      name: fullName(m) || m.email || 'Agent',
-      avatar: m.avatar || null,
-      activated,
-      activatedAt: toIso(m.activatedAt),
-      invitedAt: toIso(m.invitedAt),
-      campaigns: mine.length,
-      activeCampaigns: mine.filter((p) => p.status === 'live' || p.status === 'hidden').length,
-      opinions: agg.opinions.all,
-      registrations: agg.registrations.all,
-      views: mine.reduce((n, p) => n + p.views, 0),
-      latestCampaignAt: latest,
-      lastSignInAt: lastSignIns[m.uid] ?? null, // null = unknown, not "never"
-      last30Opinions: agg.opinions.last30,
-    };
-  });
-
-  const leaderboard = {};
-  for (const period of ['all', 'month', 'week']) {
-    leaderboard[period] = rankAgents(agentRows
-      .filter((a) => a.activated)
-      .map((a) => ({
-        uid: a.uid,
-        name: a.name,
-        avatar: a.avatar,
-        campaigns: a.campaigns,
-        opinions: perAgent.get(a.uid).opinions[period],
-        registrations: perAgent.get(a.uid).registrations[period],
-      })));
-  }
-
-  const trends = [...monthly.values()].sort((a, b) => a.month.localeCompare(b.month)).slice(-MAX_TREND_MONTHS);
-
-  // Adoption over time: activations that really happened (activatedAt is only
-  // recorded for invited accounts, so this is "known activations", labelled so).
-  const adoptionByMonth = new Map();
-  for (const a of agentRows) {
-    const when = toDate(a.activatedAt);
-    if (when) adoptionByMonth.set(monthKey(when, tz), (adoptionByMonth.get(monthKey(when, tz)) || 0) + 1);
-  }
-  let running = 0;
-  const adoption = [...adoptionByMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, n]) => ({ month, activations: n, cumulative: (running += n) }));
-
-  const engaged = agentRows
-    .filter((a) => a.activated && a.last30Opinions > 0)
-    .sort((a, b) => b.last30Opinions - a.last30Opinions || (a.uid < b.uid ? -1 : 1))
-    .slice(0, 3)
-    .map((a) => a.uid);
-
-  const attention = {
-    notActivated: [
-      ...agentRows.filter((a) => !a.activated).map((a) => a.uid),
-      ...pendingInvites.map((i) => i.targetUid).filter(Boolean),
-    ],
-    activatedNoCampaign: agentRows.filter((a) => a.activated && a.campaigns === 0).map((a) => a.uid),
-    strongEngagement: engaged,
-  };
-
-  const totalOpinions = agentRows.reduce((n, a) => n + a.opinions, 0);
-  const totalRegistrations = agentRows.reduce((n, a) => n + a.registrations, 0);
-  return {
-    generatedAt: now.toISOString(),
-    timezone: tz,
-    periods: { week: starts.week.toISOString(), month: starts.month.toISOString() },
-    overview: {
-      agentsTotal: agentRows.length + pendingInvites.length,
-      agentsActivated: agentRows.filter((a) => a.activated).length,
-      agentsNotActivated: attention.notActivated.length,
-      agentsWithCampaigns: agentRows.filter((a) => a.campaigns > 0).length,
-      campaigns: propertyRows.length,
-      activeCampaigns: propertyRows.filter((p) => p.status === 'live' || p.status === 'hidden').length,
-      opinions: totalOpinions,
-      registrations: totalRegistrations,
-      views: propertyRows.reduce((n, p) => n + p.views, 0),
-    },
-    leaderboard,
-    agents: agentRows,
-    pendingInvites: pendingInvites.map((i) => ({ uid: i.targetUid || null, name: i.targetName || null, invitedAt: toIso(i.createdAt) })),
-    attention,
-    properties: propertyRows,
-    trends,
-    adoption,
-  };
-}
-
-/** Everything the Hub needs, for the office `scope` points at. Read-only. */
-export async function getLeadershipHub(db, scope, { now = new Date() } = {}) {
+async function loadInputs(db, scope) {
   const { members, pending } = await loadMembers(db, scope.officeId);
   const properties = members.length ? await loadProperties(db, members.map((m) => m.uid)) : [];
   const visible = properties.filter((p) => p.hidden !== true);
   const opinions = visible.length ? await loadOpinions(db, visible.map((p) => p.id)) : [];
   const lastSignIns = await loadLastSignIns(members.map((m) => m.uid));
+  return { members, pendingInvites: pending, properties, opinions, lastSignIns };
+}
+
+/** Everything the Hub needs, for the office `scope` points at. Read-only. */
+export async function getLeadershipHub(db, scope, { now = new Date() } = {}) {
+  const inputs = await loadInputs(db, scope);
   return {
     office: { name: scope.officeName },
     leader: scope.leader,
-    ...buildLeadershipData({ members, pendingInvites: pending, properties, opinions, lastSignIns, now }),
+    ...buildLeadershipData({ ...inputs, now }),
   };
+}
+
+/**
+ * One agent's coaching profile. The agent must currently be a member of the leader's own office;
+ * anyone else (another office, a pending invitee, an unknown id) is the same 404 so ids can't be probed.
+ * Built from the same inputs and code as the Hub, so every number matches it.
+ */
+export async function getLeadershipAgentProfile(db, scope, agentUid, { now = new Date() } = {}) {
+  const inputs = await loadInputs(db, scope);
+  const profile = buildAgentProfile({ ...inputs, now }, agentUid);
+  if (!profile) throw new LeadershipError('Agent not found', 404);
+  return { office: { name: scope.officeName }, leader: scope.leader, ...profile };
 }
 
 /* ─────────────────────── redacted, read-only property report ─────────────────────── */

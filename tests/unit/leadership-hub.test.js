@@ -273,7 +273,7 @@ describe('read-only and isolation guarantees', () => {
 
   it('every leadership route exports GET only (no write verbs)', async () => {
     const routes = files.filter((f) => f.endsWith('route.js'));
-    expect(routes.length).toBe(3);
+    expect(routes.length).toBe(4);
     for (const f of routes) {
       const src = fs.readFileSync(f, 'utf8');
       expect(src).not.toMatch(/export\s+(async\s+)?function\s+(POST|PUT|PATCH|DELETE)/);
@@ -282,7 +282,8 @@ describe('read-only and isolation guarantees', () => {
   });
   it('leadership code never writes to Firestore and never touches billing, invoicing, Xero or superAdmin', () => {
     const svc = path.resolve(__dirname, '../../src/app/api/services/leadershipService.js');
-    for (const f of [...files, svc]) {
+    const metrics = path.resolve(__dirname, '../../src/app/api/services/leadershipMetrics.js');
+    for (const f of [...files, svc, metrics]) {
       const src = fs.readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
       expect(src).not.toMatch(/\)\s*\.(set|update|add|delete|create)\(|\.(batch|runTransaction)\(/);
       expect(src).not.toMatch(/FieldValue|billingService|invoice|xero|verifyAdmin|superAdmin|officeAdminUids/i);
@@ -294,5 +295,133 @@ describe('read-only and isolation guarantees', () => {
     expect(await getPropertyReportAccess(fakeDb, { uid: 'david', property })).toBeNull();
     const { requireOfficeAdmin } = await import('../../src/app/api/services/officeService');
     await expect(requireOfficeAdmin({ officeId: 'hph', uid: 'david' })).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+
+describe('GET /api/leadership/agents/[uid] (coaching profile)', () => {
+  const call = async (uid, target, opts) => {
+    if (uid) as(uid);
+    const { GET } = await import('../../src/app/api/leadership/agents/[uid]/route.js');
+    return GET(req(`http://localhost/api/leadership/agents/${target}`, opts), { params: Promise.resolve({ uid: target }) });
+  };
+
+  it('401 unauthenticated; 403 for ordinary agents, office admins and the agent themself', async () => {
+    expect((await call(null, 'ann', { token: null })).status).toBe(401);
+    for (const uid of ['plain', 'hphAdmin', 'ann', 'indep']) expect((await call(uid, 'ann')).status).toBe(403);
+  });
+
+  it('404 (never data) for another office\'s agent, a pending invitee, a leader\'s own id and an unknown id', async () => {
+    for (const target of ['outsider', 'eve', 'david', 'ghost']) expect((await call('david', target)).status).toBe(404);
+    // and the other office's leader cannot read HPH agents either
+    expect((await call('otherLeader', 'ann')).status).toBe(404);
+  });
+
+  it('figures match the Hub exactly, and David and Trevor see the same profile', async () => {
+    const hub = await (await (await import('../../src/app/api/leadership/hub/route.js')).GET((as('david'), req('http://localhost/h')))).json();
+    const d = await (await call('david', 'ann')).json();
+    const t = await (await call('trevor', 'ann')).json();
+    const row = hub.agents.find((a) => a.uid === 'ann');
+    expect(d.agent).toEqual(row);
+    expect(d.summary).toMatchObject({ campaigns: 2, opinions: 3, registrations: 1, views: 40, campaignsWithFeedback: 1 });
+    expect(d.ranks.all).toEqual({ rank: hub.leaderboard.all.find((r) => r.uid === 'ann').rank, of: hub.leaderboard.all.length });
+    expect(d.leader.firstName).toBe('David'); expect(t.leader.firstName).toBe('Trevor');
+    const strip = ({ leader, generatedAt, weekly, ...rest }) => rest;
+    expect(strip(d)).toEqual(strip(t));
+    expect(d.properties.map((p) => p.id).sort()).toEqual(['p1', 'p3']); // never Bob's or another office's
+  });
+
+  it('exposes no buyer identity, contact detail, token or billing field', async () => {
+    const text = JSON.stringify(await (await call('david', 'ann')).json()).toLowerCase();
+    for (const leak of ['real@buyer.test', '0400111222', 'real buyer', 'bea@x.test', SECRET.toLowerCase(), 'ann@hph.test', 'billing', 'xero']) {
+      expect(text).not.toContain(leak);
+    }
+  });
+});
+
+describe('buildAgentProfile — coaching observations', () => {
+  const day = (n) => new Date(NOW.getTime() - n * 86400000);
+  const base = () => ({
+    now: NOW,
+    members: [{ uid: 'x', firstName: 'Xena', lastName: 'X', accountStatus: 'active', activatedAt: day(100) }, { uid: 'y', firstName: 'Yan', accountStatus: 'active' }],
+    properties: [], opinions: [], lastSignIns: {},
+  });
+  const prop = (id, o = {}) => ({ id, userId: 'x', formattedAddress: `${id} St`, createdAt: day(20), visibility: true, stats: { views: 0 }, ...o });
+  const opn = (id, propertyId, daysAgo, serious = false) => ({ id, propertyId, type: 'opinion', serious, createdAt: day(daysAgo) });
+  const profile = async (inputs, uid = 'x') => (await import('../../src/app/api/services/leadershipMetrics')).buildAgentProfile(inputs, uid);
+  const ids = (p) => p.coaching.map((c) => c.id);
+
+  it('flags active campaigns with zero opinions, but not sold/archived ones', async () => {
+    const i = base();
+    i.properties = [prop('a', { stats: { views: 10 } }), prop('b', { stats: { views: 5 } }), prop('sold', { visibility: false, archived: true, archivedReason: 'sold' })];
+    const p = await profile(i);
+    const item = p.coaching.find((c) => c.id === 'no-opinions');
+    expect(item.propertyIds.sort()).toEqual(['a', 'b']);
+    expect(item.title).toMatch(/^2 active campaigns have no buyer opinions$/);
+    expect(item.detail).toContain('15 views');
+  });
+
+  it('flags views with few (1–2) opinions, and strong feedback by opinions or registrations', async () => {
+    const i = base();
+    i.properties = [prop('few', { stats: { views: 30 } }), prop('quiet', { stats: { views: 30 } }), prop('big'), prop('regs')];
+    i.opinions = [
+      opn('1', 'few', 3), opn('2', 'few', 4),
+      ...[1, 2, 3, 4, 5].map((n) => opn(`b${n}`, 'big', n)),
+      opn('r1', 'regs', 2, true), opn('r2', 'regs', 3, true),
+    ];
+    const p = await profile(i);
+    expect(p.coaching.find((c) => c.id === 'views-limited-opinions').propertyIds).toEqual(['few']);
+    expect(p.coaching.find((c) => c.id === 'strong-feedback').propertyIds).toEqual(['big', 'regs']);
+    expect(p.coaching.find((c) => c.id === 'no-opinions').propertyIds).toEqual(['quiet']); // zero opinions is reported once, not as "few"
+  });
+
+  it('activated-without-campaign and not-activated are stated factually', async () => {
+    const none = await profile(base());
+    expect(none.coaching[0]).toMatchObject({ id: 'no-campaigns', tone: 'attention' });
+    expect(none.coaching[0].detail).toMatch(/Activated on/);
+    const i = base(); i.members[0] = { uid: 'x', firstName: 'Xena', accountStatus: 'invited', invitedAt: day(10) };
+    expect((await profile(i)).coaching[0]).toMatchObject({ id: 'not-activated' });
+  });
+
+  it('compares the last 30 days with the 30 before: up, down, steady and gone quiet', async () => {
+    const run = async (recent, earlier) => {
+      const i = base(); i.properties = [prop('a', { stats: { views: 1 } })];
+      i.opinions = [...Array(recent).keys()].map((n) => opn(`r${n}`, 'a', 5 + n)).concat([...Array(earlier).keys()].map((n) => opn(`e${n}`, 'a', 35 + n)));
+      return profile(i);
+    };
+    expect(ids(await run(4, 2))).toContain('trend-up');
+    expect(ids(await run(1, 3))).toContain('trend-down');
+    expect(ids(await run(2, 2))).toContain('trend-steady');
+    expect(ids(await run(0, 3))).toContain('trend-quiet');
+    expect(ids(await run(0, 0)).some((x) => x.startsWith('trend-'))).toBe(false);
+    const up = await run(4, 2);
+    expect(up.summary).toMatchObject({ opinionsLast30: 4, opinionsPrior30: 2 });
+  });
+
+  it('flags a long gap since the last upload', async () => {
+    const i = base(); i.properties = [prop('old', { createdAt: day(70) })];
+    expect(ids(await profile(i))).toContain('no-recent-campaign');
+    const j = base(); j.properties = [prop('new', { createdAt: day(10) })];
+    expect(ids(await profile(j))).not.toContain('no-recent-campaign');
+  });
+
+  it('never labels or scores an agent', async () => {
+    const i = base(); i.properties = [prop('a')];
+    const text = JSON.stringify(await profile(i)).toLowerCase();
+    for (const bad of ['poor', 'underperform', 'weak', 'score', 'grade', 'lazy', 'inactive', 'failing']) expect(text).not.toContain(bad);
+  });
+
+  it('does not double count duplicated opinion documents and ignores other agents\' campaigns', async () => {
+    const i = base();
+    i.properties = [prop('a'), prop('mine-not', { userId: 'y' })];
+    i.opinions = [opn('dup', 'a', 2, true), opn('dup', 'a', 2, true), opn('other', 'mine-not', 2)];
+    const p = await profile(i);
+    expect(p.summary).toMatchObject({ opinions: 1, registrations: 1 });
+    expect(p.weekly.reduce((n, w) => n + w.opinions, 0)).toBe(1);
+    expect(p.properties.map((x) => x.id)).toEqual(['a']);
+  });
+
+  it('returns null for someone who is not a current member', async () => {
+    expect(await profile(base(), 'nobody')).toBeNull();
   });
 });

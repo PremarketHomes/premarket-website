@@ -15,10 +15,10 @@ const PERIODS = [
   { id: 'all', label: 'All Time' },
 ];
 
-const card = 'bg-white rounded-md border border-stone-200';
-const eyebrow = 'text-[10px] uppercase tracking-[0.16em] text-stone-400';
+export const card = 'bg-white rounded-md border border-stone-200';
+export const eyebrow = 'text-[10px] uppercase tracking-[0.16em] text-stone-400';
 
-function Avatar({ name, src, size = 'w-10 h-10', text = 'text-xs' }) {
+export function Avatar({ name, src, size = 'w-10 h-10', text = 'text-xs' }) {
   return src ? (
     <img src={src} alt="" className={`${size} rounded-full object-cover shrink-0 ring-1 ring-stone-200`} />
   ) : (
@@ -28,7 +28,7 @@ function Avatar({ name, src, size = 'w-10 h-10', text = 'text-xs' }) {
   );
 }
 
-function Section({ title, subtitle, right, children, id }) {
+export function Section({ title, subtitle, right, children, id }) {
   return (
     <section id={id} className="mt-10">
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
@@ -63,7 +63,7 @@ function Segmented({ options, value, onChange, label }) {
   );
 }
 
-function Kpi({ label, value, hint }) {
+export function Kpi({ label, value, hint }) {
   return (
     <div className={`${card} p-5`}>
       <p className={eyebrow}>{label}</p>
@@ -81,7 +81,7 @@ const MEDAL = {
   3: { ring: 'ring-2 ring-[#c9a27a]', chip: 'bg-[#b98a5e] text-white', row: 'bg-[#faf5ef]' },
 };
 
-function Leaderboard({ data }) {
+function Leaderboard({ data, hrefFor }) {
   const [period, setPeriod] = useState('all');
   const rows = data.leaderboard[period] || [];
   const max = Math.max(1, ...rows.map((r) => r.opinions));
@@ -119,7 +119,7 @@ function Leaderboard({ data }) {
                       <Avatar name={r.name} src={r.avatar} size="w-11 h-11" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className={`truncate font-serif ${r.rank <= 3 && r.opinions > 0 ? 'text-xl' : 'text-lg'} text-stone-900`}>{r.name}</p>
+                      <Link href={hrefFor(r.uid)} className={`block truncate font-serif ${r.rank <= 3 && r.opinions > 0 ? 'text-xl' : 'text-lg'} text-stone-900 hover:text-[#c64500] transition-colors`}>{r.name}</Link>
                       <div className="mt-1.5 h-1.5 rounded-full bg-stone-100 overflow-hidden" aria-hidden="true">
                         <div className="h-full rounded-full bg-[#e38100]" style={{ width: `${(r.opinions / max) * 100}%` }} />
                       </div>
@@ -162,7 +162,7 @@ const COLUMNS = [
   { key: 'lastSignInAt', label: 'Last sign-in', get: (a) => a.lastSignInAt || '', align: 'left' },
 ];
 
-function AttentionCard({ title, note, agents, empty, tone }) {
+function AttentionCard({ title, note, agents, empty, tone, hrefFor }) {
   return (
     <div className={`${card} p-5`}>
       <div className="flex items-baseline justify-between gap-3">
@@ -175,7 +175,7 @@ function AttentionCard({ title, note, agents, empty, tone }) {
         {agents.map((a) => (
           <li key={a.key} className="flex items-center gap-2.5 text-sm text-stone-800">
             <Avatar name={a.name} src={a.avatar} size="w-6 h-6" text="text-[9px]" />
-            <span className="truncate">{a.name}</span>
+            {a.href ? <Link href={a.href} className="truncate hover:text-[#c64500] transition-colors">{a.name}</Link> : <span className="truncate">{a.name}</span>}
             {a.detail && <span className="ml-auto text-xs text-stone-400 shrink-0">{a.detail}</span>}
           </li>
         ))}
@@ -184,7 +184,7 @@ function AttentionCard({ title, note, agents, empty, tone }) {
   );
 }
 
-function AgentSection({ data }) {
+function AgentSection({ data, hrefFor }) {
   const [sort, setSort] = useState({ key: 'opinions', dir: 'desc' });
   const byUid = useMemo(() => new Map(data.agents.map((a) => [a.uid, a])), [data.agents]);
   const pendingByUid = useMemo(() => new Map(data.pendingInvites.map((p) => [p.uid, p])), [data.pendingInvites]);
@@ -200,7 +200,7 @@ function AgentSection({ data }) {
 
   const pick = (uids) => uids.map((uid) => {
     const a = byUid.get(uid) || pendingByUid.get(uid);
-    return a ? { key: uid, name: a.name || 'Invited agent', avatar: a.avatar || null, a } : null;
+    return a ? { key: uid, name: a.name || 'Invited agent', avatar: a.avatar || null, a, href: byUid.has(uid) ? hrefFor(uid) : null } : null;
   }).filter(Boolean);
 
   const notActivated = pick(data.attention.notActivated).map((x) => ({ ...x, detail: x.a.invitedAt ? `invited ${fmtDate(x.a.invitedAt, data.timezone)}` : 'invited' }));
@@ -238,7 +238,7 @@ function AgentSection({ data }) {
           <tbody>
             {rows.map((a) => (
               <tr key={a.uid} className="border-b border-stone-100 last:border-b-0 hover:bg-stone-50/60">
-                <td className="px-4 py-3"><div className="flex items-center gap-2.5"><Avatar name={a.name} src={a.avatar} size="w-7 h-7" text="text-[10px]" /><span className="text-stone-900">{a.name}</span></div></td>
+                <td className="px-4 py-3"><div className="flex items-center gap-2.5"><Avatar name={a.name} src={a.avatar} size="w-7 h-7" text="text-[10px]" /><Link href={hrefFor(a.uid)} className="text-stone-900 hover:text-[#c64500] transition-colors">{a.name}</Link></div></td>
                 <td className="px-4 py-3">
                   <span className={`inline-block px-2 py-0.5 rounded text-xs ${a.activated ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{a.activated ? 'Activated' : 'Invited'}</span>
                 </td>
@@ -352,7 +352,7 @@ function Portfolio({ data, reportBase, sample }) {
 
 /* ───────────────────────────── Trends ───────────────────────────── */
 
-function ChartCard({ title, definition, children, table }) {
+export function ChartCard({ title, definition, children, table }) {
   const [asTable, setAsTable] = useState(false);
   return (
     <div className={`${card} p-5`}>
@@ -370,9 +370,9 @@ function ChartCard({ title, definition, children, table }) {
   );
 }
 
-const tooltipStyle = { borderRadius: 6, border: '1px solid #e7e5e4', boxShadow: 'none', fontSize: 12 };
+export const tooltipStyle = { borderRadius: 6, border: '1px solid #e7e5e4', boxShadow: 'none', fontSize: 12 };
 
-function SimpleTable({ rows, cols }) {
+export function SimpleTable({ rows, cols }) {
   return (
     <table className="w-full text-sm">
       <thead><tr>{cols.map((c) => <th key={c.key} className={`${eyebrow} text-left font-medium pb-2`}>{c.label}</th>)}</tr></thead>
@@ -440,7 +440,8 @@ function Trends({ data }) {
 
 /* ───────────────────────────── Shell ───────────────────────────── */
 
-export default function LeadershipHubView({ data, sample = false, onSignOut, reportBase = '/dashboard/leadership/report' }) {
+export default function LeadershipHubView({ data, sample = false, onSignOut, reportBase = '/dashboard/leadership/report', agentBase = '/dashboard/leadership/agent', agentQuery = '' }) {
+  const hrefFor = (uid) => `${agentBase}/${uid}${agentQuery}`;
   const { overview: o, leader } = data;
   const [now] = useState(() => new Date(data.generatedAt));
   const stamp = new Intl.DateTimeFormat('en-AU', { timeZone: data.timezone, dateStyle: 'medium', timeStyle: 'short' }).format(now);
@@ -488,8 +489,8 @@ export default function LeadershipHubView({ data, sample = false, onSignOut, rep
           <Kpi label="Property views" value={fmtInt(o.views)} />
         </div>
 
-        <Leaderboard data={data} />
-        <AgentSection data={data} />
+        <Leaderboard data={data} hrefFor={hrefFor} />
+        <AgentSection data={data} hrefFor={hrefFor} />
         <Trends data={data} />
         <Portfolio data={data} reportBase={reportBase} sample={sample} />
 
