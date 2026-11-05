@@ -474,6 +474,10 @@ service cloud.firestore {
     // PREPARED LOCALLY — not deployed.
     match /officeTeamAudit/{id} { allow read, write: if false; }
 
+    // Audit trail of office/team-managed campaign actions (create/show/hide/archive). Server-only.
+    // PREPARED LOCALLY — not deployed.
+    match /officeCampaignAudit/{id} { allow read, write: if false; }
+
     match /officeAgents/{profileId} {
       allow read, write: if false;
       match /audit/{auditId} { allow read, write: if false; }
