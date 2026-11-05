@@ -133,6 +133,26 @@ describe('storage and Firebase configuration defaults', () => {
   });
 });
 
+describe('Sentry can be switched off for staging (production unchanged by default)', () => {
+  const read = (f) => readFileSync(f, 'utf8');
+  it('every Sentry entry point honours NEXT_PUBLIC_SENTRY_DISABLED', () => {
+    for (const f of ['src/instrumentation-client.js', 'sentry.client.config.js', 'sentry.server.config.js', 'sentry.edge.config.js']) {
+      const src = read(f);
+      expect(src, f).toContain("enabled: process.env.NEXT_PUBLIC_SENTRY_DISABLED !== '1'");
+      expect(src, f).toMatch(/dsn: process\.env\.NEXT_PUBLIC_SENTRY_DISABLED === '1' \? undefined :/);
+    }
+  });
+  it('the build plugin uploads nothing and sends no telemetry when disabled', () => {
+    const cfg = read('next.config.mjs');
+    expect(cfg).toContain("process.env.NEXT_PUBLIC_SENTRY_DISABLED === '1'");
+    expect(cfg).toContain('sourcemaps: { disable: true }');
+    expect(cfg).toContain('telemetry: false');
+  });
+  it('the production DSN still applies when the switch is not set', () => {
+    expect(read('src/instrumentation-client.js')).toContain('ingest.us.sentry.io');
+  });
+});
+
 describe('Google Maps key', () => {
   it('the Add Property wizard uses a configurable key, defaulting to the existing one', () => {
     const add = readFileSync('src/app/dashboard/add/page.js', 'utf8');

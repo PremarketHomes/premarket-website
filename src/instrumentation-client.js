@@ -5,7 +5,9 @@
 import * as Sentry from "@sentry/nextjs";
 
 Sentry.init({
-  dsn: "https://836bdb08380a219800aa9dbe3c829880@o4510456194072576.ingest.us.sentry.io/4511122303025152",
+  // Staging/test deployments set NEXT_PUBLIC_SENTRY_DISABLED=1 so nothing is sent to the production Sentry project.
+  enabled: process.env.NEXT_PUBLIC_SENTRY_DISABLED !== '1',
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DISABLED === '1' ? undefined : "https://836bdb08380a219800aa9dbe3c829880@o4510456194072576.ingest.us.sentry.io/4511122303025152",
 
   // Add optional integrations for additional features
   integrations: [Sentry.replayIntegration()],
