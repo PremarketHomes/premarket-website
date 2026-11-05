@@ -27,6 +27,7 @@ export default function RegistrationsPage() {
       setState({ status: 'ready', scope: b.scope, office: b.office, registrations: b.registrations });
     } catch { setState((s) => ({ ...s, status: 'error' })); }
   }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- data load on mount; same pattern as office/team/page.js
   useEffect(() => { if (!authLoading && uid) load(); }, [authLoading, uid, load]);
 
   const shown = useMemo(() => {

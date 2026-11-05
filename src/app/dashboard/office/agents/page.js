@@ -179,6 +179,7 @@ export default function OfficeAgentsPage() {
 
   useEffect(() => {
     if (authLoading || !uid) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- data load on mount; same pattern as office/team/page.js
     load();
   }, [authLoading, uid, load]);
 

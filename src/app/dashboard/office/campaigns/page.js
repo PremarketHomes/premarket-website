@@ -35,6 +35,7 @@ function CampaignsInner() {
       setState({ status: 'ready', office: mine.office, campaigns: (await res.json()).campaigns });
     } catch { setState((s) => ({ ...s, status: 'error' })); }
   }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- data load on mount; same pattern as office/team/page.js
   useEffect(() => { if (!authLoading && uid) load(); }, [authLoading, uid, load]);
 
   const act = async (c, action, okMsg) => {
