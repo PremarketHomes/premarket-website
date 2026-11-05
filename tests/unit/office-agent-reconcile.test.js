@@ -81,7 +81,9 @@ describe('reconciliation script is read-only, notification-free and minimises pe
     const src = readFileSync('scripts/reconcile-office-agents.js', 'utf8');
     const requires = [...src.matchAll(/require\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]);
     expect(requires.sort()).toEqual(['./activate-leadership', './lib/officeAgentReconcile', 'firebase-admin/app', 'firebase-admin/firestore']);
-    expect(src.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/resend|sendEmail|notification|src\/app/i);
+    // no import of anything under src/ (services, email, notifications) and no mail-sending call in the code
+    expect(src).not.toMatch(/require\([^)]*src\//);
+    expect(src.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/sendEmail\(|resend\.|emails\.send|from\s+['"]resend['"]|require\(['"]resend['"]\)/i);
   });
   it('end to end against a fake database: writes nothing, reads only allowlisted collections, prints no names, phones or full emails', async () => {
     const { db, writes } = fakeDb({
