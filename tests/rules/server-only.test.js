@@ -37,6 +37,7 @@ const SERVER_ONLY_COLLECTIONS = [
   'officeJoinRequests',
   'officeMembershipHistory',
   'officeAgents',
+  'officeTeamAudit',
   'officeAdminInfo',
   'leadershipInvites',
   'leadershipAudit',
