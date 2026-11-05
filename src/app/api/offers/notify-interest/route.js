@@ -11,6 +11,34 @@ import { sendNewBuyerInterestEmail } from '../../services/resendService';
 // a known failure rather than waiting out this window regardless.
 const NOTIFY_CLAIM_STALE_MS = 2 * 60 * 1000;
 
+// Abuse protection for this unauthenticated route (it is called by the public buyer page, not a signed-in user):
+//  - ids must look like Firestore ids before anything is read;
+//  - every "skipped" answer is identical, so the route cannot be used to tell which offer or property ids exist
+//    (the real reason is logged server-side);
+//  - one property can trigger at most NOTIFY_MAX_PER_HOUR emails an hour (a durable counter in the server-only
+//    emailLog collection). Real registrations are unaffected: a busy open home is far below the limit, and a
+//    throttled registration keeps its stored data and can still be notified by a later call.
+const ID_RE = /^[A-Za-z0-9_-]{6,128}$/;
+const NOTIFY_MAX_PER_HOUR = 60;
+const NOTIFY_WINDOW_MS = 60 * 60 * 1000;
+const SKIPPED = { skipped: true };
+
+async function allowPropertyNotification(propertyId) {
+  const ref = adminDb.collection('emailLog').doc(`interest_notify__${propertyId}`);
+  return adminDb.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const d = snap.exists ? snap.data() : null;
+    const now = Date.now();
+    if (!d || now - (d.windowStartMs || 0) >= NOTIFY_WINDOW_MS) {
+      tx.set(ref, { type: 'interest_notify_window', propertyId, windowStartMs: now, count: 1 });
+      return true;
+    }
+    if ((d.count || 0) >= NOTIFY_MAX_PER_HOUR) return false;
+    tx.update(ref, { count: (d.count || 0) + 1 });
+    return true;
+  });
+}
+
 /**
  * Fires once, right after a buyer successfully registers formal interest —
  * the one real-time signal an agent gets today beyond opening the property
@@ -55,9 +83,12 @@ export async function POST(req) {
   let offerRef = null;
 
   try {
-    const { offerId, propertyId } = await req.json();
+    const { offerId, propertyId } = await req.json().catch(() => ({}));
     if (!offerId || !propertyId) {
       return NextResponse.json({ error: 'offerId and propertyId required' }, { status: 400 });
+    }
+    if (!ID_RE.test(String(offerId)) || !ID_RE.test(String(propertyId))) {
+      return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
     }
 
     offerRef = adminDb.collection('offers').doc(offerId);
@@ -82,7 +113,7 @@ export async function POST(req) {
 
     if (!claim.proceed) {
       console.log(`notify-interest: skipped for offer ${offerId} (${claim.reason})`);
-      return NextResponse.json({ skipped: true, reason: claim.reason });
+      return NextResponse.json(SKIPPED);
     }
 
     const offer = claim.offer;
@@ -90,7 +121,7 @@ export async function POST(req) {
     if (!propertySnap.exists) {
       console.log(`notify-interest: skipped for offer ${offerId} (property ${propertyId} not found)`);
       await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
-      return NextResponse.json({ skipped: true, reason: 'property not found' });
+      return NextResponse.json(SKIPPED);
     }
     const property = propertySnap.data();
 
@@ -98,16 +129,22 @@ export async function POST(req) {
     if (!agentUserId) {
       console.log(`notify-interest: skipped for offer ${offerId} (no owning agent on property ${propertyId})`);
       await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
-      return NextResponse.json({ skipped: true, reason: 'no owning agent on this property' });
+      return NextResponse.json(SKIPPED);
     }
 
     const userSnap = await adminDb.collection('users').doc(agentUserId).get();
     if (!userSnap.exists || !userSnap.data()?.email) {
       console.log(`notify-interest: skipped for offer ${offerId} (agent ${agentUserId} has no email on file)`);
       await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
-      return NextResponse.json({ skipped: true, reason: 'agent has no email on file' });
+      return NextResponse.json(SKIPPED);
     }
     const agent = userSnap.data();
+
+    if (!(await allowPropertyNotification(propertyId))) {
+      console.log(`notify-interest: throttled for offer ${offerId} (property ${propertyId} reached ${NOTIFY_MAX_PER_HOUR}/hour)`);
+      await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
+      return NextResponse.json(SKIPPED);
+    }
 
     // showSuburbOnly controls what an anonymous BUYER sees on the public
     // property page — it has no bearing on what the agent who owns this
