@@ -165,14 +165,15 @@ describe('authorised resend of the campaign link', () => {
 describe('buyer registration notification goes to the assigned agent', () => {
   const notify = (offerId, propertyId) => notifyInterest(new Request('http://x', { method: 'POST', body: JSON.stringify({ offerId, propertyId }) }));
   it('uses the campaign owner (the assigned agent), never the administrator who created it, and only once', async () => {
-    store.set('offers/offer_ivy_0001', { ...store.get('offers/r1') }); // real Firestore ids are 20 characters
-    expect((await (await notify('offer_ivy_0001', 'p_ivy')).json())).toEqual({ sent: true });
+    store.set('offers/offer_ivy_0001', { ...store.get('offers/r1'), propertyId: 'prop_ivy_0001' }); // real Firestore ids are 20 characters
+    store.set('properties/prop_ivy_0001', { ...store.get('properties/p_ivy') });
+    expect((await (await notify('offer_ivy_0001', 'prop_ivy_0001')).json())).toEqual({ sent: true });
     expect(sendNewBuyerInterestEmail).toHaveBeenCalledTimes(1);
     const call = sendNewBuyerInterestEmail.mock.calls[0][0];
-    expect(call).toMatchObject({ agentEmail: 'ivy@hph.com', propertyId: 'p_ivy', buyerEmail: 'r1@buyer.com' });
+    expect(call).toMatchObject({ agentEmail: 'ivy@hph.com', propertyId: 'prop_ivy_0001', buyerEmail: 'r1@buyer.com' });
     expect(call.agentEmail).not.toBe('hannah@hph.com');
     expect(JSON.stringify(call)).not.toMatch(/987654|offerAmount|sess-secret/);
-    await notify('offer_ivy_0001', 'p_ivy');
+    await notify('offer_ivy_0001', 'prop_ivy_0001');
     expect(sendNewBuyerInterestEmail).toHaveBeenCalledTimes(1);
   });
 });
