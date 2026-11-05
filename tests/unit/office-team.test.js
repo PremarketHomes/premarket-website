@@ -130,7 +130,7 @@ describe('dashboard greeting and Office Team navigation (source guards)', () => 
   });
 
   it('office admins (only) get an Agents sidebar link to the office agent directory', () => {
-    expect(dash).toMatch(/isOfficeAdmin === true\s*\? \[[\s\S]*?id: 'office-agents', label: 'Agents'[\s\S]*?href: '\/dashboard\/office\/agents'[\s\S]*?id: 'office-teams', label: 'Teams'[\s\S]*?href: '\/dashboard\/office\/teams'/);
+    expect(dash).toMatch(/isOfficeAdmin === true\s*\? \[[\s\S]*?id: 'office-agents', label: 'Agents'[\s\S]*?href: '\/dashboard\/office\/agents'[\s\S]*?id: 'office-teams', label: 'Teams'[\s\S]*?href: '\/dashboard\/office\/teams'[\s\S]*?id: 'office-campaigns', label: 'Campaigns'[\s\S]*?href: '\/dashboard\/office\/campaigns'/);
   });
 
   it('team page is read-only and uses only the office APIs', () => {

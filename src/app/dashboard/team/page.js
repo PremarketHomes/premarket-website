@@ -61,6 +61,16 @@ export default function MyTeamPage() {
   const [teamProps, setTeamProps] = useState({ status: 'idle', data: null });
   const [myProps, setMyProps] = useState({ status: 'idle', data: null });
   const [ownerFilter, setOwnerFilter] = useState('all');
+  // Team creators can create campaigns for the agents in their own team (server decides; others see nothing).
+  const [canCreateForTeam, setCanCreateForTeam] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    authFetch('/api/properties/managed/agents')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (!cancelled && b?.role === 'teamAdmin' && b.agents.length > 0) setCanCreateForTeam(true); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -210,6 +220,11 @@ export default function MyTeamPage() {
             <ArrowLeft className="w-4 h-4" /> Dashboard
           </Link>
           <h1 className="text-2xl font-bold text-slate-900">My Team</h1>
+          {canCreateForTeam && (
+            <Link href="/dashboard/add" className="inline-flex items-center gap-1 mt-2 text-sm font-semibold text-orange-600 hover:text-orange-700">
+              Create a campaign for a teammate
+            </Link>
+          )}
           <p className="text-sm text-slate-500 mt-1">
             {office.name} · Teammates can see each other&apos;s campaigns and buyer feedback, read-only. Everyone keeps their own account, properties and billing.
           </p>

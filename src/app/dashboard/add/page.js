@@ -150,6 +150,11 @@ export default function AddPropertyPage() {
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
 
+  // Managed (office admin / team creator) creation: who the campaign is FOR. '' = myself (existing flow).
+  const [assignable, setAssignable] = useState({ role: null, agents: [] });
+  const [ownerUid, setOwnerUid] = useState('');
+  const managedRequestId = useRef(null);
+
   // Agent assignment state
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [teamAgents, setTeamAgents] = useState([]);
@@ -254,6 +259,17 @@ export default function AddPropertyPage() {
         setPricingLoadFailed(true);
       });
   }, []);
+
+  // Agents this user may create campaigns for (empty for ordinary agents, so nothing changes for them).
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    authFetch('/api/properties/managed/agents')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (!cancelled && b?.agents) setAssignable(b); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user]);
 
   // Fetch team agents
   useEffect(() => {
@@ -655,6 +671,51 @@ export default function AddPropertyPage() {
     }
     if (!user) return;
 
+    if (ownerUid) {
+      // Office admin / team creator creating FOR another agent: the server checks authority and assigns
+      // ownership to that agent. Photos go through the existing image upload first.
+      if (video) {
+        setErrors({ step: 'Video cannot be added when creating a campaign for another agent. Remove it, and the agent can add it later.' });
+        return;
+      }
+      try {
+        setIsSubmitting(true);
+        if (!managedRequestId.current) managedRequestId.current = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}-0000000000`).replace(/[^A-Za-z0-9-]/g, '');
+        const urls = images.filter((img) => typeof img === 'string');
+        for (const f of images.filter((img) => typeof img !== 'string')) {
+          const file = await convertHeicIfNeeded(f);
+          const fd = new FormData();
+          fd.append('file', file);
+          const up = await authFetch('/api/upload-image', { method: 'POST', body: fd });
+          if (!up.ok) throw new Error('A photo could not be uploaded. Nothing was created. Please try again.');
+          urls.push((await up.json()).url);
+        }
+        const res = await authFetch('/api/properties/managed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ownerUid,
+            requestId: managedRequestId.current,
+            acceptTerms: termsAccepted,
+            property: {
+              address, formattedAddress, bathrooms, bedrooms, carSpaces, description, imageUrls: urls,
+              ...(heroFocalPoint ? { heroFocalPoint } : {}),
+              features: Object.keys(features).filter((f) => features[f]),
+              location, price: priceRaw, squareFootage, title, propertyType: type, listingStatus, showSuburbOnly,
+            },
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || 'The campaign could not be created.');
+        router.push(assignable.role === 'officeAdmin' ? '/dashboard/office/campaigns?created=1' : '/dashboard?created=1');
+      } catch (err) {
+        console.error('Managed submit failed:', err);
+        setErrors({ step: err.message || 'Something went wrong. Please try again.' });
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
@@ -825,6 +886,27 @@ export default function AddPropertyPage() {
             {/* Step 1: Address */}
             {step === STEPS.ADDRESS && (
               <div className="">
+                {assignable.agents.length > 0 && (
+                  <div className="mb-8 rounded-md border border-stone-200 bg-white p-4">
+                    <label htmlFor="campaign-for" className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Who is this campaign for?</label>
+                    <select
+                      id="campaign-for"
+                      value={ownerUid}
+                      onChange={(e) => { setOwnerUid(e.target.value); managedRequestId.current = null; }}
+                      className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white text-stone-900 outline-none focus:border-[#e38100]"
+                    >
+                      <option value="">Myself</option>
+                      {assignable.agents.map((a) => (
+                        <option key={a.uid} value={a.uid}>{a.name || a.email}{a.loginStatus === 'invited' ? ' (not logged in yet)' : ''}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-stone-500 mt-2">
+                      {ownerUid
+                        ? `The campaign will belong to the selected agent and appear on their dashboard, with you recorded as the creator. Photos only: the agent can add a video later. Billing follows the agent's existing billing arrangement.`
+                        : assignable.role === 'officeAdmin' ? 'You can create campaigns for any agent in your office.' : 'You can create campaigns for agents in your team.'}
+                    </p>
+                  </div>
+                )}
                 <h2 className="font-serif text-[28px] sm:text-3xl leading-tight text-stone-900 mb-2">Where is the property?</h2>
                 <p className="text-[15px] text-stone-500 mb-8">Start typing and select from the suggestions.</p>
 
@@ -1345,13 +1427,13 @@ export default function AddPropertyPage() {
                     />
                   </div>
 
-                  {/* Agent Selector */}
-                  <AgentSelector
+                  {/* Agent Selector (listing-agent profiles belong to the signed-in user, so not used when creating for another agent) */}
+                  {!ownerUid && <AgentSelector
                     agents={teamAgents}
                     selectedAgentId={selectedAgentId}
                     onSelect={setSelectedAgentId}
                     onAddNew={() => setShowAgentModal(true)}
-                  />
+                  />}
                 </div>
               </div>
             )}
