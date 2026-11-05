@@ -6,6 +6,8 @@ import { ArrowLeft, Search, Camera, Pencil, Mail, Phone, Loader2, UserPlus, X, I
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
+import ImagePositioner from '../../../components/ImagePositioner';
+import { getCroppedImageBlob, blobToFile } from '../../../utils/imageCrop';
 
 const LOGIN = {
   active: { label: 'Active', className: 'bg-emerald-100 text-emerald-700' },
@@ -44,14 +46,45 @@ function EditModal({ officeId, agent, onClose, onSaved }) {
   const [error, setError] = useState('');
   const fileRef = useRef(null);
 
+  // Same crop/zoom/reposition control as the settings avatar and AgentModal. The raw pick is held only until the positioner's Save bakes it
+  // into a 480x480 PNG, which becomes the file that is uploaded (never the original).
+  const [positionerSrc, setPositionerSrc] = useState(null);
+  const [positionerSaving, setPositionerSaving] = useState(false);
+  const [positionerError, setPositionerError] = useState('');
+  const [originalSrc, setOriginalSrc] = useState(null); // the picked image, kept so "Reposition" can reopen it
+
   const pick = (e) => {
     const f = e.target.files?.[0];
+    e.target.value = '';
     if (!f) return;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) return setError('Please choose a JPEG, PNG or WebP image.');
     if (f.size > 5 * 1024 * 1024) return setError('That photo is over 5MB.');
     setError('');
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
+    setPositionerError('');
+    if (originalSrc) URL.revokeObjectURL(originalSrc);
+    const url = URL.createObjectURL(f);
+    setOriginalSrc(url);
+    setPositionerSrc(url);
+  };
+
+  const reposition = () => { setPositionerError(''); setPositionerSrc(originalSrc); };
+  const closePositioner = () => { setPositionerSrc(null); setPositionerError(''); };
+
+  const onPositionerSave = async ({ croppedAreaPixels }) => {
+    setPositionerSaving(true);
+    setPositionerError('');
+    try {
+      const blob = await getCroppedImageBlob(positionerSrc, croppedAreaPixels, { outputWidth: 480, outputHeight: 480 });
+      if (preview.startsWith('blob:')) URL.revokeObjectURL(preview);
+      setPreview(URL.createObjectURL(blob));
+      setFile(blobToFile(blob, 'avatar.png'));
+      closePositioner();
+    } catch (err) {
+      console.error('Error cropping photo:', err);
+      setPositionerError('Could not process that image. You can try Save again, or Cancel and pick a different file.');
+    } finally {
+      setPositionerSaving(false);
+    }
   };
 
   const save = async () => {
@@ -102,8 +135,11 @@ function EditModal({ officeId, agent, onClose, onSaved }) {
             <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800">
               <Camera className="w-4 h-4" /> {preview ? 'Replace photo' : 'Upload photo'}
             </button>
+            {originalSrc && file && (
+              <button type="button" onClick={reposition} className="ml-3 text-sm font-semibold text-slate-500 hover:text-slate-800">Reposition</button>
+            )}
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={pick} className="hidden" />
-            <p className="text-xs text-slate-400 mt-1.5">JPEG, PNG or WebP, up to 5MB.</p>
+            <p className="text-xs text-slate-400 mt-1.5">JPEG, PNG or WebP, up to 5MB. You can crop and zoom before saving.</p>
           </div>
         </div>
 
@@ -133,6 +169,20 @@ function EditModal({ officeId, agent, onClose, onSaved }) {
         </div>
 
         {error && <p className="text-sm text-red-600 mt-3" role="alert">{error}</p>}
+        {positionerSrc && (
+          <ImagePositioner
+            imageSrc={positionerSrc}
+            aspect={1}
+            cropShape="round"
+            title="Position the agent's photo"
+            description="Drag to reposition. Use the slider, your scroll wheel, or pinch to zoom."
+            onCancel={closePositioner}
+            onSave={onPositionerSave}
+            saving={positionerSaving}
+            error={positionerError}
+          />
+        )}
+
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
           <button onClick={save} disabled={saving} className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 disabled:opacity-60">
