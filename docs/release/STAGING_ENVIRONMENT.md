@@ -1,5 +1,23 @@
 # Staging environment for the Office Workspace
 
+## Status (2026-11-05): project created, authentication and third-party services pending
+
+| Item | State |
+|---|---|
+| GCP/Firebase project | **Created:** `premarket-ows-staging-dbf1` ("Premarket STAGING test only"). **No billing linked.** Separate from `premarket-homes` |
+| Firestore | **Created** (australia-southeast1, same as live). Repo rules and indexes **deployed to staging only** (includes the 3 new server-only rules) |
+| Service account | **Created for staging only** (`staging-admin@premarket-ows-staging-dbf1`); key stored at `~/.premarket-staging/staging-sa.json` (mode 600, outside the repo). No production credential used or copied |
+| Web app config | **Created**; values in `~/.premarket-staging/web-config.json` |
+| Env file for Vercel | **Prepared** at `~/.premarket-staging/staging.env` (contains the service account: never commit; import into Vercel Preview scoped to branch `staging`) |
+| Isolation | **Verified** (`scripts/verify-staging-isolation.js`): credential, browser config and the running app's `/api/internal/environment` all report the staging project; not the live backend; team registrations off; email guard on |
+| Firebase Authentication | **Blocked:** cannot be initialised through the API without billing ("Identity Platform requires billing"). Needs a console click (free path) or a billing link (decision below) |
+| Firebase Storage | **Not available:** the default bucket requires a billing plan. Not needed by Office Workspace flows (uploads go to Bunny) |
+| Seed | **Not run** (needs Auth; dry run passes) |
+| Vercel staging deployment | **Not created:** no Vercel access from this environment |
+| Bunny staging zone, Resend, Google Places key | **Not created:** no access to those accounts from this environment |
+
+Open decisions are listed in the report that accompanied this status; the sections below describe the design and runbook.
+
 **Prepared, not created.** No staging project, accounts, keys or Vercel settings have been created. Creating a Firebase/GCP
 project links a billing account and issues a service-account key, so it needs explicit approval. Everything below is ready to
 run on approval. Companion: `OFFICE_WORKSPACE_RELEASE.md`, `PREVIEW_DEPLOYMENT_PLAN.md`.
