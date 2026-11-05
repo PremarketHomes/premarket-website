@@ -213,6 +213,23 @@ describe('assignable agent selector is scoped to permissions', () => {
   });
 });
 
+describe('hardening', () => {
+  it('refuses to create for suspended, disabled or deactivated accounts', async () => {
+    for (const [uid, patch] of [['bob', { accountStatus: 'suspended' }], ['cat', { disabled: true }], ['solo', { deactivated: true }]]) {
+      store.set(`users/${uid}`, { ...store.get(`users/${uid}`), ...patch });
+      expect((await create('hannah', uid)).status).toBe(404);
+    }
+    expect(props()).toHaveLength(0);
+    expect(recordPropertyCharge).not.toHaveBeenCalled();
+  });
+  it('accepts the focal-point formats the wizard produces (decimals, exponents) and clamps to 0-100', () => {
+    expect(sanitizePropertyInput(input({ heroFocalPoint: '50.5% 33.333333%' })).heroFocalPoint).toBe('50.5% 33.333333%');
+    expect(sanitizePropertyInput(input({ heroFocalPoint: '1.2e-7% 99%' })).heroFocalPoint).toBe('1.2e-7% 99%');
+    expect(sanitizePropertyInput(input({ heroFocalPoint: '150% -5%' })).heroFocalPoint).toBe('100% 0%');
+    expect(sanitizePropertyInput(input({ heroFocalPoint: 'javascript:1' })).heroFocalPoint).toBeUndefined();
+  });
+});
+
 describe('input validation', () => {
   it('requires an address and price, https photos and sane sizes', () => {
     expect(() => sanitizePropertyInput({ price: '1' })).toThrow();

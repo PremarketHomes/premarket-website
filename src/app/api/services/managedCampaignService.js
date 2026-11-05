@@ -125,7 +125,10 @@ export function sanitizePropertyInput(input) {
   const loc = input.location && typeof input.location === 'object' ? input.location : null;
   const latitude = loc ? Number(loc.latitude) : NaN;
   const longitude = loc ? Number(loc.longitude) : NaN;
-  const focal = typeof input.heroFocalPoint === 'string' && /^[0-9.]+% [0-9.]+%$/.test(input.heroFocalPoint) ? input.heroFocalPoint : null;
+  // Same "x% y%" format the wizard's positioner produces (may carry decimals or an exponent); clamp to 0-100.
+  const fm = typeof input.heroFocalPoint === 'string' ? input.heroFocalPoint.match(/^(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)% (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)%$/i) : null;
+  const focal = fm && Number.isFinite(Number(fm[1])) && Number.isFinite(Number(fm[2]))
+    ? `${Math.min(100, Math.max(0, Number(fm[1])))}% ${Math.min(100, Math.max(0, Number(fm[2])))}%` : null;
   const listingStatus = input.listingStatus === 'on-market' ? 'on-market' : 'premarket';
   const price = String(input.price ?? '').replace(/[^0-9]/g, '');
   if (!price) throw new ManagedCampaignError('An estimated price is required');
@@ -163,6 +166,10 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
 
   const owner = await loadUser(db, ownerUid);
   if (!owner || !isAgentUser(owner)) throw new ManagedCampaignError('Agent not found', 404);
+  // Active or invited (never logged in) accounts only: not suspended, disabled or deactivated ones.
+  if ((owner.accountStatus && !['active', 'invited'].includes(owner.accountStatus)) || owner.disabled === true || owner.deactivated === true) {
+    throw new ManagedCampaignError('Agent not found', 404);
+  }
   const role = await resolveManagementRole(db, { actorUid, owner });
   // 404, not 403: never confirm that an agent outside the actor's reach exists.
   if (!role) throw new ManagedCampaignError('Agent not found', 404);
