@@ -1,5 +1,5 @@
 import { sendEmail } from './resendService';
-import { wrapEmail, ctaButton, greeting, p, signature, heading, detailList, steps, esc, BASE_URL } from './emailTemplates';
+import { wrapEmail, ctaButton, greeting, p, signature, heading, detailList, steps, esc, COLORS, BASE_URL } from './emailTemplates';
 
 export const buyerLinkFor = (propertyId) => `${BASE_URL}/find-property?propertyId=${encodeURIComponent(propertyId)}`;
 
@@ -15,7 +15,7 @@ export async function sendCampaignLinkToAgentEmail({ to, firstName, propertyAddr
     ${heading(resend ? 'Your Premarket campaign link' : 'Your Premarket campaign is ready to share')}
     ${greeting(esc(firstName))}
     ${p(resend ? 'Here is your campaign link again.' : `${by} set up a Premarket campaign for you.`)}
-    ${detailList([['Property', esc(propertyAddress)], ['Your campaign link', `<a href="${esc(link)}" style="color:#ea580c; word-break:break-all;">${esc(link)}</a>`]])}
+    ${detailList([['Property', esc(propertyAddress)], ['Your campaign link', `<a href="${esc(link)}" style="color:${COLORS.brand}; word-break:break-all;">${esc(link)}</a>`]])}
     ${steps([
       'Copy your campaign link above.',
       'Paste it into an email or message to the buyers in your database (your CRM, Mailchimp, or a personal email).',

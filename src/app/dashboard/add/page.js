@@ -893,7 +893,7 @@ export default function AddPropertyPage() {
                       id="campaign-for"
                       value={ownerUid}
                       onChange={(e) => { setOwnerUid(e.target.value); managedRequestId.current = null; }}
-                      className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white text-stone-900 outline-none focus:border-[#e38100]"
+                      className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white text-stone-900 outline-none focus:border-stone-500"
                     >
                       <option value="">Myself</option>
                       {assignable.agents.map((a) => (
