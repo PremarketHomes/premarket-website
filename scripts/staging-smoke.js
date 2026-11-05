@@ -140,7 +140,7 @@ const prodCounts = async () => 'skipped';
     await admin.goto(BASE + '/dashboard/office/agents'); await admin.waitForSelector('text=Edit Profile');
     await admin.fill('input[aria-label="Search agents"]', 'Ivy'); await admin.click('li:has-text("Ivy") button:has-text("Edit Profile")'); await admin.waitForSelector('[role=dialog]');
     await admin.fill('[role=dialog] input[maxlength="120"]', 'Ivy Rose Invited'); await admin.fill('[role=dialog] input[inputmode=tel]', '0411 222 333'); await admin.fill('[role=dialog] input[inputmode=email]', 'ivy.pro@premarket-staging.invalid');
-    await admin.setInputFiles('[role=dialog] input[type=file]', path.join(OUT, 'tiny.png')); await admin.screenshot({ path: path.join(OUT, 's-3-modal.png') });
+    await admin.setInputFiles('[role=dialog] input[type=file]', path.join(OUT, 'tiny.png')); await admin.waitForSelector('text=Position the agent'); await admin.click('div.z-\\[70\\] button:has-text("Save")'); await admin.waitForSelector('text=Position the agent', { state: 'detached' }); await admin.screenshot({ path: path.join(OUT, 's-3-modal.png') }); // the photo is now cropped in the existing positioner before it is saved
     await admin.click('[role=dialog] button:has-text("Save")'); await admin.waitForSelector('text=Profile saved.', { timeout: 30000 });
     const prof = (await db.collection('officeAgents').where('linkedUid', '==', 'stg_invited').get()); ok(prof.size === 1, 'profiles ' + prof.size);
     const d = prof.docs[0].data(); ok(d.fullName === 'Ivy Rose Invited' && d.phone === '0411 222 333' && d.contactEmail === 'ivy.pro@premarket-staging.invalid' && /premarket-staging\.b-cdn\.net\/office-agents\/stg_office\//.test(d.photoUrl), 'profile fields: ' + JSON.stringify(d).slice(0, 160));
