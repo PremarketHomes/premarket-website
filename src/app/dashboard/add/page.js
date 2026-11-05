@@ -83,7 +83,8 @@ export default function AddPropertyPage() {
 
   const { isLoaded: mapsLoaded } = useJsApiLoader({
     id: 'gmaps-script',
-    googleMapsApiKey: 'AIzaSyBbLrFWUU62O_by81ihAVKvye4bHA0sah8',
+    // Production key by default; a staging deployment sets NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to its own referrer-restricted key.
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyBbLrFWUU62O_by81ihAVKvye4bHA0sah8',
     libraries: GMAPS_LIBRARIES,
   });
 

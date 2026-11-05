@@ -133,6 +133,14 @@ describe('storage and Firebase configuration defaults', () => {
   });
 });
 
+describe('Google Maps key', () => {
+  it('the Add Property wizard uses a configurable key, defaulting to the existing one', () => {
+    const add = readFileSync('src/app/dashboard/add/page.js', 'utf8');
+    expect(add).toContain('process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||');
+    expect(add.match(/googleMapsApiKey:/g)).toHaveLength(1);
+  });
+});
+
 describe('environment status route and managed campaign flag', () => {
   it('reports the backend and safeguards without secrets', async () => {
     const saved = { ...process.env };
