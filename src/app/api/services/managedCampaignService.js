@@ -30,6 +30,12 @@ export class ManagedCampaignError extends Error {
   }
 }
 
+// Parity with the agent wizard, which also sets vendorUploaded: true. The ONLY reader of this flag we know of is the
+// legacy Cloud Function `onVendorPropertyCreated`, which emails the property owner when it is true. If that function
+// is still deployed when this ships, set this to false (one line) to avoid a duplicate old-design email to assigned
+// agents; the real fix is retiring the function (docs/operation-1-rollout.md step 5). See docs/release.
+export const MANAGED_VENDOR_UPLOADED = true;
+
 const displayName = (u) => `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || null;
 const isAgentUser = (u) => !!(u?.agent || u?.isAgent || u?.roles?.includes?.('agent'));
 
@@ -184,7 +190,7 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
     active: true, visibility: false, acceptingOffers: true,
     campaignId: 'FqMZd0mWlNlSBl66s7BN',
     isEager: null, clientName: null, clientEmail: null, clientPhone: null,
-    wantsPremiumListing: false, agent: true, vendorUploaded: true, agentManaged: true,
+    wantsPremiumListing: false, agent: true, vendorUploaded: MANAGED_VENDOR_UPLOADED, agentManaged: true,
     // Ownership = the assigned agent. The listing-agent display profile (`agentId`) is not set: the public
     // page shows the owner's professional profile (see publicProfileService).
     userId: ownerUid, agentId: null, agentName: null, agentAvatar: null,
