@@ -96,4 +96,70 @@ function reconcile({ officeId, users = [], invites = [], staged = [], profiles =
   return report;
 }
 
-module.exports = { reconcile };
+/* ───────────── output minimisation + read-only guarantees ───────────── */
+
+/** j***@domain.com — enough to recognise a record, not enough to contact anyone. */
+function maskEmail(e) {
+  const v = String(e || '');
+  const at = v.indexOf('@');
+  if (at < 1) return v ? '***' : null;
+  return `${v[0]}***${v.slice(at)}`;
+}
+/** "Jo Smith" -> "J. S." */
+const maskName = (n) => (n ? String(n).split(/\s+/).filter(Boolean).map((w) => `${w[0].toUpperCase()}.`).join(' ') : null);
+
+/**
+ * What may be printed: opaque ids, masked emails, login status, category and reason. No names, no phone
+ * numbers, no photo URLs, no buyer data (buyers are never read at all).
+ */
+function redactReport(report) {
+  const row = (r) => ({
+    uid: r.uid || null, email: maskEmail(r.email), source: r.source, loginStatus: r.loginStatus,
+    ...(r.reason ? { reason: r.reason } : {}), ...(r.profileId ? { profileId: r.profileId } : {}), ...(r.profileIds ? { profileIds: r.profileIds } : {}),
+    ...(r.note ? { note: r.note } : {}), ...(r.wouldSeed ? { wouldSeed: r.wouldSeed } : {}),
+  });
+  return {
+    officeId: report.officeId,
+    counts: report.counts,
+    exact: report.exact.map(row),
+    missing: report.missing.map(row),
+    ambiguous: report.ambiguous.map(row),
+    duplicates: report.duplicates.map((d) => ({
+      reason: d.reason,
+      ...(d.email ? { email: maskEmail(d.email) } : {}),
+      ...(d.name ? { name: maskName(d.name) } : {}),
+      ...(d.emails ? { emails: d.emails.map(maskEmail) } : {}),
+      ...(d.uids ? { uids: d.uids } : {}),
+    })),
+    notes: report.notes,
+  };
+}
+
+const READ_COLLECTIONS = ['users', 'officeInvites', 'officeAgents', 'officeImports', 'agents', 'officeAdminInfo'];
+const WRITE_METHODS = ['set', 'update', 'delete', 'add', 'create', 'batch', 'bulkWriter', 'runTransaction', 'recursiveDelete', 'listCollections'];
+
+/**
+ * Wraps a Firestore handle so ONLY reads of an allowlist of collections are possible. Any write-like method,
+ * or any other collection, throws — so this script cannot write even if the code were later edited carelessly.
+ */
+function readOnlyDb(db) {
+  const guard = (target, label) => new Proxy(target, {
+    get(obj, prop) {
+      if (WRITE_METHODS.includes(String(prop))) throw new Error(`read-only script: ${label}.${String(prop)}() is not allowed`);
+      const v = obj[prop];
+      if (typeof v !== 'function') return v;
+      return (...args) => {
+        const out = v.apply(obj, args);
+        return out && typeof out === 'object' && typeof out.then !== 'function' ? guard(out, label) : out;
+      };
+    },
+  });
+  return {
+    collection(name) {
+      if (!READ_COLLECTIONS.includes(name)) throw new Error(`read-only script: collection "${name}" is outside the allowlist`);
+      return guard(db.collection(name), name);
+    },
+  };
+}
+
+module.exports = { reconcile, redactReport, maskEmail, maskName, readOnlyDb, READ_COLLECTIONS };
