@@ -106,6 +106,7 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
       ? [
           { id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' },
           { id: 'office-agents', label: 'Agents', icon: Users, href: '/dashboard/office/agents' },
+          { id: 'office-teams', label: 'Teams', icon: UserPlus, href: '/dashboard/office/teams' },
         ]
       : []),
     ...(isLeader
