@@ -2,6 +2,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { createHash } from 'node:crypto';
 import { recordPropertyCharge } from './billingService';
 import { pickNotificationUser } from '../../utils/notificationUser';
+import { sendCampaignLinkOnce } from './agentNotificationService';
 
 /**
  * Office- and team-managed campaigns, built on the EXISTING property model (no second campaign system).
@@ -218,7 +219,12 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
     });
   } catch (e) { console.error('audit write failed', id, e.message); }
 
-  return { propertyId: id, duplicate: false, role, charge: charge?.reason || (charge?.created ? 'recorded' : null) };
+  // Email the ASSIGNED agent their campaign link (once; a retry or double-submit never re-sends). Failure never
+  // affects the campaign: it is logged in emailLog and an authorised admin can resend.
+  let notification = 'error';
+  try { notification = (await sendCampaignLinkOnce({ propertyId: id, recipientUid: ownerUid, seq: 1 })).reason || 'sent'; } catch (e) { console.error('campaign link email failed', id, e.message); }
+
+  return { propertyId: id, duplicate: false, role, charge: charge?.reason || (charge?.created ? 'recorded' : null), notification };
 }
 
 /**
@@ -285,4 +291,34 @@ export async function listOfficeCampaigns(db, officeId) {
     }
   }
   return out.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+/**
+ * Resend the campaign link to the agent the campaign belongs to. Allowed for the owner, an office admin of
+ * their office, or the creator of their team (live check). A resend is a NEW once-only event (seq + 1) and is
+ * rate-limited, so it can be repeated deliberately but never by accident.
+ */
+const RESEND_COOLDOWN_MS = 60 * 1000;
+export async function resendCampaignLink(db, { actorUid, propertyId }) {
+  const ref = db.collection('properties').doc(propertyId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new ManagedCampaignError('Campaign not found', 404);
+  const property = snap.data();
+  const owner = property.userId ? await loadUser(db, property.userId) : null;
+  if (!owner) throw new ManagedCampaignError('Campaign not found', 404);
+  const role = actorUid === owner.uid ? 'owner' : await resolveManagementRole(db, { actorUid, owner });
+  if (!role) throw new ManagedCampaignError('Campaign not found', 404);
+
+  const last = Number(property.campaignLinkResentAtMs || 0);
+  if (Date.now() - last < RESEND_COOLDOWN_MS) throw new ManagedCampaignError('The link was just sent. Please wait a minute before sending it again.', 429, 'cooldown');
+  const seq = Math.max(1, Number(property.campaignLinkSeq || 1)) + 1;
+  await ref.update({ campaignLinkSeq: seq, campaignLinkResentAtMs: Date.now() });
+  const result = await sendCampaignLinkOnce({ propertyId, recipientUid: owner.uid, seq });
+  try {
+    await db.collection('officeCampaignAudit').add({
+      action: 'campaign.resendLink', propertyId, ownerUid: owner.uid, actorUid, actorRole: role,
+      officeId: owner.officeId || null, result: result.reason || (result.sent ? 'sent' : 'not-sent'), at: FieldValue.serverTimestamp(),
+    });
+  } catch (e) { console.error('audit write failed', propertyId, e.message); }
+  return { propertyId, sent: result.sent === true, reason: result.sent ? null : result.reason };
 }

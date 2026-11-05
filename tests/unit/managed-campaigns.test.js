@@ -30,6 +30,8 @@ const authSpies = { verifyIdToken: vi.fn(), createUser: vi.fn(), updateUser: vi.
 vi.mock('../../src/app/firebase/adminApp', () => ({ adminDb: { collection: (n) => colRef(n) } }));
 vi.mock('firebase-admin/firestore', () => ({ FieldValue: { serverTimestamp: () => 'TS' } }));
 vi.mock('firebase-admin/auth', () => ({ getAuth: () => authSpies }));
+const sendCampaignLinkOnce = vi.fn(async () => ({ sent: true }));
+vi.mock('../../src/app/api/services/agentNotificationService', () => ({ sendCampaignLinkOnce: (...a) => sendCampaignLinkOnce(...a) }));
 const recordPropertyCharge = vi.fn(async () => ({ created: true }));
 vi.mock('../../src/app/api/services/billingService', () => ({ recordPropertyCharge: (...a) => recordPropertyCharge(...a), settleChargesForAgent: vi.fn(), recordOfficeDeparture: vi.fn() }));
 
@@ -41,7 +43,7 @@ import { sanitizePropertyInput, resolveManagementRole } from '../../src/app/api/
 
 const agent = (n, extra = {}) => ({ firstName: n, lastName: 'X', email: `${n.toLowerCase()}@hph.com`, agent: true, officeId: 'hph', accountStatus: 'active', ...extra });
 function seed() {
-  store.clear(); recordPropertyCharge.mockClear();
+  store.clear(); recordPropertyCharge.mockClear(); sendCampaignLinkOnce.mockClear();
   store.set('officeAdminInfo/hph', { name: 'HPH', officeAdminUids: ['hannah'], status: 'active' });
   store.set('officeAdminInfo/other', { name: 'Other', officeAdminUids: ['otheradmin'], status: 'active' });
   store.set('users/hannah', agent('Hannah', { isOfficeAdmin: true }));
