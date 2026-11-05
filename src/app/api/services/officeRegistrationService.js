@@ -8,6 +8,8 @@
  * (This does not change how offers are stored; the underlying data linkage is tracked separately.)
  * Leadership accounts and ordinary agents/team members never reach this.
  */
+import { resolveManagementRole } from './managedCampaignService';
+
 const REGISTRATION_FIELDS = ['buyerName', 'buyerEmail', 'buyerPhone', 'nextAction', 'timeframe', 'buyerType', 'isFirstHomeBuyer', 'isInvestor'];
 const MAX_RESULTS = 300;
 const chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
@@ -17,7 +19,13 @@ const toIso = (t) => (t?.toDate ? t.toDate().toISOString() : t || null);
 const toDay = (t) => { const iso = toIso(t); const d = iso ? new Date(iso) : null; return d && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : null; };
 const displayName = (u) => `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || null;
 
-/** office admin → every current office member; team creator → members of the team they created; else null. */
+/**
+ * office admin → every current office member; team creator → members of the team they created; else null.
+ * Buyer contact details are visible ONLY for campaigns the actor is currently authorised to manage: the team scope
+ * is re-checked per agent with the very same live function that authorises managing a campaign
+ * (resolveManagementRole), so registration visibility and campaign management can never drift apart.
+ * Leadership Hub membership grants nothing here.
+ */
 export async function resolveRegistrationScope(db, actorUid) {
   const actorSnap = await db.collection('users').doc(actorUid).get();
   if (!actorSnap.exists || !actorSnap.data().officeId) return null;
@@ -25,12 +33,12 @@ export async function resolveRegistrationScope(db, actorUid) {
   const officeSnap = await db.collection('officeAdminInfo').doc(actor.officeId).get();
   if (!officeSnap.exists || officeSnap.data().status !== 'active') return null;
   if (Array.isArray(officeSnap.data().officeAdminUids) && officeSnap.data().officeAdminUids.includes(actorUid)) {
-    return { scope: 'office', officeId: actor.officeId, office: { id: actor.officeId, name: officeSnap.data().name || '' } };
+    return { scope: 'office', actorUid, officeId: actor.officeId, office: { id: actor.officeId, name: officeSnap.data().name || '' } };
   }
   if (actor.teamId) {
     const team = await db.collection('teams').doc(actor.teamId).get();
     if (team.exists && team.data().officeId === actor.officeId && team.data().createdBy === actorUid) {
-      return { scope: 'team', officeId: actor.officeId, teamId: actor.teamId, office: { id: actor.officeId, name: officeSnap.data().name || '' } };
+      return { scope: 'team', actorUid, officeId: actor.officeId, teamId: actor.teamId, office: { id: actor.officeId, name: officeSnap.data().name || '' } };
     }
   }
   return null;
@@ -40,7 +48,15 @@ export async function listRegistrations(db, scope) {
   const q = scope.scope === 'office'
     ? db.collection('users').where('officeId', '==', scope.officeId)
     : db.collection('users').where('teamId', '==', scope.teamId);
-  const owners = new Map((await q.get()).docs.filter((d) => d.data().officeId === scope.officeId).map((d) => [d.id, d.data()]));
+  const candidates = (await q.get()).docs.filter((d) => d.data().officeId === scope.officeId);
+  let allowed = candidates;
+  if (scope.scope === 'team') {
+    // Re-verify each agent against live management authority (their own campaigns are always the actor's to see).
+    const checks = await Promise.all(candidates.map(async (d) => d.id === scope.actorUid
+      || (await resolveManagementRole(db, { actorUid: scope.actorUid, owner: { uid: d.id, ...d.data() } })) === 'teamAdmin'));
+    allowed = candidates.filter((_, i) => checks[i]);
+  }
+  const owners = new Map(allowed.map((d) => [d.id, d.data()]));
 
   const props = new Map();
   for (const ids of chunk([...owners.keys()], 10)) {

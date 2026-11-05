@@ -165,13 +165,14 @@ describe('authorised resend of the campaign link', () => {
 describe('buyer registration notification goes to the assigned agent', () => {
   const notify = (offerId, propertyId) => notifyInterest(new Request('http://x', { method: 'POST', body: JSON.stringify({ offerId, propertyId }) }));
   it('uses the campaign owner (the assigned agent), never the administrator who created it, and only once', async () => {
-    expect((await (await notify('r1', 'p_ivy')).json())).toEqual({ sent: true });
+    store.set('offers/offer_ivy_0001', { ...store.get('offers/r1') }); // real Firestore ids are 20 characters
+    expect((await (await notify('offer_ivy_0001', 'p_ivy')).json())).toEqual({ sent: true });
     expect(sendNewBuyerInterestEmail).toHaveBeenCalledTimes(1);
     const call = sendNewBuyerInterestEmail.mock.calls[0][0];
     expect(call).toMatchObject({ agentEmail: 'ivy@hph.com', propertyId: 'p_ivy', buyerEmail: 'r1@buyer.com' });
     expect(call.agentEmail).not.toBe('hannah@hph.com');
     expect(JSON.stringify(call)).not.toMatch(/987654|offerAmount|sess-secret/);
-    await notify('r1', 'p_ivy');
+    await notify('offer_ivy_0001', 'p_ivy');
     expect(sendNewBuyerInterestEmail).toHaveBeenCalledTimes(1);
   });
 });
@@ -211,6 +212,31 @@ describe('registration visibility', () => {
   });
   it('anonymous (unregistered) opinions are never listed', async () => {
     expect((await get('hannah')).registrations.some((x) => x.id === 'opinion1')).toBe(false);
+  });
+  it('team creators see buyer details only for campaigns they are currently authorised to manage (same live rule as management)', async () => {
+    const { resolveManagementRole } = await import('../../src/app/api/services/managedCampaignService');
+    for (const who of ['ann', 'dan']) {
+      const res = await get(who);
+      for (const r of res.registrations) {
+        const owner = { uid: r.agentUid, ...store.get(`users/${r.agentUid}`) };
+        const ok = r.agentUid === who || (await resolveManagementRole(adminDb, { actorUid: who, owner })) === 'teamAdmin';
+        expect(ok).toBe(true);
+      }
+    }
+    // a member who is in the team but whose team record does not name the actor as creator is not visible
+    store.set('teams/t1', { officeId: 'hph', createdBy: 'bob' });
+    expect((await get('ann')).status).toBe(403); // ann is no longer the creator -> no scope at all
+    expect((await get('bob')).registrations.map((x) => x.id).sort()).toEqual(['r1', 'r2']);
+    // an agent whose account was suspended can no longer be managed, so their campaigns' buyer details disappear
+    store.set('teams/t1', { officeId: 'hph', createdBy: 'ann' });
+    store.set('officeAdminInfo/hph', { name: 'HPH', officeAdminUids: ['hannah'], status: 'suspended' });
+    expect((await get('ann')).status).toBe(403);
+  });
+  it('Leadership Hub membership grants no registration access and no operational rights', async () => {
+    store.set('officeAdminInfo/hph', { name: 'HPH', officeAdminUids: ['hannah'], status: 'active', leadershipUids: ['lead', 'bob'] });
+    expect((await get('lead')).status).toBe(403);
+    expect((await get('bob')).status).toBe(403);
+    expect((await get('hannah')).status).toBe(200); // office admin status is separate from leadership
   });
   it('a team creator loses visibility when the team changes (live scope)', async () => {
     store.set('users/bob', { ...store.get('users/bob'), teamId: 't2' });
