@@ -1473,6 +1473,14 @@ export default function AddPropertyPage() {
                   </div>
                 )}
 
+                {ownerUid && (
+                  <p data-testid="managed-terms-note" className="mb-4 rounded-md border border-stone-200 bg-white p-4 text-sm text-stone-600">
+                    You are accepting these terms yourself, as the person creating this campaign for{' '}
+                    <strong>{assignable.agents.find((a) => a.uid === ownerUid)?.name || 'the selected agent'}</strong>.
+                    The agent has not personally accepted them. Your acceptance is recorded against your name.
+                  </p>
+                )}
+
                 <label
                   className={`flex items-center gap-3 p-4 rounded-md border cursor-pointer transition-all ${
                     termsAccepted
