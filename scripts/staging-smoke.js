@@ -6,7 +6,7 @@
  *
  *   node scripts/staging-smoke.js <output-dir-for-screenshots>      env: BASE_URL (default http://localhost:3200), CHROME_PATH
  *
- * The staging app must run with OFFICE_REGISTRATIONS_ENABLED=1 (the overview is OFF by default) and TEAM_REGISTRATIONS_ENABLED unset.
+ * The staging app must run with MANAGED_CAMPAIGNS_ENABLED=1 and OFFICE_REGISTRATIONS_ENABLED=1 (both OFF by default) and TEAM_REGISTRATIONS_ENABLED unset.
  * Substitutes, labelled in the report: Google Places (stubbed place data), Bunny (fake upload target), Resend (payloads recorded to
  * /tmp/fake-resend.jsonl by a local preload, never sent). Everything else is real: browser UI, staging Auth, staging Firestore + deployed rules.
  */

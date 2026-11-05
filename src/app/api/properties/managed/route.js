@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
 import { verifyAuth } from '../../middleware/auth';
 import { createManagedProperty } from '../../services/managedCampaignService';
+import { managedCampaignsEnabled } from '../../services/environmentGuard';
 
 /**
  * POST /api/properties/managed
@@ -12,6 +13,7 @@ import { createManagedProperty } from '../../services/managedCampaignService';
  */
 export async function POST(request) {
   try {
+    if (!managedCampaignsEnabled()) return NextResponse.json({ error: 'Managed campaigns are not switched on yet.' }, { status: 403 }); // launch scope: off until the smoke test and terms decision are done
     const auth = await verifyAuth(request);
     if (!auth.authenticated) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const body = await request.json().catch(() => null);

@@ -2,10 +2,12 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '../../../../firebase/adminApp';
 import { verifyAuth } from '../../../middleware/auth';
 import { updateManagedProperty } from '../../../services/managedCampaignService';
+import { managedCampaignsEnabled } from '../../../services/environmentGuard';
 
 /** PATCH /api/properties/{id}/managed — body { action: 'show' | 'hide' | 'archive' }. Office admin / team creator only. */
 export async function PATCH(request, { params }) {
   try {
+    if (!managedCampaignsEnabled()) return NextResponse.json({ error: 'Managed campaigns are not switched on yet.' }, { status: 403 });
     const auth = await verifyAuth(request);
     if (!auth.authenticated) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const { id } = await params;

@@ -3,6 +3,7 @@ import { adminDb } from '../../../../firebase/adminApp';
 import { verifyAuth } from '../../../middleware/auth';
 import { requireOfficeAdmin } from '../../../services/officeService';
 import { listOfficeCampaigns } from '../../../services/managedCampaignService';
+import { managedCampaignsEnabled } from '../../../services/environmentGuard';
 
 /**
  * GET /api/offices/{officeId}/campaigns — office admin only. Every campaign owned by a current member of
@@ -10,6 +11,7 @@ import { listOfficeCampaigns } from '../../../services/managedCampaignService';
  */
 export async function GET(request, { params }) {
   try {
+    if (!managedCampaignsEnabled()) return NextResponse.json({ error: 'Managed campaigns are not switched on yet.' }, { status: 403 });
     const auth = await verifyAuth(request);
     if (!auth.authenticated) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const { officeId } = await params;

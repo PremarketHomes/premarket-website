@@ -80,6 +80,13 @@ export function filterRecipients(to, env = process.env) {
 /* ───────────── buyer registrations ───────────── */
 
 /**
+ * Managed campaign creation and management (office admin / team creator creating, showing/hiding, archiving or re-sending links for ANOTHER
+ * agent's campaign, plus the office Campaigns list). OFF unless MANAGED_CAMPAIGNS_ENABLED=1. At launch only the agent directory, profile photos and
+ * team management are on; this is switched on after the real-service smoke test and the terms-acceptance decision.
+ */
+export const managedCampaignsEnabled = (env = process.env) => env.MANAGED_CAMPAIGNS_ENABLED === '1';
+
+/**
  * The office-wide Registrations overview (identifiable buyer contact details in one list). OFF unless OFFICE_REGISTRATIONS_ENABLED=1, so
  * launching the Office Workspace adds no new buyer-data surface: office admins keep their existing per-property reports exactly as today.
  * Switch on once the opinion/registration separation (Phase D) is approved and shipped, or by explicit decision.
@@ -100,6 +107,7 @@ export function describeEnvironment(env = process.env) {
     emailGuard: { active: emailGuardActive(env), allowlistEntries: emailGuardActive(env) ? parseEmailAllowlist(env).length : null },
     teamRegistrationsEnabled: teamRegistrationsEnabled(env),
     officeRegistrationsEnabled: officeRegistrationsEnabled(env),
+    managedCampaignsEnabled: managedCampaignsEnabled(env),
     storageZone: env.BUNNY_STORAGE_ZONE || 'premarketvideos (default)',
   };
 }

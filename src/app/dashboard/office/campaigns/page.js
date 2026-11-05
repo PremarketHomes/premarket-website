@@ -31,6 +31,7 @@ function CampaignsInner() {
       if (!mine.office) return setState({ status: 'no-office', office: null, campaigns: [] });
       if (!mine.office.isOfficeAdmin) return setState({ status: 'not-admin', office: mine.office, campaigns: [] });
       const res = await authFetch(`/api/offices/${mine.office.id}/campaigns`);
+      if (res.status === 403) return setState({ status: 'off', office: mine.office, campaigns: [] });
       if (!res.ok) throw new Error('campaigns');
       setState({ status: 'ready', office: mine.office, campaigns: (await res.json()).campaigns });
     } catch { setState((s) => ({ ...s, status: 'error' })); }
@@ -69,7 +70,7 @@ function CampaignsInner() {
 
   if (state.status === 'loading') return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
   if (state.status !== 'ready') {
-    const msg = state.status === 'not-admin' ? 'Only office administrators can see office campaigns.' : state.status === 'no-office' ? 'You are not part of an office yet.' : 'We could not load the campaigns. Please try again.';
+    const msg = state.status === 'off' ? 'Managed campaigns are not switched on yet.' : state.status === 'not-admin' ? 'Only office administrators can see office campaigns.' : state.status === 'no-office' ? 'You are not part of an office yet.' : 'We could not load the campaigns. Please try again.';
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 text-center"><div><p className="text-slate-600">{msg}</p><Link href="/dashboard" className="inline-block mt-4 text-sm font-semibold text-orange-600">Back to dashboard</Link></div></div>;
   }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 const store = new Map();
@@ -67,7 +67,8 @@ const post = (uid, body) => {
 };
 const create = (uid, ownerUid, extra = {}) => post(uid, { ownerUid, requestId: rid(), acceptTerms: true, property: input(), ...extra });
 const props = () => [...store.entries()].filter(([k]) => k.startsWith('properties/'));
-beforeEach(seed);
+beforeEach(() => { seed(); process.env.MANAGED_CAMPAIGNS_ENABLED = '1'; });
+afterEach(() => { delete process.env.MANAGED_CAMPAIGNS_ENABLED; });
 
 describe('who may create for whom (server-side)', () => {
   it('Office Admin creates for any agent in the office — active, invited (never activated), team or no team', async () => {
@@ -258,5 +259,45 @@ describe('input validation', () => {
     store.set('officeAdminInfo/hph', { name: 'HPH', officeAdminUids: ['hannah'], status: 'suspended' });
     expect((await create('hannah', 'bob')).status).toBe(404);
     expect(await resolveManagementRole(db, { actorUid: 'hannah', owner: { uid: 'bob', officeId: 'hph' } })).toBeNull();
+  });
+});
+
+describe('launch default: managed campaigns are OFF (directory, photos and teams only)', () => {
+  const call = (route, uid, method = 'GET', body, params) => {
+    authSpies.verifyIdToken.mockResolvedValue({ uid });
+    return route(new Request('http://x', { method, headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }), { params: Promise.resolve(params || { id: 'p1', officeId: 'hph' }) });
+  };
+  beforeEach(() => { delete process.env.MANAGED_CAMPAIGNS_ENABLED; });
+  it('creation is refused for everyone, including the office admin, and nothing is written or charged', async () => {
+    for (const uid of ['hannah', 'ann']) {
+      const r = await call(createRoute, uid, 'POST', { ownerUid: 'bob', requestId: 'launch-default-0000001', acceptTerms: true, property: input() });
+      expect(r.status).toBe(403);
+    }
+    expect(props()).toHaveLength(0);
+    expect(recordPropertyCharge).not.toHaveBeenCalled();
+    expect(sendCampaignLinkOnce).not.toHaveBeenCalled();
+  });
+  it('show/hide/archive, link resend and the office campaigns list are all refused', async () => {
+    store.set('properties/p1', { userId: 'bob', address: 'x', visibility: false });
+    expect((await call(manageRoute, 'hannah', 'PATCH', { action: 'show' })).status).toBe(403);
+    expect(store.get('properties/p1').visibility).toBe(false);
+    const { POST: resendRoute } = await import('../../src/app/api/properties/[id]/campaign-link/resend/route');
+    expect((await call(resendRoute, 'hannah', 'POST')).status).toBe(403);
+    expect((await call(officeCampaigns, 'hannah')).status).toBe(403);
+    expect(sendCampaignLinkOnce).not.toHaveBeenCalled();
+  });
+  it('nobody is offered an agent selector or a create-for-a-teammate link', async () => {
+    for (const uid of ['hannah', 'ann', 'bob']) expect(await (await call(agentsRoute, uid)).json()).toEqual({ role: null, agents: [], teamRegistrations: false });
+  });
+  it('the sidebar Campaigns link depends on the server flag, and only the exact value "1" enables it', async () => {
+    const { managedCampaignsEnabled } = await import('../../src/app/api/services/environmentGuard');
+    for (const v of [undefined, '', '0', 'true', 'yes', ' 1']) expect(managedCampaignsEnabled({ MANAGED_CAMPAIGNS_ENABLED: v })).toBe(false);
+    expect(managedCampaignsEnabled({ MANAGED_CAMPAIGNS_ENABLED: '1' })).toBe(true);
+    expect(readFileSync('src/app/dashboard/page.js', 'utf8')).toMatch(/isOfficeAdmin === true && campaignsOn/);
+  });
+  it('agent-led campaign creation is not affected by the switch', () => {
+    const add = readFileSync('src/app/dashboard/add/page.js', 'utf8');
+    expect(add).toContain("addDoc(collection(db, 'properties'), propertyData)");
+    expect(readFileSync('src/app/api/properties/[id]/record-charge/route.js', 'utf8')).not.toMatch(/managedCampaignsEnabled/);
   });
 });

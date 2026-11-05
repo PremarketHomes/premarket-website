@@ -201,9 +201,9 @@ describe('launch default: the office Registrations overview is OFF for everyone'
     expect(dash).toContain("fetch('/api/features')");
     expect(dash).toMatch(/isOfficeAdmin === true && registrationsOn/);
     const { GET: featuresRoute } = await import('../../src/app/api/features/route');
-    expect(await (await featuresRoute()).json()).toEqual({ officeRegistrations: false });
+    expect(await (await featuresRoute()).json()).toEqual({ officeRegistrations: false, managedCampaigns: false });
     process.env.OFFICE_REGISTRATIONS_ENABLED = '1';
-    try { expect(await (await featuresRoute()).json()).toEqual({ officeRegistrations: true }); } finally { delete process.env.OFFICE_REGISTRATIONS_ENABLED; }
+    try { expect(await (await featuresRoute()).json()).toEqual({ officeRegistrations: true, managedCampaigns: false }); } finally { delete process.env.OFFICE_REGISTRATIONS_ENABLED; }
   });
   it('existing access is not reduced: the agent still gets the registration email and reports are untouched by the flag', () => {
     const notify = readFileSync('src/app/api/offers/notify-interest/route.js', 'utf8');
@@ -244,15 +244,16 @@ describe('team creators: identifiable buyer registrations are OFF by default', (
   });
   it('the agent-selector endpoint tells the UI the team registrations link is unavailable', async () => {
     const { GET: agentsRoute } = await import('../../src/app/api/properties/managed/agents/route');
+    process.env.MANAGED_CAMPAIGNS_ENABLED = '1';
     authSpies.verifyIdToken.mockResolvedValue({ uid: 'ann' });
     const off = await (await agentsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } }))).json();
     expect(off.teamRegistrations).toBe(false);
-    process.env.TEAM_REGISTRATIONS_ENABLED = '1';
+    process.env.TEAM_REGISTRATIONS_ENABLED = '1'; process.env.MANAGED_CAMPAIGNS_ENABLED = '1';
     try {
       authSpies.verifyIdToken.mockResolvedValue({ uid: 'ann' });
       const on = await (await agentsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } }))).json();
       expect(on.teamRegistrations).toBe(true);
-    } finally { delete process.env.TEAM_REGISTRATIONS_ENABLED; }
+    } finally { delete process.env.TEAM_REGISTRATIONS_ENABLED; delete process.env.MANAGED_CAMPAIGNS_ENABLED; }
   });
   it('the My Team link to registrations is only rendered when the server says it is enabled', () => {
     const page = readFileSync('src/app/dashboard/team/page.js', 'utf8');

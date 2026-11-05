@@ -85,9 +85,10 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
   const [isLeader, setIsLeader] = useState(false);
   // The office Registrations overview is gated server-side (OFFICE_REGISTRATIONS_ENABLED); this only decides whether to show the link.
   const [registrationsOn, setRegistrationsOn] = useState(false);
+  const [campaignsOn, setCampaignsOn] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/features').then((r) => (r.ok ? r.json() : null)).then((b) => { if (!cancelled && b?.officeRegistrations === true) setRegistrationsOn(true); }).catch(() => {});
+    fetch('/api/features').then((r) => (r.ok ? r.json() : null)).then((b) => { if (cancelled) return; if (b?.officeRegistrations === true) setRegistrationsOn(true); if (b?.managedCampaigns === true) setCampaignsOn(true); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
   useEffect(() => {
@@ -115,8 +116,10 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
           { id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' },
           { id: 'office-agents', label: 'Agents', icon: Users, href: '/dashboard/office/agents' },
           { id: 'office-teams', label: 'Teams', icon: UserPlus, href: '/dashboard/office/teams' },
-          { id: 'office-campaigns', label: 'Campaigns', icon: LayoutDashboard, href: '/dashboard/office/campaigns' },
         ]
+      : []),
+    ...(userData?.isOfficeAdmin === true && campaignsOn
+      ? [{ id: 'office-campaigns', label: 'Campaigns', icon: LayoutDashboard, href: '/dashboard/office/campaigns' }]
       : []),
     ...(userData?.isOfficeAdmin === true && registrationsOn
       ? [{ id: 'office-registrations', label: 'Registrations', icon: Mail, href: '/dashboard/office/registrations' }]
