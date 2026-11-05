@@ -129,6 +129,10 @@ describe('dashboard greeting and Office Team navigation (source guards)', () => 
     expect(read('src/app/dashboard/office/team/page.js')).toContain('href="/dashboard/agents"');
   });
 
+  it('office admins (only) get an Agents sidebar link to the office agent directory', () => {
+    expect(dash).toMatch(/isOfficeAdmin === true\s*\? \[[\s\S]*?id: 'office-agents', label: 'Agents'[\s\S]*?href: '\/dashboard\/office\/agents'/);
+  });
+
   it('team page is read-only and uses only the office APIs', () => {
     const t = read('src/app/dashboard/office/team/page.js');
     expect(t).not.toMatch(/method:\s*'(POST|PUT|PATCH|DELETE)'/);
