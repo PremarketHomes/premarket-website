@@ -87,7 +87,7 @@ function EditModal({ officeId, agent, onClose, onSaved }) {
     }
   };
 
-  const input = 'w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200';
+  const input = 'w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-200';
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Edit agent profile">
       <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-6 max-h-[92vh] overflow-y-auto">
@@ -250,10 +250,10 @@ export default function OfficeAgentsPage() {
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name or email"
-              className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-200" aria-label="Search agents" />
+              className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-200" aria-label="Search agents" />
           </div>
           <select value={team} onChange={(e) => setTeam(e.target.value)} aria-label="Filter by team"
-            className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-sm">
+            className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900">
             <option value="all">All teams</option>
             <option value="none">No team</option>
             {teams.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
@@ -293,7 +293,7 @@ export default function OfficeAgentsPage() {
                   </span>
                   <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full ${login.className}`}>{login.label}</span>
                 </div>
-                <div className="flex gap-2 sm:justify-end">
+                <div className="flex flex-wrap gap-2 sm:w-72 sm:justify-end shrink-0">
                   <button onClick={() => setEditing(a)} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50">
                     <Pencil className="w-3.5 h-3.5" /> Edit Profile
                   </button>
