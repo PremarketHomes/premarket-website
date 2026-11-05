@@ -1,6 +1,7 @@
 # Office Workspace: preview deployment plan
 
-**Prepared only. Nothing in this document has been executed.** Every step below needs approval first.
+**Updated 2026-11-05 after approval to push the branch and let the normal preview build.** The branch push and preview are permitted; creating test
+offices, accounts, campaigns or other production records is NOT. Real-service smoke tests move to a staging project (`STAGING_ENVIRONMENT.md`).
 Companion: `OFFICE_WORKSPACE_RELEASE.md` (checklist, smoke tests, rollback).
 
 ## The one fact that shapes this plan
@@ -11,7 +12,8 @@ A preview deployment of this repository is **not isolated from production data**
 * The server uses `FIREBASE_SERVICE_ACCOUNT` / `FIREBASE_*` from Vercel env, which for Preview are normally the same live credentials.
 * Crons (`vercel.json`) run only on Production, so a preview will not run invoice or newsletter jobs.
 
-So every write made on a preview (a profile, a campaign, a charge, an email) is a real production write. The plan therefore
+The code now blocks office, team and managed-campaign writes and restricts email to an allowlist on any live-backed preview
+(`STAGING_ENVIRONMENT.md`), but direct browser writes by the existing wizard are not covered. So every write made on a preview (a profile, a campaign, a charge, an email) is a real production write. The plan therefore
 uses a **dedicated test office and test inboxes**, access-protected, and keeps HPH agents out of it.
 
 ## Preconditions (approvals needed)

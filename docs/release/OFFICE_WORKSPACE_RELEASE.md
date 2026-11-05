@@ -7,12 +7,23 @@ production writes.** Each step needs explicit approval. Companion: `PREVIEW_DEPL
 
 | Gate | State |
 |---|---|
-| Product decisions: team creators see buyer contact details only for campaigns they currently manage; `termsAcceptedBy` stays the actual administrator | Decided, enforced and tested |
-| Server-only Firestore rules (`officeAgents`, `officeTeamAudit`, `officeCampaignAudit`) | Approved in principle. **Not deployed.** Behaviour is already default-deny; deploy is cosmetic and optional |
+| Product decisions: team-creator buyer details only for campaigns they currently manage, and **switched off** until Phase D; `termsAcceptedBy` stays the actual administrator | Decided; team access is OFF by default (`TEAM_REGISTRATIONS_ENABLED`), office-admin access unchanged |
+| Server-only Firestore rules (`officeAgents`, `officeTeamAudit`, `officeCampaignAudit`) | Approved in principle. **Not deployed.** Behaviour is already default-deny; test them on staging first |
 | Terms wording reviewed by counsel (section 6) | **Open** |
-| Phase D (opinion/registration separation) | **Open privacy blocker** for expanded identifiable-registration release (section 5) |
-| Preview smoke tests with real Bunny, Resend, Places keys (section 2) | **Not done** |
-| Legacy `onVendorPropertyCreated` status confirmed (section 2, check 1) | **Not done** |
+| Phase D (opinion/registration separation) | **Open privacy blocker** for any expanded identifiable-registration release (section 5) |
+| Legacy `onVendorPropertyCreated` duplicate-email risk | **Confirmed live; mitigated in code** (managed campaigns no longer set `vendorUploaded`); confirm on staging |
+| Real-service smoke tests (Bunny, Resend, Places) | **Not done**, to run on staging (not on the live-backed preview) |
+
+## Read-only facts verified against production (2026-11-05)
+
+* **Billing is ACTIVE:** `settings/invoicing.billingActivatedAt` = 2026-10-21; automatic invoicing off (`cronEnabled: false`); one excluded agent id.
+  Any campaign created in production now creates a real pending charge (on `office:{officeId}`). No production test campaigns.
+* **Cloud Functions deployed:** `onVendorPropertyCreated`, `onPropertyCreatedMatch`, `onSeriousOfferCreated` are all live (document-create
+  triggers). `onVendorPropertyCreated` last sent on 2026-11-03: it emails a property's owner whenever a new property has `vendorUploaded: true`.
+  `onSeriousOfferCreated` is the older second registration email (existing behaviour, not caused by this release).
+* **Staging:** no staging project exists. Only `premarket-homes` and an unused default project.
+* **Preview backend:** the browser is hardcoded to `premarket-homes`; the server uses Vercel env credentials (not readable from here: no Vercel
+  access). The code guards in `STAGING_ENVIRONMENT.md` make a live-backed preview safe regardless; `GET /api/internal/environment` shows the truth.
 
 ## 1. Verified locally (not a substitute for section 2)
 
@@ -25,11 +36,12 @@ Read-only reconciliation was run against HPH production (section 3).
 
 Use a dedicated test office and Premarket-controlled test inboxes, never HPH agents. Record each result.
 
-1. **Legacy duplicate-email check (do this first).** Create one managed campaign for a test agent. Expected: exactly ONE
-   email, "Your Premarket campaign link". If a second, old-design "property added" email also arrives, the legacy
-   Cloud Function `onVendorPropertyCreated` is still live. Fix before launch: retire it (`docs/operation-1-rollout.md`
-   step 5, needs approval) or set `MANAGED_VENDOR_UPLOADED = false` in `managedCampaignService.js`.
-   Also confirm `onPropertyCreatedMatch` sends nothing (managed campaigns start with the link hidden, so it should skip).
+1. **Legacy duplicate-email check (do this first).** The legacy Cloud Function `onVendorPropertyCreated` is live and emails a property's
+   owner when `vendorUploaded` is true. Managed campaigns now save `vendorUploaded: false` (`MANAGED_VENDOR_UPLOADED` in
+   `managedCampaignService.js`), so it should NOT fire. Create one managed campaign for a test agent: expect exactly ONE email, "Your Premarket
+   campaign link". A second old-design "Property Added to Your Dashboard" email means something else still reads the flag; stop and report.
+   Also confirm `onPropertyCreatedMatch` sends nothing (managed campaigns start with the link hidden, so it skips). The mobile app's use of
+   `vendorUploaded` is unverified.
 2. **Real Bunny uploads.** (a) Office > Agents > Edit Profile > upload a JPEG, save: photo appears in the directory and on
    the agent's public campaign page. (b) Create a campaign with 2 real photos: both appear on the buyer page.
    Check: file type/size rejections (PNG ok, SVG/GIF/6 MB refused), no photo created if save fails.
@@ -87,11 +99,11 @@ document. Consequences for this release:
 
 * The office and team registration lists copy out only an allowlist of registration fields and show the date only
   (no time), so they cannot be matched to opinion timestamps. This is data minimisation, **not anonymity**.
-* Office admins already had full report access (existing behaviour). Team creators now see buyer contact details for
-  campaigns they currently manage (approved decision).
+* Office admins already had full report access (existing behaviour); their office-wide Registrations list uses the same data authority.
+* **Team-creator access to identifiable registrations is OFF by default** (`TEAM_REGISTRATIONS_ENABLED` must be exactly `1`; the My Team link is
+  hidden and the route returns 403 otherwise). Existing agent access (own campaigns) and office-admin access are not expanded.
 * Do not describe the platform as guaranteeing anonymity until Phase D ships. Recommendation: launch the Office Workspace
-  for agent directory, profiles, teams and campaigns now; keep Registrations switched off for team creators (it is one
-  route) until Phase D is approved, if you want zero change to identifiable-buyer exposure. Needs your decision.
+  for agent directory, profiles, teams and campaigns now. Team-creator Registrations stays off until Phase D is approved and shipped.
 
 ## 6. Legal wording flagged for review (nothing rewritten)
 
