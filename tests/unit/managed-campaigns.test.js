@@ -213,6 +213,21 @@ describe('assignable agent selector is scoped to permissions', () => {
   });
 });
 
+describe('agent selector uses the professional profile', () => {
+  const list = async (uid) => { authSpies.verifyIdToken.mockResolvedValue({ uid }); return (await agentsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } }))).json(); };
+  it('shows the office-managed name and photo where one is set, and the login name otherwise', async () => {
+    store.set('officeAgents/p1', { officeId: 'hph', linkedUid: 'ivy', fullName: 'Ivy Rose Invited-Smith', photoUrl: 'https://premarketvideos.b-cdn.net/ivy.png' });
+    const r = await list('hannah');
+    expect(r.agents.find((a) => a.uid === 'ivy')).toMatchObject({ name: 'Ivy Rose Invited-Smith', photoUrl: 'https://premarketvideos.b-cdn.net/ivy.png' });
+    expect(r.agents.find((a) => a.uid === 'bob').name).toBe('Bob X');
+  });
+  it('ignores ambiguous profiles (two for one agent) exactly as the directory does', async () => {
+    store.set('officeAgents/p1', { officeId: 'hph', linkedUid: 'ivy', fullName: 'One' });
+    store.set('officeAgents/p2', { officeId: 'hph', linkedUid: 'ivy', fullName: 'Two' });
+    expect((await list('hannah')).agents.find((a) => a.uid === 'ivy').name).toBe('Ivy X');
+  });
+});
+
 describe('hardening', () => {
   it('refuses to create for suspended, disabled or deactivated accounts', async () => {
     for (const [uid, patch] of [['bob', { accountStatus: 'suspended' }], ['cat', { disabled: true }], ['solo', { deactivated: true }]]) {

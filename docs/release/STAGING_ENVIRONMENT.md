@@ -1,20 +1,20 @@
 # Staging environment for the Office Workspace
 
-## Status (2026-11-05): project created, authentication and third-party services pending
+## Status (2026-11-05): staging live and smoke-tested (29/29), third-party services still substituted
 
 | Item | State |
 |---|---|
-| GCP/Firebase project | **Created:** `premarket-ows-staging-dbf1` ("Premarket STAGING test only"). **No billing linked.** Separate from `premarket-homes` |
-| Firestore | **Created** (australia-southeast1, same as live). Repo rules and indexes **deployed to staging only** (includes the 3 new server-only rules) |
-| Service account | **Created for staging only** (`staging-admin@premarket-ows-staging-dbf1`); key stored at `~/.premarket-staging/staging-sa.json` (mode 600, outside the repo). No production credential used or copied |
-| Web app config | **Created**; values in `~/.premarket-staging/web-config.json` |
-| Env file for Vercel | **Prepared** at `~/.premarket-staging/staging.env` (contains the service account: never commit; import into Vercel Preview scoped to branch `staging`) |
-| Isolation | **Verified** (`scripts/verify-staging-isolation.js`): credential, browser config and the running app's `/api/internal/environment` all report the staging project; not the live backend; team registrations off; email guard on |
-| Firebase Authentication | **Blocked:** cannot be initialised through the API without billing ("Identity Platform requires billing"). Needs a console click (free path) or a billing link (decision below) |
-| Firebase Storage | **Not available:** the default bucket requires a billing plan. Not needed by Office Workspace flows (uploads go to Bunny) |
-| Seed | **Not run** (needs Auth; dry run passes) |
-| Vercel staging deployment | **Not created:** no Vercel access from this environment |
-| Bunny staging zone, Resend, Google Places key | **Not created:** no access to those accounts from this environment |
+| GCP/Firebase project | `premarket-ows-staging-dbf1` ("Premarket STAGING test only"). **No billing linked** (spend $0). Separate from `premarket-homes` |
+| Firestore | australia-southeast1. Repo rules deployed to staging only (includes the 3 new server-only rules). **45 composite indexes**, identical to production, built |
+| Authentication | **Active** (email/password; email link off), enabled in the console |
+| Service account / web config | Staging-only; stored in `~/.premarket-staging/` (owner-only, outside the repo). No production credential used |
+| Isolation | Verified by `scripts/verify-staging-isolation.js` before seeding and before every run; browser traffic: 111 Firebase requests, 0 to the live project |
+| Seed | Fake office, 6 fake users, team, billing settings, 1 fake campaign + registration (`scripts/seed-staging.js`); reset with `scripts/reset-staging.js` (staging only) |
+| Smoke test | **29 of 29 passed** (`scripts/staging-smoke.js`; results in `STAGING_SMOKE_RESULTS.md`) |
+| Sentry | `NEXT_PUBLIC_SENTRY_DISABLED=1` in `staging.env`: 0 requests to Sentry during the run |
+| App location | Run **locally** (`~/.premarket-staging/run-local.sh`, port 3200). **No staging URL on Vercel yet** (no Vercel access from this environment) |
+| Google Places, Bunny, Resend | **Test substitutes only** (stubbed place data, fake upload target, recorded-not-sent email). Real versions unverified |
+| Firebase Storage | Not available (needs billing). Not used by Office Workspace flows |
 
 Open decisions are listed in the report that accompanied this status; the sections below describe the design and runbook.
 

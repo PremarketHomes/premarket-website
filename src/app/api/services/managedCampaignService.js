@@ -98,12 +98,23 @@ export async function listAssignableAgents(db, actorUid) {
     }
   }
   if (!role) return { role: null, agents: [] };
+  // Show the office-managed professional name and photo (the same profile the directory and public pages use), so the
+  // selector agrees with everything else. A failed lookup falls back to the login-record values.
+  const profiles = new Map();
+  try {
+    const snap = await db.collection('officeAgents').where('officeId', '==', actor.officeId).get();
+    const byUid = new Map();
+    for (const d of snap.docs) { const p = d.data(); if (p.linkedUid) byUid.set(p.linkedUid, [...(byUid.get(p.linkedUid) || []), p]); }
+    for (const [uid, list] of byUid) if (list.length === 1) profiles.set(uid, list[0]); // ambiguous = ignored, as everywhere
+  } catch { /* fall back to login-record values */ }
   const agents = docs
     .filter((d) => d.id !== actorUid && isAgentUser(d.data()))
     .map((d) => {
       const u = d.data();
+      const prof = profiles.get(d.id);
+      const real = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
       return {
-        uid: d.id, name: displayName(u), email: u.email || null, photoUrl: u.avatar || null,
+        uid: d.id, name: real(prof?.fullName) || displayName(u), email: u.email || null, photoUrl: real(prof?.photoUrl) || u.avatar || null,
         loginStatus: u.accountStatus === 'invited' ? 'invited' : 'active',
       };
     })
