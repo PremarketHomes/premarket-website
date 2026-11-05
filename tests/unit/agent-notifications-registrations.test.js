@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 const store = new Map();
@@ -178,7 +178,57 @@ describe('buyer registration notification goes to the assigned agent', () => {
   });
 });
 
-describe('registration visibility', () => {
+describe('team creators: identifiable buyer registrations are OFF by default', () => {
+  const get = async (uid) => { authSpies.verifyIdToken.mockResolvedValue({ uid }); const res = await registrationsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } })); return { status: res.status, ...(await res.json()) }; };
+  beforeEach(() => { delete process.env.TEAM_REGISTRATIONS_ENABLED; });
+  it('without TEAM_REGISTRATIONS_ENABLED=1, team creators are refused and see no buyer details at all', async () => {
+    for (const uid of ['ann', 'dan']) {
+      const r = await get(uid);
+      expect(r.status).toBe(403);
+      expect(JSON.stringify(r)).not.toMatch(/buyer\.com|0400 111|Buyer r/);
+    }
+  });
+  it('the existing office-admin access is unchanged and unexpanded', async () => {
+    const r = await get('hannah');
+    expect(r.status).toBe(200);
+    expect(r.scope).toBe('office');
+    expect(r.registrations.map((x) => x.id).sort()).toEqual(['r1', 'r2', 'r3']);
+  });
+  it('only the exact value "1" enables it (not "true", "yes" or empty)', async () => {
+    for (const v of ['true', 'yes', '', '0', 'TRUE', ' 1']) {
+      process.env.TEAM_REGISTRATIONS_ENABLED = v;
+      expect((await get('ann')).status).toBe(403);
+    }
+    delete process.env.TEAM_REGISTRATIONS_ENABLED;
+  });
+  it('a team creator who is ALSO an office admin keeps office-wide access (existing right), regardless of the flag', async () => {
+    store.set('officeAdminInfo/hph', { name: 'HPH', officeAdminUids: ['hannah', 'ann'], status: 'active' });
+    const r = await get('ann');
+    expect(r.status).toBe(200);
+    expect(r.scope).toBe('office');
+  });
+  it('the agent-selector endpoint tells the UI the team registrations link is unavailable', async () => {
+    const { GET: agentsRoute } = await import('../../src/app/api/properties/managed/agents/route');
+    authSpies.verifyIdToken.mockResolvedValue({ uid: 'ann' });
+    const off = await (await agentsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } }))).json();
+    expect(off.teamRegistrations).toBe(false);
+    process.env.TEAM_REGISTRATIONS_ENABLED = '1';
+    try {
+      authSpies.verifyIdToken.mockResolvedValue({ uid: 'ann' });
+      const on = await (await agentsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } }))).json();
+      expect(on.teamRegistrations).toBe(true);
+    } finally { delete process.env.TEAM_REGISTRATIONS_ENABLED; }
+  });
+  it('the My Team link to registrations is only rendered when the server says it is enabled', () => {
+    const page = readFileSync('src/app/dashboard/team/page.js', 'utf8');
+    expect(page).toContain('canCreateForTeam && canViewTeamRegistrations');
+    expect(page).toContain('b.teamRegistrations === true');
+  });
+});
+
+describe('registration visibility (team access explicitly enabled)', () => {
+  beforeEach(() => { process.env.TEAM_REGISTRATIONS_ENABLED = '1'; });
+  afterEach(() => { delete process.env.TEAM_REGISTRATIONS_ENABLED; });
   const get = async (uid) => { authSpies.verifyIdToken.mockResolvedValue({ uid }); const res = await registrationsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } })); return { status: res.status, ...(await res.json()) }; };
   it('Office Admin sees every registration in the office — and none from other offices', async () => {
     const r = await get('hannah');

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { verifyAuth } from '../../../../middleware/auth';
 import { requireOfficeAdmin } from '../../../../services/officeService';
 import { resolveDirectoryRow, sniffImageType } from '../../../../services/officeAgentService';
+import { bunnyUploadUrl, cdnUrlFor } from '../../../../services/storageConfig';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -34,13 +35,13 @@ export async function POST(request, { params }) {
     const accessKey = process.env.BUNNY_STORAGE_ACCESS_KEY;
     if (!accessKey) return NextResponse.json({ error: 'Storage not configured' }, { status: 500 });
     const filename = `office-agents/${officeId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${type.ext}`;
-    const res = await fetch(`https://syd.storage.bunnycdn.com/premarketvideos/${filename}`, {
+    const res = await fetch(bunnyUploadUrl(filename), {
       method: 'PUT',
       headers: { AccessKey: accessKey, 'Content-Type': type.mime },
       body: buffer,
     });
     if (!res.ok) return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
-    return NextResponse.json({ url: `https://premarketvideos.b-cdn.net/${filename}` });
+    return NextResponse.json({ url: cdnUrlFor(filename) });
   } catch (err) {
     console.error('Office agent photo error:', err);
     return NextResponse.json({ error: err.message || 'Upload failed' }, { status: err.status || 500 });

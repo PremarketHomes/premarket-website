@@ -38,6 +38,10 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'firebasestorage.googleapis.com',
       },
+      // A staging deployment's own image CDN host (build-time variable). Absent in production.
+      ...(process.env.NEXT_PUBLIC_EXTRA_IMAGE_HOST
+        ? [{ protocol: 'https', hostname: process.env.NEXT_PUBLIC_EXTRA_IMAGE_HOST }]
+        : []),
     ],
   },
 

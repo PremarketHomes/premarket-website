@@ -63,12 +63,13 @@ export default function MyTeamPage() {
   const [ownerFilter, setOwnerFilter] = useState('all');
   // Team creators can create campaigns for the agents in their own team (server decides; others see nothing).
   const [canCreateForTeam, setCanCreateForTeam] = useState(false);
+  const [canViewTeamRegistrations, setCanViewTeamRegistrations] = useState(false);
   useEffect(() => {
     if (!user) return undefined; // wait for the signed-in user, or the request never starts
     let cancelled = false;
     authFetch('/api/properties/managed/agents')
       .then((r) => (r.ok ? r.json() : null))
-      .then((b) => { if (!cancelled && b?.role === 'teamAdmin' && b.agents.length > 0) setCanCreateForTeam(true); })
+      .then((b) => { if (!cancelled && b?.role === 'teamAdmin' && b.agents.length > 0) { setCanCreateForTeam(true); setCanViewTeamRegistrations(b.teamRegistrations === true); } })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [user]);
@@ -226,7 +227,7 @@ export default function MyTeamPage() {
               Create a campaign for a teammate
             </Link>
           )}
-          {canCreateForTeam && (
+          {canCreateForTeam && canViewTeamRegistrations && (
             <Link href="/dashboard/office/registrations" className="inline-flex items-center gap-1 mt-2 ml-4 text-sm font-semibold text-orange-600 hover:text-orange-700">
               View team registrations
             </Link>

@@ -2,6 +2,7 @@ import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { listStagedAgents } from './officeImportService';
 import { isPlaceholderAvatar } from '../../utils/avatar';
+import { cdnBase } from './storageConfig';
 
 /**
  * Office agent directory + canonical professional profiles (`officeAgents`).
@@ -24,7 +25,7 @@ export class OfficeAgentError extends Error {
   }
 }
 
-export const PHOTO_HOST_PREFIX = 'https://premarketvideos.b-cdn.net/';
+export const PHOTO_HOST_PREFIX = 'https://premarketvideos.b-cdn.net/'; // production default; see cdnBase()
 const MAX_NAME = 120;
 const MAX_PHONE = 40;
 const MAX_EMAIL = 254;
@@ -233,7 +234,7 @@ export function validateProfilePatch(input) {
   }
   if ('photoUrl' in input) {
     const v = String(input.photoUrl ?? '').trim();
-    if (!v.startsWith(PHOTO_HOST_PREFIX) || v.length > 500 || /[\s"'<>]/.test(v)) {
+    if (!v.startsWith(cdnBase()) || v.length > 500 || /[\s"'<>]/.test(v)) {
       throw new OfficeAgentError('Photo must be uploaded through the office photo uploader');
     }
     out.photoUrl = v;

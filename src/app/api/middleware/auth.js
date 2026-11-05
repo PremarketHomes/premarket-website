@@ -1,11 +1,19 @@
 import { getAuth } from 'firebase-admin/auth';
 import { adminDb } from '../../firebase/adminApp';
+import { isBlockedPreviewWrite, PREVIEW_READ_ONLY_MESSAGE } from '../services/environmentGuard';
 
 /**
  * Verify Firebase ID token from Authorization header.
  * Returns { authenticated: true, uid, email } or { authenticated: false, error, status }.
  */
 export async function verifyAuth(request) {
+  // A preview deployment that points at the LIVE backend must not change live data through the workspace routes.
+  try {
+    if (isBlockedPreviewWrite({ method: request.method, pathname: new URL(request.url).pathname })) {
+      return { authenticated: false, error: PREVIEW_READ_ONLY_MESSAGE, status: 403 };
+    }
+  } catch { /* an unparseable URL falls through to the normal checks */ }
+
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return { authenticated: false, error: 'Missing or invalid Authorization header', status: 401 };

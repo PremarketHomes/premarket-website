@@ -26,7 +26,7 @@ const displayName = (u) => `${u?.firstName || ''} ${u?.lastName || ''}`.trim() |
  * (resolveManagementRole), so registration visibility and campaign management can never drift apart.
  * Leadership Hub membership grants nothing here.
  */
-export async function resolveRegistrationScope(db, actorUid) {
+export async function resolveRegistrationScope(db, actorUid, { teamEnabled = false } = {}) {
   const actorSnap = await db.collection('users').doc(actorUid).get();
   if (!actorSnap.exists || !actorSnap.data().officeId) return null;
   const actor = actorSnap.data();
@@ -35,7 +35,9 @@ export async function resolveRegistrationScope(db, actorUid) {
   if (Array.isArray(officeSnap.data().officeAdminUids) && officeSnap.data().officeAdminUids.includes(actorUid)) {
     return { scope: 'office', actorUid, officeId: actor.officeId, office: { id: actor.officeId, name: officeSnap.data().name || '' } };
   }
-  if (actor.teamId) {
+  // Team creators: identifiable buyer registrations stay OFF until the opinion/registration separation (Phase D)
+  // is resolved and TEAM_REGISTRATIONS_ENABLED=1 is deliberately set. Office admins keep their existing access.
+  if (teamEnabled && actor.teamId) {
     const team = await db.collection('teams').doc(actor.teamId).get();
     if (team.exists && team.data().officeId === actor.officeId && team.data().createdBy === actorUid) {
       return { scope: 'team', actorUid, officeId: actor.officeId, teamId: actor.teamId, office: { id: actor.officeId, name: officeSnap.data().name || '' } };

@@ -30,11 +30,13 @@ export class ManagedCampaignError extends Error {
   }
 }
 
-// Parity with the agent wizard, which also sets vendorUploaded: true. The ONLY reader of this flag we know of is the
-// legacy Cloud Function `onVendorPropertyCreated`, which emails the property owner when it is true. If that function
-// is still deployed when this ships, set this to false (one line) to avoid a duplicate old-design email to assigned
-// agents; the real fix is retiring the function (docs/operation-1-rollout.md step 5). See docs/release.
-export const MANAGED_VENDOR_UPLOADED = true;
+// The agent wizard sets vendorUploaded: true. The ONLY reader we found is the legacy Cloud Function
+// `onVendorPropertyCreated` (still deployed and active: it last sent on 2026-11-03), which emails the property OWNER
+// "Property Added to Your Dashboard" whenever a new property has this flag. For a managed campaign the owner is the
+// assigned agent, who already gets the once-only campaign-link email, so leaving the flag off avoids a confusing duplicate
+// (including to agents who have never logged in). No other reader exists in the website or functions repos; the mobile app
+// is unverified. Revert to true only if something is found to need it (docs/release/OFFICE_WORKSPACE_RELEASE.md).
+export const MANAGED_VENDOR_UPLOADED = false;
 
 const displayName = (u) => `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || null;
 const isAgentUser = (u) => !!(u?.agent || u?.isAgent || u?.roles?.includes?.('agent'));

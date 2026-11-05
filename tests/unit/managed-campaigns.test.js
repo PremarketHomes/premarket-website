@@ -209,7 +209,7 @@ describe('assignable agent selector is scoped to permissions', () => {
   it('team creator: own team only; ordinary members and agents get nothing', async () => {
     expect((await list('ann')).agents.map((a) => a.uid).sort()).toEqual(['bob', 'ivy']);
     expect((await list('dan')).agents.map((a) => a.uid)).toEqual(['cat']);
-    for (const uid of ['bob', 'solo', 'olly']) expect(await list(uid)).toEqual({ role: null, agents: [] });
+    for (const uid of ['bob', 'solo', 'olly']) expect(await list(uid)).toEqual({ role: null, agents: [], teamRegistrations: false });
   });
 });
 
