@@ -178,9 +178,44 @@ describe('buyer registration notification goes to the assigned agent', () => {
   });
 });
 
+describe('launch default: the office Registrations overview is OFF for everyone', () => {
+  const get = async (uid) => { authSpies.verifyIdToken.mockResolvedValue({ uid }); const res = await registrationsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } })); return { status: res.status, ...(await res.json()) }; };
+  beforeEach(() => { delete process.env.OFFICE_REGISTRATIONS_ENABLED; delete process.env.TEAM_REGISTRATIONS_ENABLED; });
+  it('with no flag set, even the office admin gets no registrations list and no buyer data leaves the route', async () => {
+    for (const uid of ['hannah', 'ann', 'dan', 'bob', 'lead']) {
+      const r = await get(uid);
+      expect(r.status).toBe(403);
+      expect(JSON.stringify(r)).not.toMatch(/buyer\.com|0400 111|Buyer r|registrations"/);
+    }
+  });
+  it('the team flag alone does not switch it on, and only the exact value "1" enables the office overview', async () => {
+    process.env.TEAM_REGISTRATIONS_ENABLED = '1';
+    expect((await get('hannah')).status).toBe(403);
+    for (const v of ['true', 'yes', '', '0', 'TRUE', ' 1']) { process.env.OFFICE_REGISTRATIONS_ENABLED = v; expect((await get('hannah')).status).toBe(403); }
+    process.env.OFFICE_REGISTRATIONS_ENABLED = '1';
+    expect((await get('hannah')).status).toBe(200);
+    delete process.env.OFFICE_REGISTRATIONS_ENABLED; delete process.env.TEAM_REGISTRATIONS_ENABLED;
+  });
+  it('the sidebar link is only shown when the server reports the overview is on', async () => {
+    const dash = readFileSync('src/app/dashboard/page.js', 'utf8');
+    expect(dash).toContain("fetch('/api/features')");
+    expect(dash).toMatch(/isOfficeAdmin === true && registrationsOn/);
+    const { GET: featuresRoute } = await import('../../src/app/api/features/route');
+    expect(await (await featuresRoute()).json()).toEqual({ officeRegistrations: false });
+    process.env.OFFICE_REGISTRATIONS_ENABLED = '1';
+    try { expect(await (await featuresRoute()).json()).toEqual({ officeRegistrations: true }); } finally { delete process.env.OFFICE_REGISTRATIONS_ENABLED; }
+  });
+  it('existing access is not reduced: the agent still gets the registration email and reports are untouched by the flag', () => {
+    const notify = readFileSync('src/app/api/offers/notify-interest/route.js', 'utf8');
+    expect(notify).not.toMatch(/OFFICE_REGISTRATIONS_ENABLED|officeRegistrationsEnabled/);
+    expect(readFileSync('src/app/api/services/propertyAccessService.js', 'utf8')).not.toMatch(/officeRegistrationsEnabled/);
+  });
+});
+
 describe('team creators: identifiable buyer registrations are OFF by default', () => {
   const get = async (uid) => { authSpies.verifyIdToken.mockResolvedValue({ uid }); const res = await registrationsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } })); return { status: res.status, ...(await res.json()) }; };
-  beforeEach(() => { delete process.env.TEAM_REGISTRATIONS_ENABLED; });
+  beforeEach(() => { delete process.env.TEAM_REGISTRATIONS_ENABLED; process.env.OFFICE_REGISTRATIONS_ENABLED = '1'; });
+  afterEach(() => { delete process.env.OFFICE_REGISTRATIONS_ENABLED; });
   it('without TEAM_REGISTRATIONS_ENABLED=1, team creators are refused and see no buyer details at all', async () => {
     for (const uid of ['ann', 'dan']) {
       const r = await get(uid);
@@ -226,9 +261,9 @@ describe('team creators: identifiable buyer registrations are OFF by default', (
   });
 });
 
-describe('registration visibility (team access explicitly enabled)', () => {
-  beforeEach(() => { process.env.TEAM_REGISTRATIONS_ENABLED = '1'; });
-  afterEach(() => { delete process.env.TEAM_REGISTRATIONS_ENABLED; });
+describe('registration visibility (overview and team access explicitly enabled)', () => {
+  beforeEach(() => { process.env.TEAM_REGISTRATIONS_ENABLED = '1'; process.env.OFFICE_REGISTRATIONS_ENABLED = '1'; });
+  afterEach(() => { delete process.env.TEAM_REGISTRATIONS_ENABLED; delete process.env.OFFICE_REGISTRATIONS_ENABLED; });
   const get = async (uid) => { authSpies.verifyIdToken.mockResolvedValue({ uid }); const res = await registrationsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } })); return { status: res.status, ...(await res.json()) }; };
   it('Office Admin sees every registration in the office — and none from other offices', async () => {
     const r = await get('hannah');

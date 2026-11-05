@@ -79,6 +79,13 @@ export function filterRecipients(to, env = process.env) {
 
 /* ───────────── buyer registrations ───────────── */
 
+/**
+ * The office-wide Registrations overview (identifiable buyer contact details in one list). OFF unless OFFICE_REGISTRATIONS_ENABLED=1, so
+ * launching the Office Workspace adds no new buyer-data surface: office admins keep their existing per-property reports exactly as today.
+ * Switch on once the opinion/registration separation (Phase D) is approved and shipped, or by explicit decision.
+ */
+export const officeRegistrationsEnabled = (env = process.env) => env.OFFICE_REGISTRATIONS_ENABLED === '1';
+
 /** Team-creator access to identifiable buyer registrations: OFF unless explicitly enabled (privacy decision, Phase D). */
 export const teamRegistrationsEnabled = (env = process.env) => env.TEAM_REGISTRATIONS_ENABLED === '1';
 
@@ -92,6 +99,7 @@ export function describeEnvironment(env = process.env) {
     previewWritesBlocked: previewWritesBlocked(env),
     emailGuard: { active: emailGuardActive(env), allowlistEntries: emailGuardActive(env) ? parseEmailAllowlist(env).length : null },
     teamRegistrationsEnabled: teamRegistrationsEnabled(env),
+    officeRegistrationsEnabled: officeRegistrationsEnabled(env),
     storageZone: env.BUNNY_STORAGE_ZONE || 'premarketvideos (default)',
   };
 }

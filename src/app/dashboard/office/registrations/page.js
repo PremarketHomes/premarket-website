@@ -37,7 +37,7 @@ export default function RegistrationsPage() {
 
   if (state.status === 'loading') return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
   if (state.status !== 'ready') {
-    const msg = state.status === 'forbidden' ? 'Registrations here are available to office administrators and team creators.' : 'We could not load the registrations. Please try again.';
+    const msg = state.status === 'forbidden' ? 'The registrations overview is not switched on yet. Each campaign\'s own report still shows its registrations.' : 'We could not load the registrations. Please try again.';
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 text-center"><div><p className="text-slate-600">{msg}</p><Link href="/dashboard" className="inline-block mt-4 text-sm font-semibold text-orange-600">Back to dashboard</Link></div></div>;
   }
 

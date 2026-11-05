@@ -83,6 +83,13 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
   const agencyTitle = sidebarOfficeId ? null : userData?.companyName;
   // Leadership is authorised server-side only; this just decides whether to show the link.
   const [isLeader, setIsLeader] = useState(false);
+  // The office Registrations overview is gated server-side (OFFICE_REGISTRATIONS_ENABLED); this only decides whether to show the link.
+  const [registrationsOn, setRegistrationsOn] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/features').then((r) => (r.ok ? r.json() : null)).then((b) => { if (!cancelled && b?.officeRegistrations === true) setRegistrationsOn(true); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     authFetch('/api/leadership/access')
@@ -109,8 +116,10 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
           { id: 'office-agents', label: 'Agents', icon: Users, href: '/dashboard/office/agents' },
           { id: 'office-teams', label: 'Teams', icon: UserPlus, href: '/dashboard/office/teams' },
           { id: 'office-campaigns', label: 'Campaigns', icon: LayoutDashboard, href: '/dashboard/office/campaigns' },
-          { id: 'office-registrations', label: 'Registrations', icon: Mail, href: '/dashboard/office/registrations' },
         ]
+      : []),
+    ...(userData?.isOfficeAdmin === true && registrationsOn
+      ? [{ id: 'office-registrations', label: 'Registrations', icon: Mail, href: '/dashboard/office/registrations' }]
       : []),
     ...(isLeader
       ? [{ id: 'leadership', label: 'Leadership Hub', icon: Trophy, href: '/dashboard/leadership' }]
