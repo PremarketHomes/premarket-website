@@ -64,13 +64,14 @@ export default function MyTeamPage() {
   // Team creators can create campaigns for the agents in their own team (server decides; others see nothing).
   const [canCreateForTeam, setCanCreateForTeam] = useState(false);
   useEffect(() => {
+    if (!user) return undefined; // wait for the signed-in user, or the request never starts
     let cancelled = false;
     authFetch('/api/properties/managed/agents')
       .then((r) => (r.ok ? r.json() : null))
       .then((b) => { if (!cancelled && b?.role === 'teamAdmin' && b.agents.length > 0) setCanCreateForTeam(true); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, []);
+  }, [user]);
 
   const load = useCallback(async () => {
     try {

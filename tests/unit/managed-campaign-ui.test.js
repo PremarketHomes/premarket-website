@@ -2,6 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 const read = (p) => readFileSync(p, 'utf8');
 
+describe('My Team entry points', () => {
+  it('wait for the signed-in user before asking the server who may create campaigns (a mount-time call silently never fires)', () => {
+    const page = read('src/app/dashboard/team/page.js');
+    const effect = page.slice(page.indexOf("authFetch('/api/properties/managed/agents')") - 120, page.indexOf("}, [user]);"));
+    expect(effect).toContain('if (!user) return');
+    expect(page).toContain('}, [user]);');
+  });
+});
+
 describe('Add Property is extended, not duplicated', () => {
   const add = read('src/app/dashboard/add/page.js');
   it('the existing agent-led path is intact', () => {
