@@ -117,9 +117,19 @@ function EditModal({ officeId, agent, onClose, onSaved }) {
           <label className="block text-xs font-semibold text-slate-600">Professional contact email
             <input className={`${input} mt-1`} value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} inputMode="email" maxLength={254} />
           </label>
+          {agent.loginEmail && (
+            <p className="text-xs text-slate-500">
+              Login email: <span className="font-semibold">{agent.loginEmail}</span> (not editable here)
+            </p>
+          )}
           <p className="text-xs text-slate-400">
-            Changing this email updates the professional profile only. It does not change the agent&apos;s login, and saving never activates their account.
+            The professional email is for contact details only. It does not change the agent&apos;s login or where account and billing emails go, and saving never activates their account.
           </p>
+          {agent.phoneHeld && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+              This number was supplied with the invitation and is kept private until the agent activates. It only becomes public if you change it here.
+            </p>
+          )}
         </div>
 
         {error && <p className="text-sm text-red-600 mt-3" role="alert">{error}</p>}

@@ -63,9 +63,11 @@ export function mergeDirectory({ users = [], invites = [], staged = [], profiles
 
   const profByUid = new Map();
   const profByEmail = new Map();
+  const conflicts = new Set(); // uids/emails with MORE than one profile: never guessed, flagged
+  const put = (map, k, p) => { if (map.has(k)) { conflicts.add(k); map.delete(k); } else if (!conflicts.has(k)) map.set(k, p); };
   for (const p of profiles) {
-    if (p.linkedUid) profByUid.set(p.linkedUid, p);
-    if (p.emailKey) profByEmail.set(p.emailKey, p);
+    if (p.linkedUid) put(profByUid, p.linkedUid, p);
+    if (p.emailKey) put(profByEmail, p.emailKey, p);
   }
   const usedProfiles = new Set();
 
@@ -83,15 +85,23 @@ export function mergeDirectory({ users = [], invites = [], staged = [], profiles
 
   const attachProfile = (row, base) => {
     const p = (row.uid && profByUid.get(row.uid)) || profByEmail.get(normalizeEmail(base.email)) || null;
+    const profileConflict = !!((row.uid && conflicts.has(row.uid)) || conflicts.has(normalizeEmail(base.email)));
+    if (profileConflict) profiles.filter((x) => x.linkedUid === row.uid || x.emailKey === normalizeEmail(base.email)).forEach((x) => usedProfiles.add(x.id));
     if (p) usedProfiles.add(p.id);
     const name = clean(p?.fullName) || base.name;
     const email = clean(p?.contactEmail) || base.email;
     const phone = clean(p?.phone) || base.phone;
+    // An office-submitted number held back until activation is shown to the office admin only; it is
+    // never copied into a profile unless the admin explicitly types it.
+    const phoneHeld = !clean(p?.phone) && !!base.phoneHeld;
     const photoUrl = clean(p?.photoUrl) || base.photoUrl;
     const comp = profileCompleteness({ name, email, phone, photoUrl });
     return {
       ...row,
       profileId: p?.id || null,
+      profileConflict,
+      phoneHeld,
+      loginEmail: base.loginEmail || null,
       name, email, phone, photoUrl,
       profileStatus: comp.status,
       missing: comp.missing,
@@ -101,7 +111,12 @@ export function mergeDirectory({ users = [], invites = [], staged = [], profiles
   for (const u of users) {
     const owner = fullName(u);
     const loginStatus = u.accountStatus === 'invited' ? 'invited' : 'active';
-    const base = { name: owner, email: clean(u.email), phone: clean(u.phone) || clean(contacts[u.uid]?.phone), photoUrl: clean(u.avatar) };
+    const base = {
+      name: owner, email: clean(u.email), loginEmail: clean(u.email),
+      phone: clean(u.phone) || clean(contacts[u.uid]?.phone),
+      phoneHeld: !clean(u.phone) && !!clean(contacts[u.uid]?.phone),
+      photoUrl: clean(u.avatar),
+    };
     push(attachProfile({
       key: null, uid: u.uid, loginStatus,
       team: teamLabel(u.teamId, null),
@@ -258,29 +273,28 @@ export async function updateAgentProfile({ officeId, key, patch, actorUid }) {
     }
     if (!profileRef && row.uid) {
       const q = await tx.get(adminDb.collection('officeAgents').where('officeId', '==', officeId).where('linkedUid', '==', row.uid));
+      if (q.docs.length > 1) throw new OfficeAgentError('More than one profile matches this agent; it needs manual review before it can be edited', 409);
       if (q.docs.length) { profileRef = q.docs[0].ref; existing = q.docs[0].data(); }
     }
     if (!profileRef && emailKey) {
       const q = await tx.get(adminDb.collection('officeAgents').where('officeId', '==', officeId).where('emailKey', '==', emailKey));
+      if (q.docs.length > 1) throw new OfficeAgentError('More than one profile matches this agent; it needs manual review before it can be edited', 409);
       if (q.docs.length) { profileRef = q.docs[0].ref; existing = q.docs[0].data(); }
     }
 
     const changed = Object.keys(clean_);
     const data = { ...clean_, updatedAt: FieldValue.serverTimestamp(), updatedBy: actorUid };
-    if (clean_.contactEmail !== undefined) data.emailKey = normalizeEmail(clean_.contactEmail) || emailKey;
     let created = false;
     if (!profileRef) {
       created = true;
       profileRef = adminDb.collection('officeAgents').doc();
-      // Seed from what is already known so a partial edit doesn't hide existing details.
+      // Store ONLY what the office explicitly set. Existing users data is not copied in, so an agent's
+      // own later changes (e.g. their own photo) are never hidden behind a stale copy.
       tx.set(profileRef, {
         officeId,
         linkedUid: row.uid || null,
-        emailKey: data.emailKey || emailKey,
-        fullName: row.name || null,
-        contactEmail: row.email || null,
-        phone: row.phone || null,
-        photoUrl: row.photoUrl || null,
+        // Identity key = the ORIGINAL email at creation; editing the professional email never changes it.
+        emailKey,
         createdAt: FieldValue.serverTimestamp(),
         createdBy: actorUid,
         ...data,

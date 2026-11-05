@@ -1,4 +1,5 @@
 import { isAgent } from '../../utils/roles';
+import { overlayProfessionalProfile, pickUnambiguousProfile } from '../../utils/professionalProfile';
 
 /**
  * Server-side replacement for the public pages' direct reads of
@@ -58,7 +59,19 @@ export async function getPublicAgentProfiles(db, ids) {
         const owned = await db.collection('properties').where('userId', '==', id).limit(1).get();
         visible = !owned.empty;
       }
-      if (visible) profiles[id] = pickPublicProfile(data);
+      if (visible) {
+        let profile = pickPublicProfile(data);
+        // Office-managed professional profile (canonical when present and unambiguous). A failed lookup
+        // simply falls back to the plain users data.
+        if (data.officeId) {
+          try {
+            const q = await db.collection('officeAgents').where('officeId', '==', data.officeId).where('linkedUid', '==', id).get();
+            const match = pickUnambiguousProfile(q.docs.map((d) => d.data()), { uid: id, officeId: data.officeId });
+            profile = overlayProfessionalProfile(profile, match);
+          } catch { /* keep users-based profile */ }
+        }
+        profiles[id] = profile;
+      }
     }),
   );
   return profiles;

@@ -199,6 +199,54 @@ describe('profile editing', () => {
   });
 });
 
+describe('profile consistency in the directory', () => {
+  it('first edit stores only what was set; nothing is copied from users (agent\'s own later changes still show)', async () => {
+    const ann = (await dir()).agents.find((a) => a.uid === 'active1');
+    await patchProfile(req({ key: ann.key, phone: '0499 000 111' }, 'hannah'), params('hph'));
+    const profile = [...store.entries()].find(([k]) => /^officeAgents\/[^/]+$/.test(k))[1];
+    expect(profile).not.toHaveProperty('photoUrl');
+    expect(profile).not.toHaveProperty('fullName');
+    store.set('users/active1', { ...store.get('users/active1'), avatar: `${CDN}ann-new-own.jpg` });
+    expect((await dir()).agents.find((a) => a.uid === 'active1').photoUrl).toBe(`${CDN}ann-new-own.jpg`);
+  });
+  it('editing the professional email never changes the profile identity key, login email, or Auth', async () => {
+    const ivy = (await dir()).agents.find((a) => a.uid === 'invited1');
+    await patchProfile(req({ key: ivy.key, contactEmail: 'new.pro@hph.com' }, 'hannah'), params('hph'));
+    const profile = [...store.entries()].find(([k]) => /^officeAgents\/[^/]+$/.test(k))[1];
+    expect(profile.emailKey).toBe('ivy@hph.com');
+    const row = (await dir()).agents.find((a) => a.uid === 'invited1');
+    expect(row).toMatchObject({ email: 'new.pro@hph.com', loginEmail: 'ivy@hph.com' });
+    expect(store.get('users/invited1').email).toBe('ivy@hph.com');
+    expect(authSpies.updateUser).not.toHaveBeenCalled();
+  });
+  it('a held invitation phone is shown to the admin but never copied into the profile unless explicitly typed', async () => {
+    const ivy = (await dir()).agents.find((a) => a.uid === 'invited1');
+    expect(ivy).toMatchObject({ phone: '0400 000 002', phoneHeld: true });
+    await patchProfile(req({ key: ivy.key, fullName: 'Ivy I' }, 'hannah'), params('hph'));
+    const profile = [...store.entries()].find(([k]) => /^officeAgents\/[^/]+$/.test(k))[1];
+    expect(profile.phone).toBeUndefined();
+    expect(store.get('users/invited1').phone).toBeUndefined();
+    expect((await dir()).agents.find((a) => a.uid === 'invited1').phoneHeld).toBe(true);
+    const fresh = (await dir()).agents.find((a) => a.uid === 'invited1');
+    expect((await patchProfile(req({ key: fresh.key, phone: '0400 000 002' }, 'hannah'), params('hph'))).status).toBe(200);
+    expect((await dir()).agents.find((a) => a.uid === 'invited1').phoneHeld).toBe(false);
+  });
+  it('two profiles for one agent are flagged, not guessed; editing is refused (409)', async () => {
+    store.set('officeAgents/dupA', { officeId: 'hph', linkedUid: 'invited1', emailKey: 'ivy@hph.com', fullName: 'A' });
+    store.set('officeAgents/dupB', { officeId: 'hph', linkedUid: 'invited1', emailKey: 'ivy@hph.com', fullName: 'B' });
+    const ivy = (await dir()).agents.find((a) => a.uid === 'invited1');
+    expect(ivy.profileConflict).toBe(true);
+    expect(ivy.name).toBe('Ivy Invited'); // users data, neither duplicate applied
+    expect((await patchProfile(req({ key: ivy.key, phone: '0400 123 123' }, 'hannah'), params('hph'))).status).toBe(409);
+  });
+  it('the listing-agent `agents` records are never modified by a profile/photo edit', async () => {
+    store.set('agents/la1', { userId: 'active1', name: 'Different Person', avatar: 'https://la/own.jpg' });
+    const ann = (await dir()).agents.find((a) => a.uid === 'active1');
+    await patchProfile(req({ key: ann.key, fullName: 'Ann Renamed', photoUrl: `${CDN}x.png` }, 'hannah'), params('hph'));
+    expect(store.get('agents/la1')).toEqual({ userId: 'active1', name: 'Different Person', avatar: 'https://la/own.jpg' });
+  });
+});
+
 describe('photo upload', () => {
   const photoReq = (uid, key, bytes, name = 'p.png') => {
     authSpies.verifyIdToken.mockResolvedValue({ uid });
