@@ -59,7 +59,7 @@ export async function checkRecipientEligibility(uid, userData) {
   return { ok: true };
 }
 
-async function claim(logRef, base, { retryOnly = false } = {}) {
+export async function claim(logRef, base, { retryOnly = false } = {}) {
   return adminDb.runTransaction(async (tx) => {
     const snap = await tx.get(logRef);
     const data = snap.exists ? snap.data() : null;
@@ -158,7 +158,7 @@ export async function sendPropertyReadyOnce({ propertyId, recipientUid, seq, ret
   }
 }
 
-async function finish(logRef, status, reason) {
+export async function finish(logRef, status, reason) {
   await logRef.update({ status, reason });
   return { sent: false, reason };
 }

@@ -118,12 +118,21 @@ describe('dashboard greeting and Office Team navigation (source guards)', () => 
     expect(dash).toMatch(/<p className="[^"]*truncate[^"]*">\{officeBrand\.brand\?\.name \|\| 'Your office'\}<\/p>/);
   });
 
-  it('"Team" opens the office team for office administrators only; everyone else keeps the personal page', () => {
-    expect(dash).toContain("href: userData?.isOfficeAdmin === true ? '/dashboard/office/team' : '/dashboard/agents'");
-    // no duplicate second item next to it
-    expect(dash).not.toContain("id: 'office-team'");
+  it('has no redundant "Team" sidebar entry; My Team stays and both Team pages remain reachable', () => {
+    expect(dash).not.toContain("label: 'Team'");
+    expect(dash).not.toContain("id: 'agents'");
+    expect(dash).toContain("label: 'My Team'");
+    // office team view is reached from the Office page, listing-agent profiles from Settings
+    expect(read('src/app/dashboard/office/page.js')).toContain('href="/dashboard/office/team"');
+    expect(read('src/app/dashboard/settings/page.js')).toContain('href="/dashboard/agents"');
     // the personal listing-agent profiles page stays reachable for admins
     expect(read('src/app/dashboard/office/team/page.js')).toContain('href="/dashboard/agents"');
+  });
+
+  it('office admins (only) get an Agents sidebar link to the office agent directory', () => {
+    expect(dash).toMatch(/isOfficeAdmin === true\s*\? \[[\s\S]*?id: 'office-agents', label: 'Agents'[\s\S]*?href: '\/dashboard\/office\/agents'[\s\S]*?id: 'office-teams', label: 'Teams'[\s\S]*?href: '\/dashboard\/office\/teams'/);
+    expect(dash).toMatch(/campaignsOn[\s\S]*?id: 'office-campaigns', label: 'Campaigns'[\s\S]*?href: '\/dashboard\/office\/campaigns'/);
+    expect(dash).toMatch(/registrationsOn[\s\S]*?id: 'office-registrations', label: 'Registrations'[\s\S]*?href: '\/dashboard\/office\/registrations'/);
   });
 
   it('team page is read-only and uses only the office APIs', () => {

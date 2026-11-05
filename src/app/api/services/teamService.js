@@ -83,7 +83,7 @@ const normalizeEmail = (e) => String(e || '').trim().toLowerCase();
 
 /** User + their EFFECTIVE team (a pointer that is stale — team gone or the
  * agent now in another office — counts as no team). */
-async function loadMember(read, uid) {
+export async function loadMember(read, uid) {
   const userRef = ref('users', uid);
   const userSnap = await read(userRef);
   if (!userSnap.exists) return { uid, user: null, team: null, userRef };
@@ -358,7 +358,7 @@ export async function respondToInvite({ inviteId: id, actorUid, action }) {
 /* ─────────────────────── leave / remove members ─────────────────────── */
 
 /** Real members of a team: pointer set AND still in the team's office. */
-async function readMembers(tx, team) {
+export async function readMembers(tx, team) {
   const snap = await tx.get(adminDb.collection('users').where('teamId', '==', team.id));
   return snap.docs.filter((d) => d.data().officeId === team.officeId);
 }
@@ -368,7 +368,7 @@ async function readMembers(tx, team) {
  * opened. A team of fewer than two real members is dissolved, so no one is
  * ever left in a team of one. If the creator goes, the role passes on.
  */
-function detach(tx, { team, teamRef, members, targetUid }) {
+export function detach(tx, { team, teamRef, members, targetUid }) {
   const remaining = members.filter((d) => d.id !== targetUid);
   tx.update(adminDb.collection('users').doc(targetUid), { teamId: FieldValue.delete() });
   if (remaining.length < 2) {

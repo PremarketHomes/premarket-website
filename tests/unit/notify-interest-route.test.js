@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const state = { offers: {}, properties: {}, users: {} };
+const state = { offers: {}, properties: {}, users: {}, emailLog: {} };
 const DELETE_FIELD = Symbol('delete-field');
 
 function applyUpdates(collectionName, id, updates) {
@@ -35,6 +35,7 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
       const tx = {
         get: async (ref) => ref.get(),
         update: (ref, updates) => applyUpdates(ref.collectionName, ref.id, updates),
+        set: (ref, data) => { state[ref.collectionName] = state[ref.collectionName] || {}; state[ref.collectionName][ref.id] = { ...data }; },
       };
       return fn(tx);
     },
@@ -77,6 +78,7 @@ function resetState() {
   state.users = {
     'agent-1': { email: 'agent@example.com', firstName: 'Alex' },
   };
+  state.emailLog = {};
 }
 
 describe('POST /api/offers/notify-interest', () => {
@@ -121,8 +123,8 @@ describe('POST /api/offers/notify-interest', () => {
     const second = await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }));
     const third = await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }));
 
-    expect((await second.json())).toEqual({ skipped: true, reason: 'already notified' });
-    expect((await third.json())).toEqual({ skipped: true, reason: 'already notified' });
+    expect((await second.json())).toEqual({ skipped: true });
+    expect((await third.json())).toEqual({ skipped: true });
     expect(sendNewBuyerInterestEmail).toHaveBeenCalledTimes(1);
   });
 
@@ -132,7 +134,7 @@ describe('POST /api/offers/notify-interest', () => {
     const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
 
     const res = await POST(makeRequest({ offerId: 'offer-2', propertyId: 'prop-1' }));
-    expect((await res.json())).toEqual({ skipped: true, reason: 'not a genuine registration' });
+    expect((await res.json())).toEqual({ skipped: true });
     expect(sendNewBuyerInterestEmail).not.toHaveBeenCalled();
   });
 
@@ -142,7 +144,7 @@ describe('POST /api/offers/notify-interest', () => {
     const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
 
     const res = await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }));
-    expect((await res.json())).toEqual({ skipped: true, reason: 'no owning agent on this property' });
+    expect((await res.json())).toEqual({ skipped: true });
     expect(sendNewBuyerInterestEmail).not.toHaveBeenCalled();
   });
 
@@ -152,7 +154,7 @@ describe('POST /api/offers/notify-interest', () => {
     const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
 
     const res = await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }));
-    expect((await res.json())).toEqual({ skipped: true, reason: 'agent has no email on file' });
+    expect((await res.json())).toEqual({ skipped: true });
     expect(sendNewBuyerInterestEmail).not.toHaveBeenCalled();
   });
 
@@ -162,7 +164,7 @@ describe('POST /api/offers/notify-interest', () => {
     const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
 
     const res = await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-2' }));
-    expect((await res.json())).toEqual({ skipped: true, reason: 'propertyId mismatch' });
+    expect((await res.json())).toEqual({ skipped: true });
     expect(sendNewBuyerInterestEmail).not.toHaveBeenCalled();
   });
 
@@ -175,7 +177,7 @@ describe('POST /api/offers/notify-interest', () => {
   it('returns a clean 404-equivalent for an offer that does not exist, rather than throwing', async () => {
     const { POST } = await import('../../src/app/api/offers/notify-interest/route');
     const res = await POST(makeRequest({ offerId: 'does-not-exist', propertyId: 'prop-1' }));
-    expect((await res.json())).toEqual({ skipped: true, reason: 'offer not found' });
+    expect((await res.json())).toEqual({ skipped: true });
   });
 
   it('always sends the agent the full street address, even when showSuburbOnly hides it from the public', async () => {
@@ -233,5 +235,51 @@ describe('POST /api/offers/notify-interest', () => {
         timeframe: 'asap',
       })
     );
+  });
+
+  describe('abuse protection (the route is public, called by the buyer page)', () => {
+    it('rejects malformed ids before reading anything', async () => {
+      const { POST } = await import('../../src/app/api/offers/notify-interest/route');
+      for (const bad of [{ offerId: 'a/b/c', propertyId: 'prop-1' }, { offerId: 'offer-1', propertyId: '../x' }, { offerId: 'x', propertyId: 'prop-1' }, { offerId: 'o'.repeat(200), propertyId: 'prop-1' }, { offerId: { $ne: 1 }, propertyId: 'prop-1' }]) {
+        expect((await POST(makeRequest(bad))).status).toBe(400);
+      }
+      expect((await POST(new Request('http://localhost/x', { method: 'POST', body: 'not json' }))).status).toBe(400);
+    });
+
+    it('answers every skip identically, so ids cannot be probed (the reason is only logged)', async () => {
+      const { POST } = await import('../../src/app/api/offers/notify-interest/route');
+      const bodies = [];
+      bodies.push(await (await POST(makeRequest({ offerId: 'missing-offer', propertyId: 'prop-1' }))).json());
+      bodies.push(await (await POST(makeRequest({ offerId: 'offer-1', propertyId: 'other-prop' }))).json());
+      await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }));
+      bodies.push(await (await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }))).json());
+      expect(bodies).toEqual([{ skipped: true }, { skipped: true }, { skipped: true }]);
+    });
+
+    it('caps notifications per property per hour, keeps the registration, and the agent is never flooded', async () => {
+      const { POST } = await import('../../src/app/api/offers/notify-interest/route');
+      const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
+      for (let i = 0; i < 65; i++) {
+        state.offers[`offer-${i + 100}`] = { propertyId: 'prop-1', serious: true, buyerName: `B${i}`, buyerEmail: `b${i}@example.com`, nextAction: 'contact' };
+      }
+      for (let i = 0; i < 65; i++) await POST(makeRequest({ offerId: `offer-${i + 100}`, propertyId: 'prop-1' }));
+      expect(sendNewBuyerInterestEmail).toHaveBeenCalledTimes(60);
+      expect(state.offers['offer-164'].buyerEmail).toBe('b64@example.com'); // data kept
+      expect(state.offers['offer-164'].interestNotifiedAt).toBeUndefined(); // not marked sent, so a later call can still notify
+      expect(state.offers['offer-164'].interestNotifyingSince).toBeUndefined(); // claim released
+    });
+
+    it('the cap is per property: another property is unaffected, and the window resets after an hour', async () => {
+      const { POST } = await import('../../src/app/api/offers/notify-interest/route');
+      const { sendNewBuyerInterestEmail } = await import('../../src/app/api/services/resendService');
+      state.emailLog['interest_notify__prop-1'] = { windowStartMs: Date.now(), count: 60 };
+      state.properties['prop-2'] = { userId: 'agent-1', formattedAddress: '2 Example St' };
+      state.offers['offer-2'] = { propertyId: 'prop-2', serious: true, buyerName: 'Other', nextAction: 'contact' };
+      expect(await (await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }))).json()).toEqual({ skipped: true });
+      expect(await (await POST(makeRequest({ offerId: 'offer-2', propertyId: 'prop-2' }))).json()).toEqual({ sent: true });
+      state.emailLog['interest_notify__prop-1'] = { windowStartMs: Date.now() - 61 * 60 * 1000, count: 60 };
+      expect(await (await POST(makeRequest({ offerId: 'offer-1', propertyId: 'prop-1' }))).json()).toEqual({ sent: true });
+      expect(sendNewBuyerInterestEmail).toHaveBeenCalledTimes(2);
+    });
   });
 });

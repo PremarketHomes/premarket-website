@@ -38,6 +38,10 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'firebasestorage.googleapis.com',
       },
+      // A staging deployment's own image CDN host (build-time variable). Absent in production.
+      ...(process.env.NEXT_PUBLIC_EXTRA_IMAGE_HOST
+        ? [{ protocol: 'https', hostname: process.env.NEXT_PUBLIC_EXTRA_IMAGE_HOST }]
+        : []),
     ],
   },
 
@@ -106,7 +110,11 @@ const nextConfig = {
   },
 };
 
+// A staging/test deployment sets NEXT_PUBLIC_SENTRY_DISABLED=1: no runtime reporting, no source-map upload, no release, no build telemetry.
+const sentryOff = process.env.NEXT_PUBLIC_SENTRY_DISABLED === '1';
+
 export default withSentryConfig(nextConfig, {
   silent: true,
   hideSourceMaps: true,
+  ...(sentryOff ? { sourcemaps: { disable: true }, release: { create: false, finalize: false }, telemetry: false } : {}),
 });

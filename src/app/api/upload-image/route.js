@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyAuth } from '../middleware/auth';
+import { bunnyUploadUrl, cdnUrlFor } from '../services/storageConfig';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif'];
@@ -35,7 +36,7 @@ export async function POST(request) {
     const buffer = Buffer.from(await file.arrayBuffer());
 
     const response = await fetch(
-      `https://syd.storage.bunnycdn.com/premarketvideos/${filename}`,
+      bunnyUploadUrl(filename),
       {
         method: 'PUT',
         headers: {
@@ -52,7 +53,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
     }
 
-    const cdnUrl = `https://premarketvideos.b-cdn.net/${filename}`;
+    const cdnUrl = cdnUrlFor(filename);
     return NextResponse.json({ url: cdnUrl });
   } catch (err) {
     console.error('Upload error:', err);

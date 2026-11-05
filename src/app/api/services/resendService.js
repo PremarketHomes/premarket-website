@@ -1,5 +1,6 @@
 import { buildRegistrationPath } from '../../utils/registrationLink';
 import { Resend } from 'resend';
+import { filterRecipients } from './environmentGuard';
 import { wrapEmail, ctaButton, ctaButtonDark, infoBox, greeting, p, signature, eyebrow, heading, lead, divider, detailList, steps, esc, toPlainText, COLORS, BASE_URL } from './emailTemplates';
 
 const FROM_EMAIL = 'Premarket <no-reply@mail.premarket.homes>';
@@ -22,6 +23,13 @@ function getResend() {
 // anywhere, and no email ever actually left Resend's side.
 export async function sendEmail({ to, subject, html, text, attachments, idempotencyKey }) {
   // Every email carries a plain-text part; templates may pass their own.
+  // On a preview deployment, email goes only to EMAIL_ALLOWLIST (default: nobody). Production is unaffected.
+  const guarded = filterRecipients(to);
+  if (guarded.allowed.length === 0) {
+    console.warn(`email suppressed on a preview deployment: ${guarded.blocked.length} recipient(s) not on EMAIL_ALLOWLIST`);
+    return { data: null, error: null, suppressed: true };
+  }
+  to = Array.isArray(to) ? guarded.allowed : guarded.allowed[0];
   const textPart = text || (html ? toPlainText(html) : undefined);
   const payload = { from: FROM_EMAIL, to, subject, html, text: textPart, attachments };
   // Resend de-duplicates sends that share an Idempotency-Key (24h window) — a

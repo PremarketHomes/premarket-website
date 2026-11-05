@@ -31,6 +31,12 @@ export async function POST(request, { params }) {
     const firebaseAuth = getAuth();
     const resetLink = await firebaseAuth.generatePasswordResetLink(email);
 
+    // Preview deployments only email allowlisted addresses (see environmentGuard); never reveal that to the caller.
+    const { filterRecipients } = await import('../../../../services/environmentGuard');
+    if (filterRecipients(email).allowed.length === 0) {
+      return NextResponse.json({ success: true, suppressed: true });
+    }
+
     // Send via Resend
     const { Resend } = await import('resend');
     const { wrapEmail, heading, p, ctaButton } = await import('../../../../services/emailTemplates');

@@ -20,6 +20,8 @@ import { shouldShowMobilePrompt } from '../utils/mobileConfirmation';
 import {
   LayoutDashboard,
   Trophy,
+  Users,
+  Mail,
   Home,
   Plus,
   LogOut,
@@ -40,7 +42,6 @@ import {
   Upload,
   Settings,
   User,
-  Users,
   Trash2,
   ExternalLink,
   Camera,
@@ -82,6 +83,14 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
   const agencyTitle = sidebarOfficeId ? null : userData?.companyName;
   // Leadership is authorised server-side only; this just decides whether to show the link.
   const [isLeader, setIsLeader] = useState(false);
+  // The office Registrations overview is gated server-side (OFFICE_REGISTRATIONS_ENABLED); this only decides whether to show the link.
+  const [registrationsOn, setRegistrationsOn] = useState(false);
+  const [campaignsOn, setCampaignsOn] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/features').then((r) => (r.ok ? r.json() : null)).then((b) => { if (cancelled) return; if (b?.officeRegistrations === true) setRegistrationsOn(true); if (b?.managedCampaigns === true) setCampaignsOn(true); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     authFetch('/api/leadership/access')
@@ -96,11 +105,6 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     { id: 'archived', label: 'Archive', icon: Archive },
     { id: 'add', label: 'Add Property', icon: Plus, href: '/dashboard/add' },
     { id: 'user-manual', label: 'User Manual', icon: BookOpen, href: '/dashboard/user-manual' },
-    // For office administrators "Team" is the OFFICE team (members + their
-    // properties). Everyone else keeps the personal listing-agent profiles
-    // page, exactly as before — which is also why it looked empty for an
-    // office admin: it only ever shows the signed-in user's own profiles.
-    { id: 'agents', label: 'Team', icon: Users, href: userData?.isOfficeAdmin === true ? '/dashboard/office/team' : '/dashboard/agents' },
     // Colleagues in the same verified office can share read-only sight of each
     // other's campaigns. Only offered to office-linked agents.
     ...(userData?.officeId
@@ -108,7 +112,17 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
       : []),
     { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/settings' },
     ...(userData?.isOfficeAdmin === true
-      ? [{ id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' }]
+      ? [
+          { id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' },
+          { id: 'office-agents', label: 'Agents', icon: Users, href: '/dashboard/office/agents' },
+          { id: 'office-teams', label: 'Teams', icon: UserPlus, href: '/dashboard/office/teams' },
+        ]
+      : []),
+    ...(userData?.isOfficeAdmin === true && campaignsOn
+      ? [{ id: 'office-campaigns', label: 'Campaigns', icon: LayoutDashboard, href: '/dashboard/office/campaigns' }]
+      : []),
+    ...(userData?.isOfficeAdmin === true && registrationsOn
+      ? [{ id: 'office-registrations', label: 'Registrations', icon: Mail, href: '/dashboard/office/registrations' }]
       : []),
     ...(isLeader
       ? [{ id: 'leadership', label: 'Leadership Hub', icon: Trophy, href: '/dashboard/leadership' }]
