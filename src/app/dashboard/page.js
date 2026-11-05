@@ -20,6 +20,7 @@ import { shouldShowMobilePrompt } from '../utils/mobileConfirmation';
 import {
   LayoutDashboard,
   Trophy,
+  Users,
   Home,
   Plus,
   LogOut,
@@ -102,7 +103,10 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
       : []),
     { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/settings' },
     ...(userData?.isOfficeAdmin === true
-      ? [{ id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' }]
+      ? [
+          { id: 'office', label: 'Office', icon: Building2, href: '/dashboard/office' },
+          { id: 'office-agents', label: 'Agents', icon: Users, href: '/dashboard/office/agents' },
+        ]
       : []),
     ...(isLeader
       ? [{ id: 'leadership', label: 'Leadership Hub', icon: Trophy, href: '/dashboard/leadership' }]
