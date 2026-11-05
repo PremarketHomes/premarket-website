@@ -204,6 +204,11 @@ describe('registration visibility', () => {
       expect(text).not.toMatch(/987654|111111|offerAmount|seriousnessLevel|sessionId|sess-secret|buyeracct|userId|opinion1/);
     }
   });
+  it('registrations carry a date only, never a time, so they cannot be matched to opinion timestamps', async () => {
+    const r = await get('hannah');
+    expect(r.registrations.every((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.createdAt))).toBe(true);
+    expect(JSON.stringify(r)).not.toMatch(/T\d{2}:\d{2}/);
+  });
   it('anonymous (unregistered) opinions are never listed', async () => {
     expect((await get('hannah')).registrations.some((x) => x.id === 'opinion1')).toBe(false);
   });

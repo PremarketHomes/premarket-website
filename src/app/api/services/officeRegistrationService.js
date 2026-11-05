@@ -12,6 +12,9 @@ const REGISTRATION_FIELDS = ['buyerName', 'buyerEmail', 'buyerPhone', 'nextActio
 const MAX_RESULTS = 300;
 const chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
 const toIso = (t) => (t?.toDate ? t.toDate().toISOString() : t || null);
+// Registrations are shown by DAY only. An exact time could be matched against the timestamps on anonymous price
+// opinions (in reports) to link a registrant to an opinion, so it is deliberately not exposed in these lists.
+const toDay = (t) => { const iso = toIso(t); const d = iso ? new Date(iso) : null; return d && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : null; };
 const displayName = (u) => `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || null;
 
 /** office admin → every current office member; team creator → members of the team they created; else null. */
@@ -52,7 +55,7 @@ export async function listRegistrations(db, scope) {
       if (o.serious !== true) continue; // formal registrations only
       const p = props.get(o.propertyId);
       const owner = owners.get(p.userId);
-      const reg = { id: d.id, propertyId: o.propertyId, address: p.formattedAddress || p.address || null, agentUid: p.userId, agentName: displayName(owner), createdAt: toIso(o.createdAt) };
+      const reg = { id: d.id, propertyId: o.propertyId, address: p.formattedAddress || p.address || null, agentUid: p.userId, agentName: displayName(owner), createdAt: toDay(o.createdAt) };
       for (const f of REGISTRATION_FIELDS) reg[f] = o[f] ?? null;
       out.push(reg);
     }
