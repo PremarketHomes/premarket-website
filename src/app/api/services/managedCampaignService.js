@@ -262,7 +262,8 @@ const chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, 
 /** Campaign summary for lists: address, owner, who created it, links. Never offers, opinions or buyers. */
 export const toCampaignSummary = (id, p, owner) => ({
   id,
-  address: p.address || p.formattedAddress || null,
+  // The existing app keeps the full street address in formattedAddress; `address` is suburb-level.
+  address: p.formattedAddress || p.address || null,
   imageUrl: Array.isArray(p.imageUrls) && p.imageUrls[0] ? p.imageUrls[0] : null,
   ownerUid: p.userId,
   ownerName: displayName(owner) || null,

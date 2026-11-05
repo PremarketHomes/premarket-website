@@ -117,11 +117,13 @@ describe('attribution', () => {
   });
   it('the existing agent dashboard query (userId == agent) finds it, and the office list shows owner and creator', async () => {
     const r = await (await create('hannah', 'ivy')).json();
+    store.set(`properties/${r.propertyId}`, { ...store.get(`properties/${r.propertyId}`), formattedAddress: '1 Test St, Tweed Heads NSW 2485, Australia', address: 'Tweed Heads NSW Australia' });
     expect(props().filter(([, p]) => p.userId === 'ivy').map(([k]) => k)).toEqual([`properties/${r.propertyId}`]);
     authSpies.verifyIdToken.mockResolvedValue({ uid: 'hannah' });
     const res = await officeCampaigns(new Request('http://x', { headers: { authorization: 'Bearer t' } }), { params: Promise.resolve({ officeId: 'hph' }) });
     const { campaigns } = await res.json();
     expect(campaigns).toHaveLength(1);
+    expect(campaigns[0].address).toBe('1 Test St, Tweed Heads NSW 2485, Australia'); // full street address, not the suburb-level field
     expect(campaigns[0]).toMatchObject({ id: r.propertyId, ownerUid: 'ivy', ownerName: 'Ivy X', ownerLoginStatus: 'invited', managed: true, createdByUid: 'hannah' });
     expect(JSON.stringify(campaigns)).not.toMatch(/offer|opinion|buyer/i);
   });
