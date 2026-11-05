@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, Loader2, Plus, Search, ExternalLink, Eye, EyeOff, Archive } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus, Search, ExternalLink, Eye, EyeOff, Archive, Send } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
@@ -43,6 +43,14 @@ function CampaignsInner() {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) return setNotice(body.error || 'That change could not be saved.');
     setNotice(okMsg); load();
+  };
+
+  const resendLink = async (c) => {
+    setNotice('');
+    const res = await authFetch(`/api/properties/${c.id}/campaign-link/resend`, { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return setNotice(body.error || 'The link could not be sent.');
+    setNotice(body.sent ? `Campaign link emailed to ${c.ownerName || 'the agent'}.` : 'The email was not sent (the agent may be unsubscribed or unreachable).');
   };
 
   const shown = useMemo(() => {
@@ -111,6 +119,9 @@ function CampaignsInner() {
               </div>
               <div className="flex flex-wrap gap-2 sm:justify-end">
                 <Link href={`/find-property?propertyId=${c.id}`} target="_blank" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-orange-600 hover:bg-orange-50"><ExternalLink className="w-3.5 h-3.5" /> Buyer link</Link>
+                {!c.archived && (
+                  <button onClick={() => { if (window.confirm(`Email the campaign link to ${c.ownerName || 'the agent'}?`)) resendLink(c); }} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50"><Send className="w-3.5 h-3.5" /> Email link to agent</button>
+                )}
                 {!c.archived && (c.visibility
                   ? <button onClick={() => act(c, 'hide', 'Buyer link hidden.')} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"><EyeOff className="w-3.5 h-3.5" /> Hide</button>
                   : <button onClick={() => act(c, 'show', 'Buyer link is live.')} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Eye className="w-3.5 h-3.5" /> Go live</button>)}

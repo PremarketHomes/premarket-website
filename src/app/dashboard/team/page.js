@@ -225,6 +225,11 @@ export default function MyTeamPage() {
               Create a campaign for a teammate
             </Link>
           )}
+          {canCreateForTeam && (
+            <Link href="/dashboard/office/registrations" className="inline-flex items-center gap-1 mt-2 ml-4 text-sm font-semibold text-orange-600 hover:text-orange-700">
+              View team registrations
+            </Link>
+          )}
           <p className="text-sm text-slate-500 mt-1">
             {office.name} · Teammates can see each other&apos;s campaigns and buyer feedback, read-only. Everyone keeps their own account, properties and billing.
           </p>

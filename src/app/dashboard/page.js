@@ -21,6 +21,7 @@ import {
   LayoutDashboard,
   Trophy,
   Users,
+  Mail,
   Home,
   Plus,
   LogOut,
@@ -108,6 +109,7 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
           { id: 'office-agents', label: 'Agents', icon: Users, href: '/dashboard/office/agents' },
           { id: 'office-teams', label: 'Teams', icon: UserPlus, href: '/dashboard/office/teams' },
           { id: 'office-campaigns', label: 'Campaigns', icon: LayoutDashboard, href: '/dashboard/office/campaigns' },
+          { id: 'office-registrations', label: 'Registrations', icon: Mail, href: '/dashboard/office/registrations' },
         ]
       : []),
     ...(isLeader
