@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useAuth } from '../../context/AuthContext';
 import { useRequireAgent } from '../../hooks/useRequireAgent';
 import { authFetch } from '../../utils/authFetch';
@@ -158,6 +159,9 @@ export default function OfficeManagementPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{office.name}</h1>
           <p className="text-sm text-slate-500 mt-1">Office Management</p>
+          <Link href="/dashboard/office/team" className="inline-flex items-center gap-1 mt-3 text-sm font-semibold text-orange-600 hover:text-orange-700">
+            <Users className="w-4 h-4" /> View office team and their properties
+          </Link>
         </div>
 
         {error && <p className="text-red-600 text-sm">{error}</p>}

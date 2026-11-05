@@ -40,7 +40,6 @@ import {
   Upload,
   Settings,
   User,
-  Users,
   Trash2,
   ExternalLink,
   Camera,
@@ -96,11 +95,6 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     { id: 'archived', label: 'Archive', icon: Archive },
     { id: 'add', label: 'Add Property', icon: Plus, href: '/dashboard/add' },
     { id: 'user-manual', label: 'User Manual', icon: BookOpen, href: '/dashboard/user-manual' },
-    // For office administrators "Team" is the OFFICE team (members + their
-    // properties). Everyone else keeps the personal listing-agent profiles
-    // page, exactly as before — which is also why it looked empty for an
-    // office admin: it only ever shows the signed-in user's own profiles.
-    { id: 'agents', label: 'Team', icon: Users, href: userData?.isOfficeAdmin === true ? '/dashboard/office/team' : '/dashboard/agents' },
     // Colleagues in the same verified office can share read-only sight of each
     // other's campaigns. Only offered to office-linked agents.
     ...(userData?.officeId

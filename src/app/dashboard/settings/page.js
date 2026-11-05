@@ -508,6 +508,13 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Listing-agent profiles (formerly reached via the sidebar "Team" entry) */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <h2 className="text-sm font-semibold text-slate-900 mb-1">Listing-Agent Profiles</h2>
+          <p className="text-xs text-slate-500 mb-3">Manage the agent profiles you attach to your properties.</p>
+          <Link href="/dashboard/agents" className="text-sm font-semibold text-orange-600 hover:text-orange-700">Manage listing-agent profiles</Link>
+        </div>
+
         {/* Roles */}
         <div className="bg-white rounded-xl border border-slate-200 p-6">
           <h2 className="text-sm font-semibold text-slate-900 mb-1">Roles</h2>
