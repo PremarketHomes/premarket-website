@@ -9,6 +9,38 @@
  *   duplicates     — separate records that look like the same person (same email, or same name)
  * Matching is by uid or exact normalised email ONLY — never by name alone.
  */
+// Mirrors src/app/utils/avatar.js (a test asserts they stay identical).
+const PLACEHOLDER_AVATAR_URL = 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png?20150327203541';
+const isPlaceholderAvatar = (a) => !a || a === PLACEHOLDER_AVATAR_URL;
+
+// Mirrors officeImportService.stagedRowState / listStagedAgents (a test asserts the constants stay identical):
+// only rows in a LIVE batch, with an eligible preview, that have not already been resolved, are "staged agents".
+const ELIGIBLE_PREVIEW = ['new', 'existing-account'];
+const RESOLVED_OK = ['created', 'invited-existing', 'skipped'];
+const STALE_SENDING_MS = 3 * 60 * 1000;
+const LIVE_BATCH_STATUSES = ['staged', 'sending', 'completed-with-errors'];
+function stagedRowState(row, nowMs = Date.now()) {
+  if (!ELIGIBLE_PREVIEW.includes(row.previewStatus)) return null;
+  const o = row.commitOutcome;
+  if (!o) return 'staged';
+  if (o === 'sending') return nowMs - (row.sendingAtMs || 0) > STALE_SENDING_MS ? 'send-failed' : 'sending';
+  if (o === 'failed' || row.emailSent === false) return 'send-failed';
+  if (RESOLVED_OK.includes(o)) return 'sent';
+  return null;
+}
+/** Same rows the production directory shows as staged: live batches only; excludes invalid, resolved and sent rows. */
+function stagedAgentsFromImports(imports, nowMs = Date.now()) {
+  const out = [];
+  for (const b of imports) {
+    if (!LIVE_BATCH_STATUSES.includes(b.status)) continue;
+    for (const r of b.rows || []) {
+      const st = stagedRowState(r, nowMs);
+      if (st && st !== 'sent') out.push({ name: r.name, email: r.email });
+    }
+  }
+  return out;
+}
+
 const norm = (e) => String(e || '').trim().toLowerCase();
 const nameOf = (u) => `${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase();
 
@@ -22,7 +54,7 @@ function reconcile({ officeId, users = [], invites = [], staged = [], profiles =
   }
 
   const people = [
-    ...users.map((u) => ({ source: 'user', uid: u.uid, email: norm(u.email), name: nameOf(u), hasPhoto: !!u.avatar, loginStatus: u.accountStatus === 'invited' ? 'invited' : 'active' })),
+    ...users.map((u) => ({ source: 'user', uid: u.uid, email: norm(u.email), name: nameOf(u), hasPhoto: !isPlaceholderAvatar(u.avatar), loginStatus: u.accountStatus === 'invited' ? 'invited' : 'active' })),
     ...invites.map((i) => ({ source: 'invite', uid: i.targetUid || null, email: norm(i.targetEmail), name: String(i.targetName || '').trim().toLowerCase(), hasPhoto: false, loginStatus: 'invited' })),
     ...staged.map((s) => ({ source: 'staged', uid: null, email: norm(s.email), name: String(s.name || '').trim().toLowerCase(), hasPhoto: false, loginStatus: 'not-activated' })),
   ];
@@ -162,4 +194,4 @@ function readOnlyDb(db) {
   };
 }
 
-module.exports = { reconcile, redactReport, maskEmail, maskName, readOnlyDb, READ_COLLECTIONS };
+module.exports = { reconcile, stagedAgentsFromImports, redactReport, maskEmail, maskName, readOnlyDb, READ_COLLECTIONS };

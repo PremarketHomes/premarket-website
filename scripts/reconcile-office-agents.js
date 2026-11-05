@@ -9,7 +9,8 @@
  *
  *   node scripts/reconcile-office-agents.js --office <officeId>
  *   node scripts/reconcile-office-agents.js --office-name "Exact Office Name"   (must match exactly ONE active office)
- *   add --json for machine-readable output (same masked fields).
+ *   default output is a SUMMARY (counts, login-status breakdown, and rows only for ambiguous/duplicate cases);
+ *   add --list to print every row, --json for machine-readable output (same masked fields).
  *
  * Credentials and the project guard are shared with scripts/activate-leadership.js: premarket-homes only,
  * via FIREBASE_SERVICE_ACCOUNT / FIREBASE_* env or Google Application Default Credentials. If anything about
@@ -17,15 +18,16 @@
  * Creating officeAgents records for existing agents is a separate migration that needs explicit approval.
  */
 const { initFirebase } = require('./activate-leadership');
-const { reconcile, redactReport, readOnlyDb } = require('./lib/officeAgentReconcile');
+const { reconcile, stagedAgentsFromImports, redactReport, readOnlyDb } = require('./lib/officeAgentReconcile');
 
 function parseArgs(argv) {
-  const out = { office: null, officeName: null, json: false };
+  const out = { office: null, officeName: null, json: false, list: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--office') out.office = argv[++i];
     else if (argv[i] === '--office-name') out.officeName = argv[++i];
     else if (argv[i] === '--json') out.json = true;
-    else throw new Error(`Unknown argument: ${argv[i]} (this script is read-only and takes only --office, --office-name and --json)`);
+    else if (argv[i] === '--list') out.list = true;
+    else throw new Error(`Unknown argument: ${argv[i]} (this script is read-only and takes only --office, --office-name, --json and --list)`);
   }
   if (!out.office && !out.officeName) throw new Error('--office <officeId> or --office-name "<exact name>" is required');
   if (out.office && out.officeName) throw new Error('Use either --office or --office-name, not both');
@@ -55,7 +57,7 @@ async function run(rawDb, args) {
   const invites = await rows(db.collection('officeInvites').where('officeId', '==', office.id).where('status', '==', 'pending'));
   const profiles = await rows(db.collection('officeAgents').where('officeId', '==', office.id));
   const imports = await rows(db.collection('officeImports').where('officeId', '==', office.id));
-  const staged = imports.flatMap((b) => (b.rows || []).filter((r) => !r.commitOutcome || r.commitOutcome === 'failed').map((r) => ({ name: r.name, email: r.email })));
+  const staged = stagedAgentsFromImports(imports); // exactly the rows the production directory treats as staged
   const listingAgents = [];
   for (let i = 0; i < users.length; i += 10) {
     const ids = users.slice(i, i + 10).map((u) => u.uid);
@@ -72,9 +74,14 @@ async function main() {
   const { app } = initFirebase(process.env, { initializeApp, applicationDefault, cert, getApps });
   const { office, report } = await run(getFirestore(app), args);
   if (args.json) return console.log(JSON.stringify({ office, report }, null, 2));
+  const by = (rows, key) => rows.reduce((m, r) => ((m[r[key] || 'unknown'] = (m[r[key] || 'unknown'] || 0) + 1), m), {});
+  const seeds = report.missing.filter((r) => r.wouldSeed);
   console.log(`Office: ${office.name} (${office.id})  READ-ONLY dry run, nothing written, no notifications, masked output`);
   console.log(`People: ${report.counts.people} | exact ${report.counts.exact} | missing ${report.counts.missing} | ambiguous ${report.counts.ambiguous} | duplicates ${report.counts.duplicates}`);
-  for (const k of ['exact', 'missing', 'ambiguous', 'duplicates']) {
+  console.log(`Missing profiles by login status: ${JSON.stringify(by(report.missing, 'loginStatus'))} | by source: ${JSON.stringify(by(report.missing, 'source'))}`);
+  console.log(`Real photo on the login record (placeholder image excluded): ${seeds.filter((r) => r.wouldSeed.photo).length} of ${seeds.length} (never overwritten by a migration)`);
+  const listed = args.list ? ['exact', 'missing', 'ambiguous', 'duplicates'] : ['ambiguous', 'duplicates'];
+  for (const k of listed) {
     console.log(`\n${k.toUpperCase()}: ${report[k].length}`);
     report[k].forEach((r) => console.log('  - ' + JSON.stringify(r)));
   }

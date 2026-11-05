@@ -1,6 +1,7 @@
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { listStagedAgents } from './officeImportService';
+import { isPlaceholderAvatar } from '../../utils/avatar';
 
 /**
  * Office agent directory + canonical professional profiles (`officeAgents`).
@@ -115,7 +116,8 @@ export function mergeDirectory({ users = [], invites = [], staged = [], profiles
       name: owner, email: clean(u.email), loginEmail: clean(u.email),
       phone: clean(u.phone) || clean(contacts[u.uid]?.phone),
       phoneHeld: !clean(u.phone) && !!clean(contacts[u.uid]?.phone),
-      photoUrl: clean(u.avatar),
+      // Every new account is seeded with a shared placeholder image (utils/avatar.js): that is NOT a photo.
+      photoUrl: isPlaceholderAvatar(u.avatar) ? null : clean(u.avatar),
     };
     push(attachProfile({
       key: null, uid: u.uid, loginStatus,

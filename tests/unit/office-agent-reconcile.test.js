@@ -117,3 +117,42 @@ describe('reconciliation script is read-only, notification-free and minimises pe
     expect(JSON.stringify(r)).not.toMatch(/jo smith|a@x\.com/);
   });
 });
+
+describe('script rules stay identical to the production code they mirror', () => {
+  const lib = readFileSync('scripts/lib/officeAgentReconcile.js', 'utf8');
+  const svc = readFileSync('src/app/api/services/officeImportService.js', 'utf8');
+  const avatar = readFileSync('src/app/utils/avatar.js', 'utf8');
+  const arr = (src, name) => (src.match(new RegExp(`const ${name} = (\\[[^\\]]*\\])`)) || [])[1];
+  it('staged-row constants match officeImportService', () => {
+    for (const n of ['ELIGIBLE_PREVIEW', 'RESOLVED_OK', 'LIVE_BATCH_STATUSES']) {
+      expect(arr(lib, n)).toBeTruthy();
+      expect(arr(lib, n)).toBe(arr(svc, n));
+    }
+    expect(lib.match(/STALE_SENDING_MS = ([^;]+);/)[1]).toBe(svc.match(/STALE_SENDING_MS = ([^;]+);/)[1]);
+  });
+  it('the placeholder avatar URL matches utils/avatar.js', () => {
+    const url = (src) => src.match(/PLACEHOLDER_AVATAR_URL = '([^']+)'/)[1];
+    expect(url(lib)).toBe(url(avatar));
+  });
+  it('only rows in live batches with an eligible preview count as staged (invalid, resolved and completed batches do not)', () => {
+    const { stagedAgentsFromImports } = require('../../scripts/lib/officeAgentReconcile');
+    const imports = [
+      { status: 'previewed', rows: [{ previewStatus: 'new', email: 'a@x.com' }] },
+      { status: 'completed', rows: [{ previewStatus: 'new', commitOutcome: 'created', email: 'b@x.com' }] },
+      { status: 'staged', rows: [
+        { previewStatus: 'invalid', email: 'TBC' },
+        { previewStatus: 'new', email: 'c@x.com', name: 'C' },
+        { previewStatus: 'new', commitOutcome: 'created', email: 'd@x.com' },
+        { previewStatus: 'existing-account', commitOutcome: 'failed', email: 'e@x.com' },
+      ] },
+    ];
+    expect(stagedAgentsFromImports(imports).map((r) => r.email)).toEqual(['c@x.com', 'e@x.com']);
+  });
+  it('the placeholder image is not counted as an existing photo', () => {
+    const { reconcile } = require('../../scripts/lib/officeAgentReconcile');
+    const PH = 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png?20150327203541';
+    const r = reconcile({ officeId: 'o', users: [{ uid: 'a', email: 'a@x.com', avatar: PH }, { uid: 'b', email: 'b@x.com', avatar: 'https://premarketvideos.b-cdn.net/real.jpg' }] });
+    expect(r.missing.find((x) => x.uid === 'a').wouldSeed.photo).toBe(false);
+    expect(r.missing.find((x) => x.uid === 'b').wouldSeed.photo).toBe(true);
+  });
+});

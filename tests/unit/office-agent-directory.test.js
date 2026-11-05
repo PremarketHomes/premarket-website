@@ -247,6 +247,19 @@ describe('profile consistency in the directory', () => {
   });
 });
 
+describe('placeholder avatars are not photos (the "Missing photo" filter depends on it)', () => {
+  const PH = 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png?20150327203541';
+  it('an agent whose login record only has the shared placeholder image shows as missing a photo', async () => {
+    store.set('users/invited1', { ...store.get('users/invited1'), avatar: PH });
+    store.set('users/active1', { ...store.get('users/active1'), avatar: `${CDN}real.jpg` });
+    const { agents, stats } = await dir();
+    expect(agents.find((a) => a.uid === 'invited1')).toMatchObject({ photoUrl: null, profileStatus: 'needs-details' });
+    expect(agents.find((a) => a.uid === 'invited1').missing).toContain('photo');
+    expect(agents.find((a) => a.uid === 'active1').photoUrl).toBe(`${CDN}real.jpg`);
+    expect(stats.missingPhoto).toBe(4);
+  });
+});
+
 describe('photo upload', () => {
   const photoReq = (uid, key, bytes, name = 'p.png') => {
     authSpies.verifyIdToken.mockResolvedValue({ uid });
