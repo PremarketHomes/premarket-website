@@ -52,9 +52,8 @@ export async function removeAgentFromDirectory({ officeId, key, actorUid }) {
         const teamSnap = await tx.get(teamRef);
         if (teamSnap.exists && teamSnap.data().officeId === officeId) {
           const team = { id: teamSnap.id, ...teamSnap.data() };
-          if (team.createdBy === row.uid) {
-            throw new OfficeAgentError(`${label} is the administrator of ${team.name || 'their team'}. Choose another team administrator in Teams first.`, 409);
-          }
+          // The Team Admin role is retired (there is no longer a "choose team admin" control). If this agent created the
+          // team, detach() passes the team's `createdBy` on to a remaining member, exactly as when a creator leaves.
           const members = await readMembers(tx, team);
           if (members.length - 1 < 2) {
             throw new OfficeAgentError(`${label} is in a two-person team, and removing them would dissolve it. Remove or move them in Teams first.`, 409);

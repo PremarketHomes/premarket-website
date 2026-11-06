@@ -12,6 +12,7 @@ beforeEach(() => {
     uploadFile: async (path) => { calls.upload.push(path); if ([...failOn].some((n) => path.endsWith(`-${n}`))) throw new Error('network'); return `https://cdn/${path}`; },
     updateProperty: async (id, patch) => { calls.patches.push({ id, patch }); },
     apiUpload: async (f) => { calls.upload.push(f.name); if (failOn.has(f.name)) throw new Error('network'); return `https://bunny/${f.name}`; },
+    apiAttachManagedMedia: async (propertyId, urls) => { calls.attached = [...(calls.attached || []), { propertyId, urls }]; if (failOn.has('ATTACH')) throw new Error('network'); return { added: urls.length }; },
     apiCreateManaged: async (body) => { calls.created.push(body); if (failOn.has('CREATE')) { const e = new Error('Not allowed'); e.status = 403; throw e; } return { propertyId: 'newprop' }; },
     triggerCompress: () => { calls.compress++; },
     convertHeic: async (f) => f,
@@ -116,5 +117,41 @@ describe('managed campaign creation', () => {
     const job = await M.enqueueManagedCreate({ userId: 'u1', requestId: 'req-3', payload, images: [file('a.jpg')] });
     expect(job.status).toBe('error');
     expect(calls.created).toHaveLength(1);
+  });
+});
+
+describe('photos added by a campaign manager (BSO / office admin)', () => {
+  it('uploads through the server, then attaches all photos through the server in one call; never writes the property directly', async () => {
+    const id = await M.enqueueManagedMediaUpload({ propertyId: 'm_1', userId: 'u1', label: 'Photos', files: [file('a.jpg'), file('b.jpg')] });
+    const j = await idle(id);
+    expect(j.status).toBe('complete');
+    expect(calls.upload).toEqual(['a.jpg', 'b.jpg']);
+    expect(calls.attached).toEqual([{ propertyId: 'm_1', urls: ['https://bunny/a.jpg', 'https://bunny/b.jpg'] }]);
+    expect(calls.patches).toHaveLength(0); // the manager cannot (and does not) write the property from the browser
+    expect(calls.compress).toBe(1);
+  });
+  it('a failed photo pauses the job; Resume re-sends only the unfinished photo and attaches each URL (server ignores repeats)', async () => {
+    failOn.add('b.jpg');
+    const id = await M.enqueueManagedMediaUpload({ propertyId: 'm_1', userId: 'u1', files: [file('a.jpg'), file('b.jpg')] });
+    let j = await idle(id);
+    expect(j.status).toBe('interrupted');
+    expect(calls.attached).toBeUndefined();
+    failOn.clear();
+    await M.resumeJob(id);
+    j = await idle(id);
+    expect(j.status).toBe('complete');
+    expect(calls.upload.filter((n) => n === 'a.jpg')).toHaveLength(1);
+    expect(calls.attached).toEqual([{ propertyId: 'm_1', urls: ['https://bunny/a.jpg', 'https://bunny/b.jpg'] }]);
+  });
+  it('an attach failure is retried and then paused for Resume, without re-uploading finished photos', async () => {
+    failOn.add('ATTACH');
+    const id = await M.enqueueManagedMediaUpload({ propertyId: 'm_1', userId: 'u1', files: [file('a.jpg')] });
+    let j = await idle(id);
+    expect(j.status).toBe('interrupted');
+    failOn.clear();
+    await M.resumeJob(id);
+    j = await idle(id);
+    expect(j.status).toBe('complete');
+    expect(calls.upload).toEqual(['a.jpg']);
   });
 });

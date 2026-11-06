@@ -151,8 +151,7 @@ describe('Remove Agent', () => {
     expect((await dir()).agents.some((a) => a.uid === 'fay')).toBe(true);
   });
 
-  it('refuses a team administrator, a member of a two-person team, an office administrator and yourself', async () => {
-    expect((await json(await call('hannah', 'u:ann'))).error).toMatch(/administrator of/);
+  it('refuses a member of a two-person team, an office administrator and yourself', async () => {
     expect((await json(await call('hannah', 'u:eve'))).error).toMatch(/dissolve/);
     expect((await json(await call('hannah', 'u:hannah'))).status).toBe(409);
     store.set('users/zed', agent('Zed', { isOfficeAdmin: true }));
@@ -160,6 +159,13 @@ describe('Remove Agent', () => {
     expect((await json(await call('hannah', 'u:zed'))).error).toMatch(/office administrator/);
     expect(store.get('users/eve').teamId).toBe('t2');
     expect(store.get('teams/t1').createdBy).toBe('ann');
+  });
+
+  it('Team Admin retired: a team creator can be removed; the team carries on and its creator record passes to a remaining member', async () => {
+    const r = await json(await call('hannah', 'u:ann'));
+    expect(r).toMatchObject({ status: 200, removed: true, leftTeam: true });
+    expect(store.get('users/ann').teamId).toBeUndefined();
+    expect(['bob', 'cat']).toContain(store.get('teams/t1').createdBy);
   });
 
   it('cannot reach into another office', async () => {

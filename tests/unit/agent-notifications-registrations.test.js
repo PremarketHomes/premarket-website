@@ -143,19 +143,20 @@ describe('campaign link email to the assigned agent', () => {
 });
 
 describe('authorised resend of the campaign link', () => {
-  it('office admin, team creator and the owner may resend; each resend is a new once-only event, rate limited', async () => {
+  it('office admin and the owner may resend; each resend is a new once-only event, rate limited', async () => {
     expect(await resendCampaignLink(adminDb, { actorUid: 'hannah', propertyId: 'p_ivy' })).toMatchObject({ sent: true });
     expect(emails()).toHaveLength(1);
     expect(emails()[0].html).toMatch(/again/);
-    await expect(resendCampaignLink(adminDb, { actorUid: 'ann', propertyId: 'p_ivy' })).rejects.toMatchObject({ status: 429 });
+    await expect(resendCampaignLink(adminDb, { actorUid: 'ivy', propertyId: 'p_ivy' })).rejects.toMatchObject({ status: 429 });
     expect(emails()).toHaveLength(1);
     store.set('properties/p_ivy', { ...store.get('properties/p_ivy'), campaignLinkResentAtMs: 0 });
-    expect(await resendCampaignLink(adminDb, { actorUid: 'ann', propertyId: 'p_ivy' })).toMatchObject({ sent: true });
+    expect(await resendCampaignLink(adminDb, { actorUid: 'ivy', propertyId: 'p_ivy' })).toMatchObject({ sent: true });
     expect(emails()).toHaveLength(2);
     expect(new Set(emails().map((e) => e.idempotencyKey)).size).toBe(2);
+    expect(emails().every((e) => e.to === 'ivy@hph.com')).toBe(true); // always the selling agent's account email
   });
-  it('strangers, other team creators and other offices cannot resend (404, nothing sent)', async () => {
-    for (const actor of ['dan', 'cat', 'otheradmin', 'olly', 'lead']) {
+  it('strangers, team creators (Team Admin retired) and other offices cannot resend (404, nothing sent)', async () => {
+    for (const actor of ['ann', 'dan', 'cat', 'otheradmin', 'olly', 'lead']) {
       await expect(resendCampaignLink(adminDb, { actorUid: actor, propertyId: 'p_ivy' })).rejects.toMatchObject({ status: 404 });
     }
     expect(sendEmail).not.toHaveBeenCalled();
@@ -242,23 +243,25 @@ describe('team creators: identifiable buyer registrations are OFF by default', (
     expect(r.status).toBe(200);
     expect(r.scope).toBe('office');
   });
-  it('the agent-selector endpoint tells the UI the team registrations link is unavailable', async () => {
+  it('Team Admin retired: even with TEAM_REGISTRATIONS_ENABLED=1 a team creator gets no scope, no list and no buyer details', async () => {
+    process.env.TEAM_REGISTRATIONS_ENABLED = '1';
+    try {
+      for (const uid of ['ann', 'dan']) {
+        const r = await get(uid);
+        expect(r.status).toBe(403);
+        expect(JSON.stringify(r)).not.toMatch(/buyer\.com|0400 111|Buyer r/);
+      }
+    } finally { delete process.env.TEAM_REGISTRATIONS_ENABLED; }
     const { GET: agentsRoute } = await import('../../src/app/api/properties/managed/agents/route');
     process.env.MANAGED_CAMPAIGNS_ENABLED = '1';
-    authSpies.verifyIdToken.mockResolvedValue({ uid: 'ann' });
-    const off = await (await agentsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } }))).json();
-    expect(off.teamRegistrations).toBe(false);
-    process.env.TEAM_REGISTRATIONS_ENABLED = '1'; process.env.MANAGED_CAMPAIGNS_ENABLED = '1';
     try {
       authSpies.verifyIdToken.mockResolvedValue({ uid: 'ann' });
-      const on = await (await agentsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } }))).json();
-      expect(on.teamRegistrations).toBe(true);
-    } finally { delete process.env.TEAM_REGISTRATIONS_ENABLED; delete process.env.MANAGED_CAMPAIGNS_ENABLED; }
+      expect(await (await agentsRoute(new Request('http://x', { headers: { authorization: 'Bearer t' } }))).json()).toEqual({ role: null, agents: [] });
+    } finally { delete process.env.MANAGED_CAMPAIGNS_ENABLED; }
   });
-  it('the My Team link to registrations is only rendered when the server says it is enabled', () => {
+  it('My Team never links to registrations', () => {
     const page = readFileSync('src/app/dashboard/team/page.js', 'utf8');
-    expect(page).toContain('canCreateForTeam && canViewTeamRegistrations');
-    expect(page).toContain('b.teamRegistrations === true');
+    expect(page).not.toMatch(/registrations/i);
   });
 });
 
@@ -272,11 +275,8 @@ describe('registration visibility (overview and team access explicitly enabled)'
     expect(r.registrations.map((x) => x.id).sort()).toEqual(['r1', 'r2', 'r3']);
     expect(r.registrations.find((x) => x.id === 'r1')).toMatchObject({ address: '1 Ivy St, Tweed Heads NSW', agentName: 'Ivy X', buyerEmail: 'r1@buyer.com', nextAction: 'contact' });
   });
-  it('Team creator sees only registrations on their own team’s campaigns', async () => {
-    expect((await get('ann')).registrations.map((x) => x.id).sort()).toEqual(['r1', 'r2']);
-    const d = await get('dan');
-    expect(d.scope).toBe('team');
-    expect(d.registrations.map((x) => x.id)).toEqual(['r3']);
+  it('team creators get no registrations list at all (no team-wide registration access)', async () => {
+    for (const uid of ['ann', 'dan']) expect((await get(uid)).status).toBe(403);
   });
   it('ordinary agents, team members and leadership-style accounts are refused; another office’s admin sees none of this office', async () => {
     for (const uid of ['bob', 'cat', 'ivy', 'lead']) expect((await get(uid)).status).toBe(403);
@@ -287,7 +287,7 @@ describe('registration visibility (overview and team access explicitly enabled)'
     expect(none.status).toBe(401);
   });
   it('price opinions stay anonymous: no opinion amount, score, session or account link in any response', async () => {
-    for (const uid of ['hannah', 'ann']) {
+    for (const uid of ['hannah']) {
       const text = JSON.stringify(await get(uid));
       expect(text).not.toMatch(/987654|111111|offerAmount|seriousnessLevel|sessionId|sess-secret|buyeracct|userId|opinion1/);
     }
@@ -300,34 +300,14 @@ describe('registration visibility (overview and team access explicitly enabled)'
   it('anonymous (unregistered) opinions are never listed', async () => {
     expect((await get('hannah')).registrations.some((x) => x.id === 'opinion1')).toBe(false);
   });
-  it('team creators see buyer details only for campaigns they are currently authorised to manage (same live rule as management)', async () => {
-    const { resolveManagementRole } = await import('../../src/app/api/services/managedCampaignService');
-    for (const who of ['ann', 'dan']) {
-      const res = await get(who);
-      for (const r of res.registrations) {
-        const owner = { uid: r.agentUid, ...store.get(`users/${r.agentUid}`) };
-        const ok = r.agentUid === who || (await resolveManagementRole(adminDb, { actorUid: who, owner })) === 'teamAdmin';
-        expect(ok).toBe(true);
-      }
-    }
-    // a member who is in the team but whose team record does not name the actor as creator is not visible
-    store.set('teams/t1', { officeId: 'hph', createdBy: 'bob' });
-    expect((await get('ann')).status).toBe(403); // ann is no longer the creator -> no scope at all
-    expect((await get('bob')).registrations.map((x) => x.id).sort()).toEqual(['r1', 'r2']);
-    // an agent whose account was suspended can no longer be managed, so their campaigns' buyer details disappear
-    store.set('teams/t1', { officeId: 'hph', createdBy: 'ann' });
+  it('a suspended office removes even the office admin\'s registrations list', async () => {
     store.set('officeAdminInfo/hph', { name: 'HPH', officeAdminUids: ['hannah'], status: 'suspended' });
-    expect((await get('ann')).status).toBe(403);
+    expect((await get('hannah')).status).toBe(403);
   });
   it('Leadership Hub membership grants no registration access and no operational rights', async () => {
     store.set('officeAdminInfo/hph', { name: 'HPH', officeAdminUids: ['hannah'], status: 'active', leadershipUids: ['lead', 'bob'] });
     expect((await get('lead')).status).toBe(403);
     expect((await get('bob')).status).toBe(403);
     expect((await get('hannah')).status).toBe(200); // office admin status is separate from leadership
-  });
-  it('a team creator loses visibility when the team changes (live scope)', async () => {
-    store.set('users/bob', { ...store.get('users/bob'), teamId: 't2' });
-    expect((await get('ann')).registrations.map((x) => x.id)).toEqual(['r1']);
-    expect((await get('dan')).registrations.map((x) => x.id).sort()).toEqual(['r2', 'r3']);
   });
 });

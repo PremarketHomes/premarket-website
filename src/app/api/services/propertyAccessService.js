@@ -1,5 +1,6 @@
 import { loadBuyerProfiles } from './publicProfileService';
 import { areActiveTeamPeers } from './teamAccess';
+import { isActiveBso } from './bsoService';
 import { redactOffersForTeam, redactLikesForTeam, redactPropertyForTeam } from './teamRedaction';
 
 /**
@@ -11,6 +12,12 @@ import { redactOffersForTeam, redactLikesForTeam, redactPropertyForTeam } from '
  *   'superAdmin'  a platform administrator
  *   'officeAdmin' an administrator of the office the listing agent CURRENTLY
  *                 belongs to. READ-ONLY: this level never authorises a write.
+ *   'manager'     the BSO this campaign is explicitly assigned to
+ *                 (`property.managedByUid`), while they hold the BSO role in the
+ *                 listing agent's CURRENT office. Same report as 'officeAdmin'
+ *                 (READ-ONLY, the data they need to run the campaign), for that
+ *                 campaign only: never for other campaigns of the same agent,
+ *                 never through team membership.
  *   'teamMember'  a colleague in the SAME team of the SAME active office as the
  *                 listing agent. READ-ONLY and REDACTED: the report data built
  *                 for this level (see teamRedaction.js) contains no buyer
@@ -43,6 +50,7 @@ export async function getPropertyReportAccess(db, { uid, property }) {
   const office = officeAdminInfo.data();
   if (office.status !== 'active') return null;
   if (Array.isArray(office.officeAdminUids) && office.officeAdminUids.includes(uid)) return 'officeAdmin';
+  if (property.managedByUid === uid && await isActiveBso(db, { uid, officeId, office: { id: officeId, ...office } })) return 'manager';
 
   // Office admin outranks team (it stays the fuller, existing read-only level);
   // a team peer is the last, narrowest level.
@@ -94,7 +102,7 @@ export async function getPropertyReportData(db, { uid, propertyId }) {
   return {
     status: 200,
     access,
-    readOnly: access === 'officeAdmin',
+    readOnly: access === 'officeAdmin' || access === 'manager',
     property: serializeForClient({ id: propertyId, ...property }),
     offers: offers.docs.map((d) => serializeForClient({ id: d.id, ...d.data() })),
     likes: likes.docs.map((d) => serializeForClient({ id: d.id, ...d.data() })),
@@ -125,7 +133,8 @@ async function getRedactedTeamReport(db, { propertyId, property, access }) {
 
 /**
  * Buyer details for one listing, for anyone entitled to its report
- * (owner, superAdmin, or an administrator of the agent's current office).
+ * (owner, superAdmin, an administrator of the agent's current office, or the
+ * campaign's managing BSO).
  */
 export async function getBuyerProfilesForProperty(db, { uid, propertyId }) {
   const propertySnap = await db.collection('properties').doc(propertyId).get();

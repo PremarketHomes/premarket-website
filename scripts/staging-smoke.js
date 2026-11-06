@@ -57,7 +57,8 @@ async function wizard(page, { forLabel, address, suburb, title, shot, tamper }) 
   if (tamper) await page.route('**/api/properties/managed', async (route) => { const b = JSON.parse(route.request().postData() || '{}'); b.ownerUid = tamper; await route.continue({ postData: JSON.stringify(b) }); });
   await page.click('button:has-text("Submit Property")');
 }
-const resend = () => (fs.existsSync('/tmp/fake-resend.jsonl') ? fs.readFileSync('/tmp/fake-resend.jsonl', 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+const RESEND_FILE = process.env.FAKE_RESEND_FILE || '/tmp/fake-resend.jsonl';
+const resend = () => (fs.existsSync(RESEND_FILE) ? fs.readFileSync(RESEND_FILE, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
 const prodCounts = async () => 'skipped';
 
 (async () => {
@@ -94,26 +95,26 @@ const prodCounts = async () => 'skipped';
   });
 
   // ───────── 2. Team creation and administration
-  await t('2.1 Teams page shows the seeded team (Tara is team admin) and 3 unassigned agents', async () => {
+  await t('2.1 Teams page shows the seeded team (no Team Admin badge: role retired) and 3 unassigned agents', async () => {
     await admin.goto(BASE + '/dashboard/office/teams'); await admin.waitForSelector('text=Create team', { timeout: 30000 });
-    const body = await admin.locator('body').innerText(); ok(body.includes('Staging Team One') && body.includes('Team admin'), 'team missing');
+    const body = await admin.locator('body').innerText(); ok(body.includes('Staging Team One') && !/Team admin/i.test(body), 'team missing or Team admin badge shown');
     ok((await admin.locator('section[aria-label="Agents without a team"] li').count()) === 3, 'unassigned count');
     await admin.screenshot({ path: path.join(OUT, 's-2-teams.png'), fullPage: true });
   });
-  await t('2.2 office admin creates a team, renames it, changes its administrator', async () => {
+  await t('2.2 office admin creates a team and renames it; no team administrator is chosen or offered (role retired)', async () => {
     await admin.click('button:has-text("Create team")'); await admin.waitForSelector('[role=dialog]');
     const boxes = admin.locator('[role=dialog] input[type=checkbox]'); ok((await boxes.count()) === 3, 'assignable ' + await boxes.count());
     await boxes.nth(0).check(); await boxes.nth(1).check(); await admin.fill('[role=dialog] input[aria-label="Team name"]', 'QA Team');
+    ok(!/Team administrator/i.test(await admin.locator('[role=dialog]').innerText()), 'team administrator selector shown');
     await admin.click('[role=dialog] button:has-text("Create team")'); await admin.waitForSelector('text=Team created.');
     const teams = (await db.collection('teams').where('officeId', '==', OFFICE).get()).docs; ok(teams.length === 2, 'teams ' + teams.length);
     const qa = teams.find((d) => d.data().name === 'QA Team'); ok(qa, 'QA team not found');
     const members = (await db.collection('users').where('teamId', '==', qa.id).get()).docs.map((d) => d.id); ok(members.length === 2, 'members');
-    const other = members.find((m) => m !== qa.data().createdBy);
     await admin.click('section[aria-label="QA Team"] button:has-text("Rename")'); await admin.fill('section[aria-label="QA Team"] input[aria-label="Team name"]', 'QA Team Renamed'); await admin.click('section[aria-label="QA Team"] button:has-text("Save")'); await admin.waitForSelector('text=Team renamed.');
-    await admin.click(`section[aria-label="QA Team Renamed"] li:has-text("${other === 'stg_plain' ? 'Pat' : other === 'stg_leader' ? 'Lee' : 'Olive'}") button:has-text("Make team admin")`); await admin.waitForSelector('text=is now team admin.');
-    const after = (await db.collection('teams').doc(qa.id).get()).data(); ok(after.name === 'QA Team Renamed' && after.createdBy === other, 'rename/admin not stored');
+    ok((await admin.locator('button:has-text("Make team admin")').count()) === 0, 'Make team admin control shown');
+    const after = (await db.collection('teams').doc(qa.id).get()).data(); ok(after.name === 'QA Team Renamed', 'rename not stored');
     globalThis.qaTeam = { id: qa.id, members };
-    return 'created, renamed, admin reassigned';
+    return 'created and renamed; no admin controls';
   });
   await t('2.3 moving an agent out of a 2-person team asks first, then dissolves it; no profile or login is lost', async () => {
     const { id, members } = globalThis.qaTeam; const mover = members.find((m) => m !== 'stg_admin');
@@ -123,15 +124,14 @@ const prodCounts = async () => 'skipped';
     ok(!(await db.collection('teams').doc(id).get()).exists, 'QA team should have dissolved');
     ok((await db.collection('users').doc(mover).get()).data().teamId === 'stg_team1', 'mover not in team one');
     ok((await adminAuth.getUser(mover)).email === E({ stg_plain: 'plain-agent', stg_leader: 'leadership' }[mover] || 'office-admin'), 'auth changed');
-    const audit = (await db.collection('officeTeamAudit').get()).size; ok(audit === 4, 'audit entries ' + audit); // create, rename, change admin, move (with dissolve)
+    const audit = (await db.collection('officeTeamAudit').get()).size; ok(audit === 3, 'audit entries ' + audit); // create, rename, move (with dissolve)
     return `audit entries: ${audit}`;
   });
-  await t('2.4 team creator has no office-wide access but can list/manage only their own team', async () => {
+  await t('2.4 team creator (former Team Admin) has no office-wide access and no campaign authority', async () => {
     ok((await api(E('team-creator'), `/api/offices/${OFFICE}/teams`)).status === 403, 'teams list');
     ok((await api(E('team-creator'), `/api/offices/${OFFICE}/teams`, 'POST', { memberUids: ['stg_plain', 'stg_leader'], adminUid: 'stg_plain' })).status === 403, 'create');
-    const a = await api(E('team-creator'), '/api/properties/managed/agents'); ok(a.body.role === 'teamAdmin', 'role ' + a.body.role);
-    const uids = a.body.agents.map((x) => x.uid).sort(); ok(uids.join() === ['stg_invited', 'stg_leader', 'stg_member'].join(), 'scope ' + uids); // Lee joined Tara's team in 2.3; the office admin and the unassigned plain agent are NOT in scope
-    return 'assignable: ' + uids.join(',');
+    const a = await api(E('team-creator'), '/api/properties/managed/agents'); ok(a.body.role === null && a.body.agents.length === 0, 'role ' + a.body.role);
+    return 'assignable: none (Team Admin retired)';
   });
 
   // ───────── 3. Agent profiles and photos
@@ -181,21 +181,17 @@ const prodCounts = async () => 'skipped';
     ok(p.userId === 'stg_invited' && p.createdByUid === 'stg_admin' && p.createdByRole === 'officeAdmin' && p.termsAcceptedBy === 'stg_admin' && p.managedCreation === true && p.vendorUploaded === false && p.visibility === false, JSON.stringify({ u: p.userId, c: p.createdByUid, r: p.createdByRole, t: p.termsAcceptedBy, v: p.vendorUploaded }));
     return 'userId=stg_invited createdBy=stg_admin termsAcceptedBy=stg_admin';
   });
-  await t('4.3 wizard: team creator creates for a member of their team; the terms step says the creator (not the agent) accepts', async () => {
+  await t('4.3 team creator (former Team Admin) gets no agent selector in the wizard', async () => {
     const tl = await (await ctxFor(b)).newPage(); tl.on('pageerror', (e) => errors.push(e.message)); await login(tl, 'team-creator'); globalThis.tl = tl;
-    await tl.goto(BASE + '/dashboard/add'); await tl.waitForSelector('#campaign-for'); const opts = await tl.locator('#campaign-for option').allTextContents();
-    ok(!opts.some((o) => /Olive|Pat/.test(o)) && opts.some((o) => o.startsWith('Max')) && opts.some((o) => o.startsWith('Lee')), 'selector ' + opts.join('|'));
-    await wizard(tl, { forLabel: 'Max Member', address: '3 Marine Parade, Kingscliff NSW 2487, Australia', suburb: 'Kingscliff', title: 'Staging apartment' });
-    await tl.waitForURL(/dashboard\?created=1/, { timeout: 45000 });
-    const d = (await db.collection('properties').where('formattedAddress', '==', '3 Marine Parade, Kingscliff NSW 2487, Australia').get()).docs; ok(d.length === 1, 'count'); const p = d[0].data();
-    ok(p.userId === 'stg_member' && p.createdByUid === 'stg_teamlead' && p.createdByRole === 'teamAdmin' && p.termsAcceptedBy === 'stg_teamlead', 'attribution');
-    return 'selector: ' + opts.join(' | ');
+    await tl.goto(BASE + '/dashboard/add'); await tl.waitForTimeout(3000); ok((await tl.locator('#campaign-for').count()) === 0, 'selector shown');
+    return 'no selector';
   });
-  await t('4.4 forged owner (another team / the admin) is refused by the server and creates nothing', async () => {
-    const before = (await db.collection('properties').get()).size; const tl = globalThis.tl;
-    await wizard(tl, { forLabel: 'Max Member', address: '9 Forged Street, Casuarina NSW 2487, Australia', suburb: 'Casuarina', title: 'Forged', tamper: 'stg_admin' }); /* the office admin is not in Tara's team */ await tl.waitForSelector('text=Agent not found', { timeout: 20000 }).catch(() => {});
-    ok(/Agent not found/.test(await tl.locator('body').innerText()), 'no error shown'); ok((await db.collection('properties').get()).size === before, 'property created!');
-    const direct = await api(E('team-creator'), '/api/properties/managed', 'POST', { ownerUid: 'stg_plain', requestId: 'forged-direct-0000001', acceptTerms: true, property: { address: 'x', price: '1' } }); ok(direct.status === 404, 'direct ' + direct.status); const direct2 = await api(E('team-creator'), '/api/properties/managed', 'POST', { ownerUid: 'stg_admin', requestId: 'forged-direct-0000002', acceptTerms: true, property: { address: 'x', price: '1' } }); ok(direct2.status === 404, 'direct2 ' + direct2.status);
+  await t('4.4 the server refuses a team creator creating for a teammate or anyone else, and creates nothing', async () => {
+    const before = (await db.collection('properties').get()).size;
+    for (const [owner, rid] of [['stg_member', 'forged-direct-0000001'], ['stg_plain', 'forged-direct-0000002'], ['stg_admin', 'forged-direct-0000003']]) {
+      const r = await api(E('team-creator'), '/api/properties/managed', 'POST', { ownerUid: owner, requestId: rid, acceptTerms: true, property: { address: 'x', price: '1' } }); ok(r.status === 404, owner + ' ' + r.status);
+    }
+    ok((await db.collection('properties').get()).size === before, 'property created!');
   });
   await t('4.5 plain agent has no selector and the existing agent-led wizard still creates their own campaign (under the deployed rules)', async () => {
     const pl = await (await ctxFor(b)).newPage(); pl.on('pageerror', (e) => errors.push(e.message)); await login(pl, 'plain-agent');
@@ -206,12 +202,12 @@ const prodCounts = async () => 'skipped';
   });
   await t('5.1 exactly one campaign-link email per managed campaign, to each assigned agent\'s account email, with the buyer link and no buyer/price data', async () => {
     await new Promise((r) => setTimeout(r, 1500)); const m = resend().map((x) => x.body);
-    const links = m.filter((x) => /campaign link/i.test(x.subject)); ok(links.length === 2, 'campaign emails ' + links.length + ' of ' + m.length);
-    const to = links.map((x) => [].concat(x.to).join()).sort(); ok(to.join() === [E('invited'), E('member')].sort().join(), 'recipients ' + to);
+    const links = m.filter((x) => /campaign link/i.test(x.subject)); ok(links.length === 1, 'campaign emails ' + links.length + ' of ' + m.length);
+    const to = links.map((x) => [].concat(x.to).join()).sort(); ok(to.join() === [E('invited')].join(), 'recipients ' + to);
     for (const x of links) { ok(/find-property\?propertyId=m_/.test(x.html), 'link'); ok(!/offerAmount|buyer@|fake\.buyer|0400 000 00\d|\$\s?\d|1,250,000|880000|987654/.test(x.html + (x.text || '')), 'buyer or price data in email'); }
     ok(!m.some((x) => /ivy\.pro@/.test(JSON.stringify(x.to))), 'sent to professional email');
     ok(!m.some((x) => /Property Added to Your Dashboard/.test(x.subject)), 'legacy-style email');
-    return 'recipients: qa+invited, qa+member (test domain; captured, not sent)';
+    return 'recipient: qa+invited (test domain; captured, not sent)';
   });
   await t('5.2 authorised resend sends once more, is rate limited, and strangers are refused', async () => {
     const id = (await palm())[0].id; const before = resend().length;
@@ -240,25 +236,26 @@ const prodCounts = async () => 'skipped';
     await admin.screenshot({ path: path.join(OUT, 's-6-registrations.png'), fullPage: true });
     return 'office admin 200 (2 registrations); 4 other roles 403';
   });
-  await t('6.3 My Team does not offer team registrations to the team creator', async () => {
+  await t('6.3 My Team offers the team creator neither create-for-teammate nor team registrations, and shows no Creator badge', async () => {
     const tl = globalThis.tl; await tl.goto(BASE + '/dashboard/team'); await tl.waitForSelector('text=My Team'); await tl.waitForTimeout(2500);
-    ok((await tl.locator('text=Create a campaign for a teammate').count()) === 1, 'create link'); ok((await tl.locator('text=View team registrations').count()) === 0, 'registrations link shown');
+    ok((await tl.locator('text=Create a campaign for a teammate').count()) === 0, 'create link'); ok((await tl.locator('text=View team registrations').count()) === 0, 'registrations link shown');
+    ok((await tl.locator('span', { hasText: /^(Creator|Team admin)$/i }).count()) === 0, 'badge shown'); // (the fake user is surnamed "Team-Creator")
   });
 
   // ───────── 7. Billing (staging only)
   await t('7.1 exactly one charge per campaign, on the staging office, at the staging price, keyed by property id', async () => {
     const props = (await db.collection('properties').get()).docs.filter((d) => d.id.startsWith('m_') || d.id === globalThis.ownProp); const ch = (await db.collection('propertyCharges').get()).docs;
-    ok(ch.length === 3 && props.length === 3, `charges ${ch.length} props ${props.length}`);
+    ok(ch.length === 2 && props.length === 2, `charges ${ch.length} props ${props.length}`);
     for (const c of ch) { const d = c.data(); ok(props.some((p) => p.id === c.id) && (d.officeId === OFFICE) && d.pricePerListing === 200 && d.status === 'pending', 'charge shape ' + c.id); }
     const own = ch.find((c) => c.id === globalThis.ownProp).data(); const man = ch.find((c) => c.data().agentUserId === 'stg_invited').data();
     ok(JSON.stringify([own.billingEntityType, own.pricePerListing, own.gstRate]) === JSON.stringify([man.billingEntityType, man.pricePerListing, man.gstRate]), 'managed charge differs from agent-led');
-    return `3 charges (2 managed + 1 agent-led) all office:${OFFICE} @ $200`;
+    return `2 charges (1 managed + 1 agent-led) all office:${OFFICE} @ $200`;
   });
   await t('7.2 a retried request creates no second campaign or charge', async () => {
     const body = { ownerUid: 'stg_member', requestId: 'smoke-retry-request-0001', acceptTerms: true, property: { address: 'Retry NSW Australia', formattedAddress: 'Retry Test', price: '$900,000', imageUrls: [] } };
-    const a = await api(E('team-creator'), '/api/properties/managed', 'POST', body); const c = await api(E('team-creator'), '/api/properties/managed', 'POST', body);
+    const a = await api(E('office-admin'), '/api/properties/managed', 'POST', body); const c = await api(E('office-admin'), '/api/properties/managed', 'POST', body);
     ok([200, 201].includes(a.status) && c.status === 200 && c.body.duplicate === true && c.body.propertyId === a.body.propertyId, 'retry');
-    ok((await db.collection('propertyCharges').doc(a.body.propertyId).get()).exists, 'charge'); ok((await db.collection('propertyCharges').get()).size === 4, 'charge total');
+    ok((await db.collection('propertyCharges').doc(a.body.propertyId).get()).exists, 'charge'); ok((await db.collection('propertyCharges').get()).size === 3, 'charge total');
   });
 
   // ───────── 8. Telemetry and isolation, whole session
