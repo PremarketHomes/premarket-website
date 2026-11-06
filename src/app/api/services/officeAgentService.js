@@ -3,6 +3,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { listStagedAgents } from './officeImportService';
 import { isPlaceholderAvatar } from '../../utils/avatar';
 import { cdnBase } from './storageConfig';
+import { loadRemovedSet, excludeRemoved } from './officeAgentRemovals';
 
 /**
  * Office agent directory + canonical professional profiles (`officeAgents`).
@@ -184,14 +185,21 @@ export function summariseDirectory(rows) {
 const withId = (d) => ({ id: d.id, ...d.data() });
 
 export async function buildOfficeAgentDirectory(officeId) {
-  const [usersSnap, invitesSnap, profilesSnap, teamsSnap, staged] = await Promise.all([
+  const [usersSnap, invitesSnap, profilesSnap, teamsSnap, staged, removed] = await Promise.all([
     adminDb.collection('users').where('officeId', '==', officeId).get(),
     adminDb.collection('officeInvites').where('officeId', '==', officeId).where('status', '==', 'pending').get(),
     adminDb.collection('officeAgents').where('officeId', '==', officeId).get(),
     adminDb.collection('teams').where('officeId', '==', officeId).get(),
     listStagedAgents(officeId),
+    loadRemovedSet(officeId),
   ]);
-  const users = usersSnap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+  const kept = excludeRemoved({
+    users: usersSnap.docs.map((d) => ({ uid: d.id, ...d.data() })),
+    invites: invitesSnap.docs.map((d) => d.data()),
+    staged,
+    profiles: profilesSnap.docs.map(withId),
+  }, removed);
+  const users = kept.users;
   // Invited agents' office-submitted phone is held server-side until they activate; the office admin
   // supplied it, so showing it to that same office admin is not a disclosure.
   const contactSnaps = await Promise.all(
@@ -203,9 +211,9 @@ export async function buildOfficeAgentDirectory(officeId) {
 
   const rows = mergeDirectory({
     users,
-    invites: invitesSnap.docs.map((d) => d.data()),
-    staged,
-    profiles: profilesSnap.docs.map(withId),
+    invites: kept.invites,
+    staged: kept.staged,
+    profiles: kept.profiles,
     teams: teamsSnap.docs.map(withId),
     contacts,
   });

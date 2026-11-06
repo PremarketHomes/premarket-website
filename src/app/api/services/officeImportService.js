@@ -41,6 +41,7 @@ import { sendOfficeInviteEmail, sendOfficeJoinInviteEmail } from './resendServic
 import { OfficeError } from './officeService';
 import { createActivationLink } from './officeActivationService';
 import { settleChargesForAgent } from './billingService';
+import { loadRemovedSet, isRemovedEmail, isRemovedUid } from './officeAgentRemovals';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_ROWS_PER_IMPORT = 2000;
@@ -163,12 +164,15 @@ export async function classifyImportRows({ officeId, rawRows }) {
   const toLookUp = shaped.filter((r) => r.previewStatus === 'pending-lookup');
   const foundByEmail = await lookupExistingAuthUsersByEmail(toLookUp.map((r) => r.email));
   const stagedEmails = await getStagedEmails(officeId);
+  const removed = await loadRemovedSet(officeId);
 
   const resolved = await Promise.all(
     shaped.map(async (row) => {
       if (row.previewStatus !== 'pending-lookup') return row;
       // Same email already waiting in another staged (unsent) batch — never stage twice.
       if (stagedEmails.has(row.email)) return { ...row, previewStatus: 'already-staged' };
+      // Removed from this office's directory by an office admin: a CSV never brings them back.
+      if (isRemovedEmail(removed, row.email)) return { ...row, previewStatus: 'previously-removed' };
 
       const existingUser = foundByEmail.get(row.email);
       if (!existingUser) return { ...row, previewStatus: 'new' };
@@ -251,6 +255,10 @@ export async function getImportBatch(importId) {
  */
 export async function processOneRow({ officeId, officeName, row, actorUid }) {
   const { name, email, phone } = row;
+  // Never invite someone an office admin removed from the directory (covers rows staged before the removal).
+  if (isRemovedEmail(await loadRemovedSet(officeId), email)) {
+    return { outcome: 'skipped', error: 'Removed from the office directory' };
+  }
   const { firstName, lastName } = splitName(name);
   const auth = getAuth();
 
@@ -560,6 +568,9 @@ export async function acceptOfficeInvite({ token, acceptingUid }) {
  * the office roster, covering every row the roster can show.
  */
 export async function resendInvitation({ officeId, targetUid }) {
+  if (isRemovedUid(await loadRemovedSet(officeId), targetUid)) {
+    throw new OfficeError('This agent was removed from the office directory', 409);
+  }
   const userDoc = await adminDb.collection('users').doc(targetUid).get();
   if (userDoc.exists && userDoc.data().officeId === officeId) {
     const u = userDoc.data();

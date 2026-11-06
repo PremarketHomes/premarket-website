@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Search, Camera, Pencil, Mail, Phone, Loader2, UserPlus, X, ImageOff } from 'lucide-react';
+import { ArrowLeft, Search, Camera, Pencil, Mail, Phone, Loader2, UserPlus, X, ImageOff, MoreVertical, Trash2 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
@@ -251,6 +251,30 @@ export default function OfficeAgentsPage() {
     });
   }, [state.agents, query, filter, team]);
 
+  const [menuFor, setMenuFor] = useState(null);
+  const [removing, setRemoving] = useState(null); // { agent, busy, error }
+
+  const confirmRemove = async () => {
+    const { agent } = removing;
+    setRemoving({ agent, busy: true, error: '' });
+    try {
+      const res = await authFetch(`/api/offices/${state.office.id}/agent-removals`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: agent.key }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Could not remove this agent');
+      setRemoving(null);
+      setState((s) => {
+        const agents = s.agents.filter((x) => x.key !== agent.key);
+        return { ...s, agents, stats: { ...s.stats, total: agents.length } };
+      });
+      setNotice(`${agent.name || agent.email || 'Agent'} was removed from the office.`);
+      load();
+    } catch (err) {
+      setRemoving({ agent, busy: false, error: err.message });
+    }
+  };
+
   const resend = async (agent) => {
     setNotice('');
     try {
@@ -351,12 +375,48 @@ export default function OfficeAgentsPage() {
                   {a.canResend && (
                     <button onClick={() => resend(a)} className="px-3.5 py-2 rounded-xl text-sm font-semibold text-orange-600 hover:bg-orange-50">Resend invitation</button>
                   )}
+                  <div className="relative">
+                    <button onClick={() => setMenuFor(menuFor === a.key ? null : a.key)} aria-label={`More actions for ${a.name || a.email || 'agent'}`}
+                      aria-haspopup="menu" aria-expanded={menuFor === a.key}
+                      className="p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50">
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                    {menuFor === a.key && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                        <div role="menu" className="absolute right-0 mt-1 z-20 w-44 rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+                          <button role="menuitem" onClick={() => { setMenuFor(null); setRemoving({ agent: a, busy: false, error: '' }); }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
+                            <Trash2 className="w-4 h-4" /> Remove Agent
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </li>
             );
           })}
         </ul>
       </div>
+
+      {removing && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center px-4" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h2 className="text-lg font-bold text-slate-900">Remove agent</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Remove {removing.agent.name || removing.agent.email || 'this agent'} from the {state.office.name} office? They will no longer appear in the office agent directory.
+            </p>
+            {removing.error && <p role="alert" className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{removing.error}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setRemoving(null)} disabled={removing.busy} className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={confirmRemove} disabled={removing.busy} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60">
+                {removing.busy && <Loader2 className="w-4 h-4 animate-spin" />} Remove Agent
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editing && (
         <EditModal key={editing.key} officeId={state.office.id} agent={editing}
