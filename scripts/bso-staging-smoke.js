@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * STAGING smoke test for the BSO Workspace (15 checks). Same safety rails as scripts/staging-smoke.js: refuses to run unless the
+ * STAGING smoke test for the BSO Workspace (16 checks). Same safety rails as scripts/staging-smoke.js: refuses to run unless the
  * credential in ~/.premarket-staging is a staging project (never premarket-homes) and the browser config matches it. Creates its own
  * FAKE people (qa+bso-*@premarket-staging.invalid), teams and campaigns in the staging project only; no HPH data is read or copied.
  *
@@ -288,6 +288,36 @@ const ids = {};
     const list = await api(E('office-admin'), `/api/offices/${OFFICE}/campaigns`); const flagged = list.body.campaigns.filter((c) => c.needsManager).map((c) => c.id).sort();
     ok(JSON.stringify(flagged) === JSON.stringify([ids.bella, ids.brett].sort()), 'flagged ' + flagged);
     ok((await db.collection('properties').doc(ids.bella).get()).data().managedByUid === 'stg_bso_bella', 'history changed');
+  });
+
+  // ───────── 12b. Phone and iPad layouts (the screens BSOs and the office admin use)
+  await t('B16 phone (390px) and iPad (820px): BSO and office screens fit the width and their key controls are reachable', async () => {
+    const notes = [];
+    for (const [label, vp] of [['phone', { width: 390, height: 844 }], ['ipad', { width: 820, height: 1180 }]]) {
+      const ctx = await ctxFor(b, { viewport: vp, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+      const check = async (pg, url, ready, shot) => {
+        await pg.goto(BASE + url); await pg.waitForSelector(ready, { timeout: 40000 }); await pg.waitForTimeout(600);
+        const over = await pg.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        await pg.screenshot({ path: path.join(OUT, `b16-${label}-${shot}.png`), fullPage: true });
+        ok(over <= 1, `${label} ${url}: page is ${over}px wider than the screen`);
+        const box = await pg.locator(ready).first().boundingBox(); ok(box && box.x >= 0 && box.x + box.width <= vp.width + 1, `${label} ${url}: ${ready} off screen`);
+      };
+      const bso = await ctx.newPage(); bso.on('pageerror', (e) => errors.push(e.message)); await loginAs(bso, P('penny'));
+      await check(bso, '/dashboard/bso', '#agent-filter', 'bso');
+      ok(await bso.locator('[data-testid=bso-campaign] >> text=Copy buyer link').first().isVisible(), `${label}: copy link hidden`);
+      await check(bso, '/dashboard/add', '#campaign-for', 'add');
+      await check(bso, `/dashboard/edit/${ids.riverside}`, 'button:has-text("Continue")', 'edit');
+      const off = await (await ctxFor(b, { viewport: vp, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })).newPage(); off.on('pageerror', (e) => errors.push(e.message)); await login(off, 'office-admin');
+      await check(off, '/dashboard/office/campaigns', 'select[aria-label="Filter by BSO"]', 'office-campaigns');
+      ok(await off.locator('select[aria-label^="Change manager of"]').first().isVisible(), `${label}: change manager hidden`);
+      await check(off, '/dashboard/office/agents', `button[aria-label="More actions for ${NAME.stg_bso_penny}"]`, 'office-agents');
+      await off.click(`button[aria-label="More actions for ${NAME.stg_bso_penny}"]`);
+      const item = off.locator('button[role=menuitem]:has-text("BSO")'); ok(await item.isVisible(), `${label}: BSO menu item hidden`);
+      const ib = await item.boundingBox(); ok(ib && ib.x >= 0 && ib.x + ib.width <= vp.width + 1, `${label}: BSO menu item off screen`);
+      await off.screenshot({ path: path.join(OUT, `b16-${label}-agents-menu.png`) });
+      notes.push(`${label} ok`);
+    }
+    return notes.join(', ');
   });
 
   // ───────── 13. Isolation
