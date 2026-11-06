@@ -70,7 +70,7 @@ describe('My Team page', () => {
     expect(screen.getByText('Bob Test', { selector: 'span' })).toBeTruthy(); // owner label on the row
     const links = screen.getAllByText(/View report \(read-only\)/i).map((n) => n.closest('a').getAttribute('href'));
     expect(links).toEqual(['/dashboard/property/p1', '/dashboard/property/p2']);
-    expect(screen.getByText(/Creator/)).toBeTruthy();
+    expect(screen.queryByText(/Creator|Team admin/i)).toBeNull(); // Team Admin badge retired
     expect(screen.getByText(/hide buyer names and contact details/i)).toBeTruthy();
   });
 

@@ -10,7 +10,8 @@
  *    so they can be resumed after a reload, sleep or closed browser (the browser cannot upload while closed or asleep).
  *  - Retries: each file is retried automatically; if it still fails the job is "interrupted" and waits for Resume.
  *  - No duplicates: a deterministic storage path per file (overwrite on retry), completed files are never re-uploaded, and
- *    URLs are attached with arrayUnion. Managed campaigns reuse their idempotent requestId.
+ *    URLs are attached with arrayUnion. Managed campaigns reuse their idempotent requestId; photos added by a campaign's
+ *    manager (who cannot write the property directly) are attached through the server, which ignores URLs already there.
  *  - Media is only marked complete (imageUploadProgress.inProgress=false) after EVERY file has uploaded.
  *
  * Firebase Storage's resumable session cannot be restored by the browser SDK after a reload, so "resume" means: skip the files
@@ -58,6 +59,12 @@ async function defaultDeps() {
       const res = await authFetch('/api/properties/managed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) { const e = new Error(out.error || 'The campaign could not be created.'); e.status = res.status; throw e; }
+      return out;
+    },
+    apiAttachManagedMedia: async (propertyId, urls) => {
+      const res = await authFetch(`/api/properties/${encodeURIComponent(propertyId)}/managed/media`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) { const e = new Error(out.error || 'The photos could not be added to the campaign.'); e.status = res.status; throw e; }
       return out;
     },
     triggerCompress: (propertyId) => fetch('/api/images/compress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ propertyId }) }).catch(() => {}),
@@ -149,7 +156,7 @@ async function uploadItem(d, job, item) {
     item.converted = true;
   }
   const onProgress = (p) => { item.progress = p; emit(); };
-  if (job.kind === 'managed') return withRetry(d, () => d.apiUpload(item.blob));
+  if (job.kind === 'managed' || job.kind === 'managedMedia') return withRetry(d, () => d.apiUpload(item.blob));
   const folder = item.kind === 'video' ? 'propertyVideos' : 'propertyImages';
   // Deterministic path: a retry overwrites the same object instead of creating a second one.
   // Same folder depth as before (propertyImages/{uid}/{file}) so existing storage rules keep matching.
@@ -190,6 +197,10 @@ async function run(job) {
       const urls = job.items.map((i) => i.url);
       const out = await withRetry(d, () => d.apiCreateManaged({ ...job.payload, requestId: job.requestId, property: { ...job.payload.property, imageUrls: urls } }));
       job.propertyId = out.propertyId || out.id || null;
+    } else if (job.kind === 'managedMedia') {
+      const urls = job.items.map((i) => i.url);
+      await withRetry(d, () => d.apiAttachManagedMedia(job.propertyId, urls));
+      d.triggerCompress(job.propertyId);
     } else {
       const hasImages = job.items.some((i) => i.kind === 'image');
       const total = job.items.filter((i) => i.kind === 'image').length;
@@ -200,7 +211,7 @@ async function run(job) {
       });
       if (hasImages) d.triggerCompress(job.propertyId);
     }
-    setStatus(job, 'complete', job.kind === 'managed' ? 'Campaign created.' : 'All media uploaded.');
+    setStatus(job, 'complete', job.kind === 'managed' ? 'Campaign created.' : job.kind === 'managedMedia' ? 'Photos added.' : 'All media uploaded.');
     await unpersist(job.id);
   } catch (e) {
     const permanent = e && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429;
@@ -231,7 +242,22 @@ export async function enqueuePropertyUpload({ propertyId, userId, label, files =
   return job.id;
 }
 
-/** Office admin / team creator campaign: upload photos, THEN create the campaign (idempotent requestId). Resolves when finished or paused. */
+/**
+ * New photos for a campaign the user MANAGES but does not own (managing BSO, office admin): upload each photo through the
+ * server, then attach them all through the server in one idempotent call. Runs in the background like every other job.
+ */
+export async function enqueueManagedMediaUpload({ propertyId, userId, label, files = [] }) {
+  const job = {
+    id: newId(), kind: 'managedMedia', userId, propertyId, label: label || 'Campaign photos', status: 'queued', createdAt: Date.now(),
+    items: files.map((f) => mkItem('image', f)),
+  };
+  jobs.set(job.id, job); emit();
+  await persist(job);
+  run(job);
+  return job.id;
+}
+
+/** Office admin / BSO campaign: upload photos, THEN create the campaign (idempotent requestId). Resolves when finished or paused. */
 export async function enqueueManagedCreate({ userId, label, requestId, payload, images, redirectTo }) {
   const job = {
     id: newId(), kind: 'managed', userId, label: label || 'New campaign', status: 'queued', createdAt: Date.now(),

@@ -10,16 +10,21 @@ import { authFetch } from '../../../utils/authFetch';
 import BackToDashboard from '../../../components/BackToDashboard';
 
 const date = (iso) => (iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
-const FILTERS = [['all', 'All'], ['live', 'Link live'], ['hidden', 'Link hidden'], ['managed', 'Created by office'], ['archived', 'Archived']];
+const FILTERS = [['all', 'All'], ['live', 'Link live'], ['hidden', 'Link hidden'], ['managed', 'Created by office'], ['needs-manager', 'Needs a manager'], ['archived', 'Archived']];
+const ALL = '__all__';
+const NONE = '__none__';
+const select = 'px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-200';
 
 function CampaignsInner() {
   useRequireAgent();
   const { user, loading: authLoading } = useAuth();
   const uid = user?.uid;
   const created = useSearchParams().get('created') === '1';
-  const [state, setState] = useState({ status: 'loading', office: null, campaigns: [] });
+  const [state, setState] = useState({ status: 'loading', office: null, campaigns: [], managers: [] });
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
+  const [bsoFilter, setBsoFilter] = useState(ALL);
+  const [agentFilter, setAgentFilter] = useState(ALL);
   const [notice, setNotice] = useState(created ? 'Campaign created and assigned.' : '');
 
   const load = useCallback(async () => {
@@ -34,7 +39,8 @@ function CampaignsInner() {
       const res = await authFetch(`/api/offices/${mine.office.id}/campaigns`);
       if (res.status === 403) return setState({ status: 'off', office: mine.office, campaigns: [] });
       if (!res.ok) throw new Error('campaigns');
-      setState({ status: 'ready', office: mine.office, campaigns: (await res.json()).campaigns });
+      const body = await res.json();
+      setState({ status: 'ready', office: mine.office, campaigns: body.campaigns || [], managers: body.managers || [] });
     } catch { setState((s) => ({ ...s, status: 'error' })); }
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- data load on mount; same pattern as office/team/page.js
@@ -56,18 +62,43 @@ function CampaignsInner() {
     setNotice(body.sent ? `Campaign link emailed to ${c.ownerName || 'the agent'}.` : 'The email was not sent (the agent may be unsubscribed or unreachable).');
   };
 
+  const changeManager = async (c, managerUid) => {
+    if (!managerUid || managerUid === c.managedByUid) return;
+    const to = state.managers.find((m) => m.uid === managerUid);
+    if (!window.confirm(`Hand ${c.address || 'this campaign'} to ${to?.name || 'this person'}? ${c.managedByName && c.managedByName !== to?.name ? `${c.managedByName} will no longer manage it. ` : ''}The selling agent stays ${c.sellingAgent?.name || 'the same'}.`)) return;
+    setNotice('');
+    const res = await authFetch(`/api/properties/${c.id}/managed/manager`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ managerUid }) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return setNotice(body.error || 'The manager could not be changed.');
+    setNotice(`${to?.name || 'The new manager'} now manages ${c.address || 'this campaign'}.`); load();
+  };
+
+  // Filter options come from the campaigns themselves.
+  const options = useMemo(() => {
+    const bsos = new Map(); const agents = new Map();
+    for (const c of state.campaigns) {
+      if (c.managedByUid) bsos.set(c.managedByUid, c.managedByName || 'Unnamed');
+      const k = c.sellingAgent?.key; if (k) agents.set(k, c.sellingAgent?.name || 'Agent not set');
+    }
+    const sorted = (m) => [...m].sort((a, b) => a[1].localeCompare(b[1]));
+    return { bsos: sorted(bsos), agents: sorted(agents) };
+  }, [state.campaigns]);
+
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return state.campaigns.filter((c) => {
-      if (q && !`${c.address || ''} ${c.ownerName || ''} ${c.ownerEmail || ''}`.toLowerCase().includes(q)) return false;
+      if (q && !`${c.address || ''} ${c.ownerName || ''} ${c.ownerEmail || ''} ${c.sellingAgent?.name || ''} ${c.managedByName || ''}`.toLowerCase().includes(q)) return false;
+      if (bsoFilter === NONE ? !!c.managedByUid : bsoFilter !== ALL && c.managedByUid !== bsoFilter) return false;
+      if (agentFilter !== ALL && c.sellingAgent?.key !== agentFilter) return false;
       if (filter === 'archived') return c.archived;
       if (c.archived) return false;
       if (filter === 'live') return c.visibility;
       if (filter === 'hidden') return !c.visibility;
       if (filter === 'managed') return c.managed;
+      if (filter === 'needs-manager') return c.needsManager;
       return true;
     });
-  }, [state.campaigns, query, filter]);
+  }, [state.campaigns, query, filter, bsoFilter, agentFilter]);
 
   if (state.status === 'loading') return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
   if (state.status !== 'ready') {
@@ -91,8 +122,19 @@ function CampaignsInner() {
 
         <div className="relative mt-5">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by address or agent" aria-label="Search campaigns"
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by address, agent or BSO" aria-label="Search campaigns"
             className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-200" />
+        </div>
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <select aria-label="Filter by BSO" value={bsoFilter} onChange={(e) => setBsoFilter(e.target.value)} className={select}>
+            <option value={ALL}>All BSOs</option>
+            <option value={NONE}>No BSO (agent&apos;s own campaigns)</option>
+            {options.bsos.map(([uid, name]) => <option key={uid} value={uid}>{name}</option>)}
+          </select>
+          <select aria-label="Filter by selling agent" value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)} className={select}>
+            <option value={ALL}>All selling agents</option>
+            {options.agents.map(([k, name]) => <option key={k} value={k}>{name}</option>)}
+          </select>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {FILTERS.map(([id, label]) => (
@@ -111,8 +153,12 @@ function CampaignsInner() {
                   : <div className="w-16 h-12 rounded-lg bg-slate-100 shrink-0" />}
                 <div className="min-w-0">
                   <p className="font-semibold text-slate-900 truncate">{c.address || 'Untitled campaign'}</p>
-                  <p className="text-sm text-slate-500 truncate">{c.ownerName || c.ownerEmail}{c.ownerLoginStatus === 'invited' && <span className="text-slate-400"> · not logged in yet</span>}</p>
-                  <p className="text-xs text-slate-400">{date(c.createdAt)}{c.managed && ' · created by the office'}</p>
+                  <p className="text-sm text-slate-600 truncate">{c.sellingAgent?.name || c.ownerName || c.ownerEmail}{c.sellingAgent?.loginStatus === 'invited' && <span className="text-slate-400"> · not logged in yet</span>}</p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {c.managedByUid ? <>Managed by {c.managedByName || 'unknown'}</> : 'Managed by the agent'}
+                    {c.needsManager && <span className="ml-1.5 inline-flex px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">Needs a manager</span>}
+                  </p>
+                  <p className="text-xs text-slate-400">{date(c.createdAt)}{c.createdByName && c.createdByUid && ` · created by ${c.createdByName}`}{!c.createdByUid && c.ownerUid !== c.sellingAgent?.uid && c.ownerName && ` · uploaded under ${c.ownerName}'s account`}</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5 sm:w-32">
@@ -122,7 +168,13 @@ function CampaignsInner() {
               </div>
               <div className="flex flex-wrap gap-2 sm:justify-end">
                 <Link href={`/find-property?propertyId=${c.id}`} target="_blank" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-orange-600 hover:bg-orange-50"><ExternalLink className="w-3.5 h-3.5" /> Buyer link</Link>
-                {!c.archived && (
+                {!c.archived && state.managers.length > 0 && (
+                  <select aria-label={`Change manager of ${c.address || 'campaign'}`} value="" onChange={(e) => changeManager(c, e.target.value)} className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700">
+                    <option value="">Change manager…</option>
+                    {state.managers.filter((m) => m.uid !== c.managedByUid).map((m) => <option key={m.uid} value={m.uid}>{m.name}{m.role === 'bso' ? ' (BSO)' : ' (office admin)'}</option>)}
+                  </select>
+                )}
+                {!c.archived && c.ownerUid === c.sellingAgent?.uid && (
                   <button onClick={() => { if (window.confirm(`Email the campaign link to ${c.ownerName || 'the agent'}?`)) resendLink(c); }} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50"><Send className="w-3.5 h-3.5" /> Email link to agent</button>
                 )}
                 {!c.archived && (c.visibility

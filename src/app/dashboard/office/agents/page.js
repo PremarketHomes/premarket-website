@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Search, Camera, Pencil, Mail, Phone, Loader2, UserPlus, X, ImageOff, MoreVertical, Trash2 } from 'lucide-react';
+import { ArrowLeft, Search, Camera, Pencil, Mail, Phone, Loader2, UserPlus, X, ImageOff, MoreVertical, Trash2, Briefcase } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
@@ -23,6 +23,7 @@ const FILTERS = [
   ['active', 'Active'],
   ['invited', 'Invited'],
   ['not-activated', 'Not activated'],
+  ['bso', 'BSOs'],
 ];
 
 function Avatar({ agent, size = 'w-12 h-12' }) {
@@ -253,7 +254,13 @@ export default function OfficeAgentsPage() {
       const res = await authFetch(`/api/offices/${mine.office.id}/agent-directory`);
       if (!res.ok) throw new Error('directory');
       const body = await res.json();
-      setState({ status: 'ready', office: mine.office, agents: body.agents, stats: body.stats });
+      // BSO roles (null while managed campaigns are switched off: no BSO controls are shown then).
+      let bsoUids = null;
+      try {
+        const b = await authFetch(`/api/offices/${mine.office.id}/bsos`);
+        if (b.ok) bsoUids = ((await b.json()).bsos || []).map((x) => x.uid);
+      } catch { /* BSO controls hidden */ }
+      setState({ status: 'ready', office: mine.office, agents: body.agents, stats: body.stats, bsoUids });
     } catch {
       setState((s) => ({ ...s, status: 'error' }));
     }
@@ -276,15 +283,32 @@ export default function OfficeAgentsPage() {
     return state.agents.filter((a) => {
       if (q && !`${a.name || ''} ${a.email || ''}`.toLowerCase().includes(q)) return false;
       if (team !== 'all' && (team === 'none' ? a.team : a.team?.id !== team)) return false;
+      if (filter === 'bso') return !!a.uid && (state.bsoUids || []).includes(a.uid);
       if (filter === 'no-photo') return !a.photoUrl;
       if (filter === 'needs-details') return a.profileStatus === 'needs-details';
       if (['active', 'invited', 'not-activated'].includes(filter)) return a.loginStatus === filter;
       return true;
     });
-  }, [state.agents, query, filter, team]);
+  }, [state.agents, state.bsoUids, query, filter, team]);
 
   const [menuFor, setMenuFor] = useState(null);
   const [removing, setRemoving] = useState(null); // { agent, busy, error }
+
+  const isBso = (a) => !!a.uid && (state.bsoUids || []).includes(a.uid);
+  const toggleBso = async (a) => {
+    setMenuFor(null); setNotice('');
+    const grant = !isBso(a);
+    const label = a.name || a.email || 'This person';
+    if (!grant && !window.confirm(`Remove the BSO role from ${label}? They will immediately lose access to the campaigns they manage. You can hand those campaigns to another BSO in Campaigns.`)) return;
+    const res = await authFetch(grant ? `/api/offices/${state.office.id}/bsos` : `/api/offices/${state.office.id}/bsos/${encodeURIComponent(a.uid)}`, {
+      method: grant ? 'POST' : 'DELETE', headers: { 'Content-Type': 'application/json' }, ...(grant ? { body: JSON.stringify({ uid: a.uid }) } : {}),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return setNotice(body.error || 'The BSO role could not be changed.');
+    setState((s) => ({ ...s, bsoUids: grant ? [...new Set([...(s.bsoUids || []), a.uid])] : (s.bsoUids || []).filter((x) => x !== a.uid) }));
+    setNotice(grant ? `${label} is now a BSO and can create and manage campaigns for agents in this office.`
+      : `${label} is no longer a BSO.${body.campaignsNeedingManager ? ` ${body.campaignsNeedingManager} campaign${body.campaignsNeedingManager === 1 ? '' : 's'} need${body.campaignsNeedingManager === 1 ? 's' : ''} a new manager (see Campaigns).` : ''}`);
+  };
 
   const confirmRemove = async () => {
     const { agent } = removing;
@@ -366,7 +390,7 @@ export default function OfficeAgentsPage() {
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          {FILTERS.map(([id, label]) => (
+          {FILTERS.filter(([id]) => id !== 'bso' || state.bsoUids).map(([id, label]) => (
             <button key={id} onClick={() => setFilter(id)}
               className={`px-3.5 py-1.5 rounded-full text-sm font-semibold border ${filter === id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
               {id === 'no-photo' && <ImageOff className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />}{label}
@@ -397,6 +421,7 @@ export default function OfficeAgentsPage() {
                     {a.profileStatus === 'ready' ? 'Ready' : 'Needs details'}
                   </span>
                   <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full ${login.className}`}>{login.label}</span>
+                  {isBso(a) && <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-indigo-100 text-indigo-700"><Briefcase className="w-3 h-3" /> BSO</span>}
                 </div>
                 <div className="flex flex-wrap gap-2 sm:w-72 sm:justify-end shrink-0">
                   <button onClick={() => setEditing(a)} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50">
@@ -414,7 +439,13 @@ export default function OfficeAgentsPage() {
                     {menuFor === a.key && (
                       <>
                         <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                        <div role="menu" className="absolute right-0 mt-1 z-20 w-44 rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+                        <div role="menu" className="absolute right-0 mt-1 z-20 w-48 rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+                          {state.bsoUids && a.uid && (
+                            <button role="menuitem" onClick={() => toggleBso(a)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                              <Briefcase className="w-4 h-4" /> {isBso(a) ? 'Remove BSO role' : 'Make BSO'}
+                            </button>
+                          )}
                           <button role="menuitem" onClick={() => { setMenuFor(null); setRemoving({ agent: a, busy: false, error: '' }); }}
                             className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
                             <Trash2 className="w-4 h-4" /> Remove Agent

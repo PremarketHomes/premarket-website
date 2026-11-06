@@ -51,6 +51,7 @@ import {
   Clock,
   Building,
   UserPlus,
+  Briefcase,
 } from 'lucide-react';
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 
@@ -91,6 +92,17 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     fetch('/api/features').then((r) => (r.ok ? r.json() : null)).then((b) => { if (cancelled) return; if (b?.officeRegistrations === true) setRegistrationsOn(true); if (b?.managedCampaigns === true) setCampaignsOn(true); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
+  // BSO is authorised server-side only (officeAdminInfo.bsoUids, re-checked on every request); this only shows the link.
+  const [isBso, setIsBso] = useState(false);
+  useEffect(() => {
+    if (!userData?.officeId || !campaignsOn) return undefined;
+    let cancelled = false;
+    authFetch('/api/bso/access')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (!cancelled && b?.bso === true) setIsBso(true); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [userData?.officeId, campaignsOn]);
   useEffect(() => {
     let cancelled = false;
     authFetch('/api/leadership/access')
@@ -100,6 +112,7 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     return () => { cancelled = true; };
   }, []);
   const navItems = [
+    ...(isBso ? [{ id: 'bso', label: 'My Campaigns', icon: Briefcase, href: '/dashboard/bso' }] : []),
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'sold', label: 'Sold', icon: CheckCircle },
     { id: 'archived', label: 'Archive', icon: Archive },

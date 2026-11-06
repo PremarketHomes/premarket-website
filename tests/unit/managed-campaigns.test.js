@@ -78,13 +78,9 @@ describe('who may create for whom (server-side)', () => {
     }
     expect(props()).toHaveLength(5);
   });
-  it('Team creator creates only for members of their OWN team (including a not-yet-activated member)', async () => {
-    expect((await create('ann', 'bob')).status).toBe(201);
-    expect((await create('ann', 'ivy')).status).toBe(201);
-    expect((await create('dan', 'cat')).status).toBe(201);
-  });
-  it('Team creator cannot reach other teams, unassigned agents, other offices or the office admin', async () => {
-    for (const owner of ['cat', 'dan', 'solo', 'olly', 'hannah']) expect((await create('ann', owner)).status).toBe(404);
+  it('Team Admin is retired: a team creator cannot create campaigns for anyone, not even their own teammates', async () => {
+    for (const owner of ['bob', 'ivy', 'cat', 'dan', 'solo', 'olly', 'hannah']) expect((await create('ann', owner)).status).toBe(404);
+    expect((await create('dan', 'cat')).status).toBe(404);
     expect(props()).toHaveLength(0);
   });
   it('ordinary team members and agents have no management authority', async () => {
@@ -113,8 +109,8 @@ describe('attribution', () => {
     const p = store.get(`properties/${r.propertyId}`);
     expect(p).toMatchObject({ userId: 'ivy', managedCreation: true, createdByUid: 'hannah', createdByRole: 'officeAdmin', termsAcceptedBy: 'hannah', visibility: false, active: true, agentManaged: true });
     expect(p.userId).not.toBe('hannah');
-    const t = await (await create('ann', 'bob')).json();
-    expect(store.get(`properties/${t.propertyId}`)).toMatchObject({ userId: 'bob', createdByUid: 'ann', createdByRole: 'teamAdmin' });
+    // An office admin who chooses no BSO manages the campaign themself.
+    expect(p.managedByUid).toBe('hannah');
   });
   it('the existing agent dashboard query (userId == agent) finds it, and the office list shows owner and creator', async () => {
     const r = await (await create('hannah', 'ivy')).json();
@@ -173,19 +169,15 @@ describe('duplicates and billing', () => {
 });
 
 describe('team changes never transfer ownership or access', () => {
-  it('moving the agent keeps the owner; the old team creator loses access, the new one gains it (live)', async () => {
-    const r = await (await create('ann', 'bob')).json();
+  it('team creators never gain management through their team, before or after a move; ownership and history stay put', async () => {
+    const r = await (await create('hannah', 'bob')).json();
     const id = r.propertyId;
     const manage = (uid, action) => { authSpies.verifyIdToken.mockResolvedValue({ uid }); return manageRoute(new Request('http://x', { method: 'PATCH', headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, body: JSON.stringify({ action }) }), { params: Promise.resolve({ id }) }); };
-    expect((await manage('ann', 'show')).status).toBe(200);
-    expect(store.get(`properties/${id}`).visibility).toBe(true);
+    expect((await manage('ann', 'show')).status).toBe(404); // Bob's team creator
     // Hannah moves Bob to team t2
     store.set('users/bob', { ...store.get('users/bob'), teamId: 't2' });
-    expect(store.get(`properties/${id}`)).toMatchObject({ userId: 'bob', createdByUid: 'ann' }); // history intact
-    expect((await manage('ann', 'hide')).status).toBe(404);
-    expect(store.get(`properties/${id}`).visibility).toBe(true);
-    expect((await manage('dan', 'hide')).status).toBe(200);
-    expect(store.get(`properties/${id}`).visibility).toBe(false);
+    expect((await manage('dan', 'show')).status).toBe(404); // the new team's creator
+    expect(store.get(`properties/${id}`)).toMatchObject({ userId: 'bob', createdByUid: 'hannah', visibility: false });
     expect((await manage('hannah', 'archive')).status).toBe(200);
     expect(store.get(`properties/${id}`)).toMatchObject({ archived: true, userId: 'bob' });
   });
@@ -194,8 +186,11 @@ describe('team changes never transfer ownership or access', () => {
     const manage = (uid, action) => { authSpies.verifyIdToken.mockResolvedValue({ uid }); return manageRoute(new Request('http://x', { method: 'PATCH', headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, body: JSON.stringify({ action }) }), { params: Promise.resolve({ id }) }); };
     expect((await manage('hannah', 'delete')).status).toBe(400);
     expect((await manage('hannah', 'transfer')).status).toBe(400);
-    for (const uid of ['bob', 'cat', 'solo', 'otheradmin']) expect((await manage(uid, 'show')).status).toBe(404);
+    for (const uid of ['ann', 'cat', 'solo', 'otheradmin']) expect((await manage(uid, 'show')).status).toBe(404);
     expect(store.get(`properties/${id}`)).toMatchObject({ userId: 'bob', visibility: false });
+    // The selling agent (owner) can already do this on their own dashboard; the server action gives them nothing new.
+    expect((await manage('bob', 'show')).status).toBe(200);
+    expect(store.get(`properties/${id}`)).toMatchObject({ userId: 'bob', visibility: true });
   });
 });
 
@@ -207,10 +202,8 @@ describe('assignable agent selector is scoped to permissions', () => {
     expect(r.agents.map((a) => a.uid).sort()).toEqual(['ann', 'bob', 'cat', 'dan', 'ivy', 'solo']);
     expect(r.agents.find((a) => a.uid === 'ivy').loginStatus).toBe('invited');
   });
-  it('team creator: own team only; ordinary members and agents get nothing', async () => {
-    expect((await list('ann')).agents.map((a) => a.uid).sort()).toEqual(['bob', 'ivy']);
-    expect((await list('dan')).agents.map((a) => a.uid)).toEqual(['cat']);
-    for (const uid of ['bob', 'solo', 'olly']) expect(await list(uid)).toEqual({ role: null, agents: [], teamRegistrations: false });
+  it('team creators (Team Admin retired), ordinary members and agents get nothing', async () => {
+    for (const uid of ['ann', 'dan', 'bob', 'solo', 'olly']) expect(await list(uid)).toEqual({ role: null, agents: [] });
   });
 });
 
@@ -286,8 +279,8 @@ describe('launch default: managed campaigns are OFF (directory, photos and teams
     expect((await call(officeCampaigns, 'hannah')).status).toBe(403);
     expect(sendCampaignLinkOnce).not.toHaveBeenCalled();
   });
-  it('nobody is offered an agent selector or a create-for-a-teammate link', async () => {
-    for (const uid of ['hannah', 'ann', 'bob']) expect(await (await call(agentsRoute, uid)).json()).toEqual({ role: null, agents: [], teamRegistrations: false });
+  it('nobody is offered an agent selector', async () => {
+    for (const uid of ['hannah', 'ann', 'bob']) expect(await (await call(agentsRoute, uid)).json()).toEqual({ role: null, agents: [] });
   });
   it('the sidebar Campaigns link depends on the server flag, and only the exact value "1" enables it', async () => {
     const { managedCampaignsEnabled } = await import('../../src/app/api/services/environmentGuard');

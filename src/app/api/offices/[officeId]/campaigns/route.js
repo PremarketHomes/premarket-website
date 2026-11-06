@@ -7,7 +7,8 @@ import { managedCampaignsEnabled } from '../../../services/environmentGuard';
 
 /**
  * GET /api/offices/{officeId}/campaigns — office admin only. Every campaign owned by a current member of
- * the office with owner, creator and links. Summaries only: no offers, price opinions or buyer details.
+ * the office with selling agent, managing BSO, creator and links, plus the people who can manage campaigns. Summaries only:
+ * no offers, price opinions or buyer details.
  */
 export async function GET(request, { params }) {
   try {
@@ -16,7 +17,7 @@ export async function GET(request, { params }) {
     if (!auth.authenticated) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const { officeId } = await params;
     await requireOfficeAdmin({ officeId, uid: auth.uid });
-    return NextResponse.json({ campaigns: await listOfficeCampaigns(adminDb, officeId) });
+    return NextResponse.json(await listOfficeCampaigns(adminDb, officeId));
   } catch (err) {
     if (!err.status) console.error('Office campaigns error:', err);
     return NextResponse.json({ error: err.status ? err.message : 'Failed to load campaigns' }, { status: err.status || 500 });

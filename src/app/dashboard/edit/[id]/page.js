@@ -24,7 +24,7 @@ import AgentSelector from '../../../components/AgentSelector';
 import AgentModal from '../../../components/AgentModal';
 import ImagePositioner from '../../../components/ImagePositioner';
 import { cropAreaToObjectPosition } from '../../../utils/imageCrop';
-import { enqueuePropertyUpload } from '../../../utils/mediaUploadManager';
+import { enqueuePropertyUpload, enqueueManagedMediaUpload } from '../../../utils/mediaUploadManager';
 import {
   MapPin,
   DollarSign,
@@ -118,6 +118,11 @@ export default function EditPropertyPage() {
   const [teamAgents, setTeamAgents] = useState([]);
   const [showAgentModal, setShowAgentModal] = useState(false);
 
+  // 'owner' edits write the property directly (unchanged). 'manager' = the campaign's managing BSO or an office admin, who
+  // cannot write the property directly (firestore.rules keep client writes owner-only): their changes go through the server.
+  const [manageRole, setManageRole] = useState(null);
+  const managerMode = manageRole === 'bso' || manageRole === 'officeAdmin';
+
   // UX state
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -146,10 +151,18 @@ export default function EditPropertyPage() {
         }
         const p = snap.data();
 
-        // Verify ownership
+        // Verify ownership, or that the server lets this user manage the campaign (managing BSO / office admin).
         if (p.userId !== user.uid) {
-          router.push('/dashboard');
-          return;
+          let role = null;
+          try {
+            const res = await authFetch(`/api/properties/${propertyId}/managed`);
+            if (res.ok) role = (await res.json()).role || null;
+          } catch { /* not allowed */ }
+          if (role !== 'bso' && role !== 'officeAdmin') {
+            router.push('/dashboard');
+            return;
+          }
+          setManageRole(role);
         }
 
         setFormattedAddress(p.formattedAddress || '');
@@ -301,6 +314,10 @@ export default function EditPropertyPage() {
       const isImage = f.type.startsWith('image/') || ext === '.heic' || ext === '.heif';
 
       if (isVideo) {
+        if (managerMode) {
+          setMediaError('Photos only here: the selling agent can add a video to their own campaign.');
+          continue;
+        }
         if (f.size > 500 * 1024 * 1024) {
           setMediaError('Video file exceeds 500MB limit. Please choose a smaller file.');
           continue;
@@ -424,6 +441,8 @@ export default function EditPropertyPage() {
     if (!validateStep()) return;
     if (!user) return;
 
+    if (managerMode) return submitAsManager();
+
     try {
       setIsSubmitting(true);
 
@@ -478,6 +497,39 @@ export default function EditPropertyPage() {
     } catch (err) {
       console.error('Update failed:', err);
       setErrors({ step: 'Something went wrong. Please try again.' });
+      setIsSubmitting(false);
+    }
+  };
+
+  // Managing BSO / office admin: details through the server (allowlisted), new photos through the background upload
+  // manager (uploaded via the server, attached via the server). Ownership, the listing agent, video and billing are untouched.
+  const submitAsManager = async () => {
+    const existingUrls = images.filter((img) => typeof img === 'string');
+    const newFiles = images.filter((img) => typeof img !== 'string');
+    try {
+      setIsSubmitting(true);
+      const res = await authFetch(`/api/properties/${propertyId}/managed/details`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property: {
+            address, formattedAddress, bathrooms, bedrooms, carSpaces, description,
+            imageUrls: existingUrls, heroFocalPoint: heroFocalPoint || null,
+            features: Object.keys(features).filter((f) => features[f]),
+            location, price: priceRaw, squareFootage, title, propertyType: type, listingStatus, showSuburbOnly,
+            isEager: eagerness,
+          },
+        }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(out.error || 'The changes could not be saved.');
+      if (newFiles.length > 0) {
+        enqueueManagedMediaUpload({ propertyId, userId: user.uid, label: `Photos for ${formattedAddress || address || 'campaign'}`, files: [...newFiles] });
+      }
+      router.push(manageRole === 'bso' ? '/dashboard/bso?updated=1' : '/dashboard/office/campaigns?updated=1');
+    } catch (err) {
+      console.error('Managed update failed:', err);
+      setErrors({ step: err.message || 'Something went wrong. Please try again.' });
       setIsSubmitting(false);
     }
   };
@@ -928,13 +980,13 @@ export default function EditPropertyPage() {
                     />
                   </div>
 
-                  {/* Agent Selector */}
-                  <AgentSelector
+                  {/* Agent Selector (the owner's own listing-agent profiles; not offered to a campaign's manager) */}
+                  {!managerMode && <AgentSelector
                     agents={teamAgents}
                     selectedAgentId={selectedAgentId}
                     onSelect={setSelectedAgentId}
                     onAddNew={() => setShowAgentModal(true)}
-                  />
+                  />}
                 </div>
               </div>
             )}

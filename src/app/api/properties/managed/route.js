@@ -6,10 +6,11 @@ import { managedCampaignsEnabled } from '../../services/environmentGuard';
 
 /**
  * POST /api/properties/managed
- * Body: { ownerUid, requestId, acceptTerms, property: {...} }
- * An office admin (any agent of their office) or a team creator (agents in their own team) creates a
- * campaign FOR the assigned agent. The agent owns it; the admin is recorded as creator. The actor's
- * authority is checked server-side against live office/team membership. Idempotent on requestId.
+ * Body: { ownerUid, requestId, acceptTerms, managerUid?, property: {...} }
+ * An office admin or a BSO creates a campaign FOR the selling agent (any agent of their office, including one who has
+ * never logged in). The selling agent owns it; the creator is recorded separately; the managing user is the creating BSO,
+ * or for an office admin themself or the BSO they choose (`managerUid`). Authority is checked server-side against live
+ * office membership and the BSO role (never team membership). Idempotent on requestId.
  */
 export async function POST(request) {
   try {
@@ -20,7 +21,7 @@ export async function POST(request) {
     if (!body) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
     const result = await createManagedProperty(adminDb, {
       actorUid: auth.uid, ownerUid: body.ownerUid, requestId: body.requestId,
-      input: body.property, acceptTerms: body.acceptTerms,
+      input: body.property, acceptTerms: body.acceptTerms, managerUid: body.managerUid ?? null,
     });
     return NextResponse.json({ success: true, ...result }, { status: result.duplicate ? 200 : 201 });
   } catch (err) {

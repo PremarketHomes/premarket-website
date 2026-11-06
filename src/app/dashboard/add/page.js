@@ -154,6 +154,9 @@ export default function AddPropertyPage() {
   // Managed (office admin / team creator) creation: who the campaign is FOR. '' = myself (existing flow).
   const [assignable, setAssignable] = useState({ role: null, agents: [] });
   const [ownerUid, setOwnerUid] = useState('');
+  // Office admins may hand management to one of the office's BSOs ('' = they manage it themself). BSOs always manage what they create.
+  const [managerUid, setManagerUid] = useState('');
+  const isBsoCreator = assignable.role === 'bso';
   const managedRequestId = useRef(null);
   const mountedRef = useRef(true);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
@@ -520,7 +523,9 @@ export default function AddPropertyPage() {
     const newErrors = {};
 
     if (step === STEPS.ADDRESS) {
-      if (!address || !location?.latitude || !location?.longitude) {
+      if (isBsoCreator && !ownerUid) {
+        newErrors.step = 'Choose the selling agent for this campaign.';
+      } else if (!address || !location?.latitude || !location?.longitude) {
         newErrors.step = 'Please select a valid address from suggestions.';
       }
     }
@@ -580,8 +585,8 @@ export default function AddPropertyPage() {
     if (!user) return;
 
     if (ownerUid) {
-      // Office admin / team creator creating FOR another agent: the server checks authority and assigns
-      // ownership to that agent. Photos go through the existing image upload first.
+      // Office admin / BSO creating FOR the selling agent: the server checks authority, makes the selling agent the owner
+      // and records the managing user. Photos go through the existing image upload first.
       if (video) {
         setErrors({ step: 'Video cannot be added when creating a campaign for another agent. Remove it, and the agent can add it later.' });
         return;
@@ -591,12 +596,12 @@ export default function AddPropertyPage() {
         if (!managedRequestId.current) managedRequestId.current = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}-0000000000`).replace(/[^A-Za-z0-9-]/g, '');
         // Photos upload through the background manager (keeps running if you leave this page; resumable; the campaign is
         // only created after every photo has uploaded, and the idempotent requestId prevents a duplicate on retry).
-        const redirectTo = assignable.role === 'officeAdmin' ? '/dashboard/office/campaigns?created=1' : '/dashboard?created=1';
+        const redirectTo = assignable.role === 'officeAdmin' ? '/dashboard/office/campaigns?created=1' : isBsoCreator ? '/dashboard/bso?created=1' : '/dashboard?created=1';
         const job = await enqueueManagedCreate({
           userId: user.uid, label: `New campaign: ${formattedAddress || address || 'property'}`, requestId: managedRequestId.current, redirectTo,
           images,
           payload: {
-            ownerUid, acceptTerms: termsAccepted,
+            ownerUid, acceptTerms: termsAccepted, managerUid: assignable.role === 'officeAdmin' ? (managerUid || null) : null,
             property: {
               address, formattedAddress, bathrooms, bedrooms, carSpaces, description,
               ...(heroFocalPoint ? { heroFocalPoint } : {}),
@@ -792,23 +797,37 @@ export default function AddPropertyPage() {
               <div className="">
                 {assignable.agents.length > 0 && (
                   <div className="mb-8 rounded-md border border-stone-200 bg-white p-4">
-                    <label htmlFor="campaign-for" className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Who is this campaign for?</label>
+                    <label htmlFor="campaign-for" className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Selling agent</label>
                     <select
                       id="campaign-for"
                       value={ownerUid}
                       onChange={(e) => { setOwnerUid(e.target.value); managedRequestId.current = null; }}
                       className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white text-stone-900 outline-none focus:border-stone-500"
                     >
-                      <option value="">Myself</option>
+                      <option value="">{isBsoCreator ? 'Choose the selling agent…' : 'Myself'}</option>
                       {assignable.agents.map((a) => (
                         <option key={a.uid} value={a.uid}>{a.name || a.email}{a.loginStatus === 'invited' ? ' (not logged in yet)' : ''}</option>
                       ))}
                     </select>
                     <p className="text-xs text-stone-500 mt-2">
                       {ownerUid
-                        ? `The campaign will belong to the selected agent and appear on their dashboard, with you recorded as the creator. Photos only: the agent can add a video later. Billing follows the agent's existing billing arrangement.`
-                        : assignable.role === 'officeAdmin' ? 'You can create campaigns for any agent in your office.' : 'You can create campaigns for agents in your team.'}
+                        ? `Buyers will see the selling agent's name, photo and phone. The campaign belongs to the selling agent and appears on their dashboard; ${isBsoCreator ? 'you manage it from My Campaigns' : 'you are recorded as the creator'}. Photos only: the agent can add a video later. Billing follows the agent's existing billing arrangement.`
+                        : isBsoCreator ? 'Choose any agent in your office, including agents who have not logged in to Premarket yet.' : 'You can create campaigns for any agent in your office.'}
                     </p>
+                    {ownerUid && assignable.role === 'officeAdmin' && (assignable.bsos || []).length > 0 && (
+                      <div className="mt-4">
+                        <label htmlFor="campaign-manager" className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Managed by</label>
+                        <select
+                          id="campaign-manager"
+                          value={managerUid}
+                          onChange={(e) => setManagerUid(e.target.value)}
+                          className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white text-stone-900 outline-none focus:border-stone-500"
+                        >
+                          <option value="">Me</option>
+                          {assignable.bsos.map((b) => <option key={b.uid} value={b.uid}>{b.name} (BSO)</option>)}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 )}
                 <h2 className="font-serif text-[28px] sm:text-3xl leading-tight text-stone-900 mb-2">Where is the property?</h2>
