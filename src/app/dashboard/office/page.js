@@ -9,6 +9,7 @@ import { db } from '../../firebase/clientApp';
 import { collection, doc, getDoc, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import PropertyPageClient from '../../components/PropertyPageClient';
 import { Upload, Loader2, UserPlus, RotateCcw, Trash2, Users, AlertCircle } from 'lucide-react';
+import BackToDashboard from '../../components/BackToDashboard';
 
 const STATUS_LABEL = {
   active: { text: 'Active', className: 'bg-emerald-100 text-emerald-700' },
@@ -158,6 +159,7 @@ export default function OfficeManagementPage() {
     <div className="min-h-screen bg-slate-50 py-8 px-4">
       <div className="max-w-5xl mx-auto space-y-6">
         <div>
+          <BackToDashboard className="mb-3" />
           <h1 className="text-2xl font-bold text-slate-900">{office.name}</h1>
           <p className="text-sm text-slate-500 mt-1">Office Management</p>
           <Link href="/dashboard/office/team" className="inline-flex items-center gap-1 mt-3 text-sm font-semibold text-orange-600 hover:text-orange-700">

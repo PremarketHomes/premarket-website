@@ -323,7 +323,9 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
         ) : property.imageUploadProgress?.inProgress ? (
           <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-stone-50">
             <div className="w-8 h-8 border-2 border-[#c64500] border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs text-stone-500">Uploading media...</p>
+            <p className="text-xs text-stone-500 text-center px-3">
+              {property.imageUploadProgress?.interrupted ? 'Upload paused. Press Resume in the upload box, on the computer you started from.' : 'Uploading media...'}
+            </p>
           </div>
         ) : (
           <div className="w-full h-full flex items-center justify-center">

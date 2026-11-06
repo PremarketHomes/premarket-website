@@ -1,7 +1,7 @@
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { listStagedAgents } from './officeImportService';
-import { isPlaceholderAvatar } from '../../utils/avatar';
+import { isPlaceholderAvatar, PLACEHOLDER_AVATAR_URL } from '../../utils/avatar';
 import { cdnBase } from './storageConfig';
 import { loadRemovedSet, excludeRemoved } from './officeAgentRemovals';
 
@@ -247,6 +247,10 @@ export function validateProfilePatch(input) {
     }
     out.photoUrl = v;
   }
+  if (input.removePhoto === true) {
+    if ('photoUrl' in input) throw new OfficeAgentError('Choose either a new photo or remove the photo');
+    out.photoUrl = null; // clears the office photo; the login-linked avatar is reset to the placeholder in updateAgentProfile
+  }
   if (Object.keys(out).length === 0) throw new OfficeAgentError('Nothing to update');
   return out;
 }
@@ -326,6 +330,14 @@ export async function updateAgentProfile({ officeId, key, patch, actorUid }) {
     const u = await userRef.get();
     if (u.exists && u.data().officeId === officeId) {
       await userRef.update({ avatar: clean_.photoUrl });
+    }
+  } else if (clean_.photoUrl === null && row.uid) {
+    // Remove photo: back to the normal missing-photo state (the shared placeholder is not a photo). The stored image file is
+    // NOT deleted (the URL may be shared) and nothing else on the account changes.
+    const userRef = adminDb.collection('users').doc(row.uid);
+    const u = await userRef.get();
+    if (u.exists && u.data().officeId === officeId) {
+      await userRef.update({ avatar: PLACEHOLDER_AVATAR_URL });
     }
   }
   return { profileId: result.id, created: result.created };

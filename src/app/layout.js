@@ -2,6 +2,7 @@ import { Poppins, Inter, Anton } from "next/font/google";
 import { ModalProvider } from './context/ModalContext';
 import { AuthProvider } from './context/AuthContext';
 import Script from 'next/script';
+import UploadStatusPanel from './components/UploadStatusPanel';
 
 import "./globals.css";
 
@@ -114,6 +115,7 @@ export default function RootLayout({ children }) {
         <AuthProvider>
           <ModalProvider>
             {children}
+            <UploadStatusPanel />
           </ModalProvider>
         </AuthProvider>
       </body>

@@ -17,7 +17,7 @@ describe('Add Property is extended, not duplicated', () => {
     expect(add).toContain("addDoc(collection(db, 'properties'), propertyData)");
     expect(add).toContain('userId: user.uid');
     expect(add).toContain('/record-charge');
-    expect(add).toContain('uploadMediaInBackground(propertyId, user.uid');
+    expect(add).toContain('enqueuePropertyUpload({ propertyId, userId: user.uid');
   });
   it('the agent selector only appears when the server says the user may create for others', () => {
     expect(add).toContain('assignable.agents.length > 0');
@@ -26,8 +26,11 @@ describe('Add Property is extended, not duplicated', () => {
   });
   it('managed submit goes through the server with an idempotency key and never writes properties from the browser', () => {
     const managed = add.slice(add.indexOf('if (ownerUid) {'), add.indexOf('try {\n      setIsSubmitting(true);\n\n      // Separate pre-existing'));
-    expect(managed).toContain("'/api/properties/managed'");
+    // The photos upload, then the campaign is created, by the background upload manager (same endpoint, same idempotent requestId).
+    expect(managed).toContain('enqueueManagedCreate(');
     expect(managed).toContain('requestId: managedRequestId.current');
+    expect(read('src/app/utils/mediaUploadManager.js')).toContain("'/api/properties/managed'");
+    expect(read('src/app/utils/mediaUploadManager.js')).toContain('requestId: job.requestId');
     expect(managed).not.toContain("collection(db, 'properties')");
     expect(managed).not.toContain('record-charge'); // billing is recorded server-side, once
   });

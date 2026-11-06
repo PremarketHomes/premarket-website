@@ -7,7 +7,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
-import { db, storage } from '../../../firebase/clientApp';
+import { db } from '../../../firebase/clientApp';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 import {
   doc,
@@ -24,7 +24,7 @@ import AgentSelector from '../../../components/AgentSelector';
 import AgentModal from '../../../components/AgentModal';
 import ImagePositioner from '../../../components/ImagePositioner';
 import { cropAreaToObjectPosition } from '../../../utils/imageCrop';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { enqueuePropertyUpload } from '../../../utils/mediaUploadManager';
 import {
   MapPin,
   DollarSign,
@@ -418,102 +418,7 @@ export default function EditPropertyPage() {
     }
   };
 
-  // Convert HEIC/HEIF files to JPEG before upload
-  const convertHeicIfNeeded = async (file) => {
-    const ext = (file.name || '').toLowerCase();
-    if (ext.endsWith('.heic') || ext.endsWith('.heif') || file.type === 'image/heic' || file.type === 'image/heif') {
-      try {
-        const { default: heic2any } = await import('heic2any');
-        const blob = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 });
-        const converted = new File(
-          [blob],
-          file.name.replace(/\.heic$|\.heif$/i, '.jpg'),
-          { type: 'image/jpeg' }
-        );
-        return converted;
-      } catch (err) {
-        console.error('HEIC conversion failed:', err);
-        return file;
-      }
-    }
-    return file;
-  };
-
   // Submit — update existing property
-  // Background upload helper
-  const uploadMediaInBackground = async (propId, userId, newFiles, existingUrls, videoFile, existingVidUrl) => {
-    const uploadedUrls = [...existingUrls];
-
-    try {
-      for (const rawFile of newFiles) {
-        const file = await convertHeicIfNeeded(rawFile);
-        const storageRef = ref(storage, `propertyImages/${userId}/${Date.now()}-${file.name}`);
-        const uploadTask = uploadBytesResumable(storageRef, file);
-
-        await new Promise((resolve, reject) => {
-          uploadTask.on(
-            'state_changed',
-            null,
-            reject,
-            async () => {
-              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              uploadedUrls.push(downloadURL);
-              await updateDoc(doc(db, 'properties', propId), {
-                imageUrls: [...uploadedUrls],
-                imageUploadProgress: {
-                  uploaded: uploadedUrls.length - existingUrls.length,
-                  total: newFiles.length,
-                  inProgress: (uploadedUrls.length - existingUrls.length) < newFiles.length,
-                },
-              });
-              resolve();
-            }
-          );
-        });
-      }
-
-      // Upload new video to Firebase Storage
-      if (videoFile) {
-        try {
-          const videoStorageRef = ref(storage, `propertyVideos/${userId}/${Date.now()}-${videoFile.name}`);
-          const videoUploadTask = uploadBytesResumable(videoStorageRef, videoFile);
-
-          await new Promise((resolve, reject) => {
-            videoUploadTask.on(
-              'state_changed',
-              null,
-              reject,
-              async () => {
-                const videoDownloadURL = await getDownloadURL(videoUploadTask.snapshot.ref);
-                await updateDoc(doc(db, 'properties', propId), { videoUrl: videoDownloadURL });
-                resolve();
-              }
-            );
-          });
-        } catch (err) {
-          console.error('Video upload failed:', err);
-        }
-      }
-
-      // Mark complete, flag for compression
-      if (newFiles.length > 0) {
-        await updateDoc(doc(db, 'properties', propId), {
-          imageUploadProgress: { uploaded: newFiles.length, total: newFiles.length, inProgress: false },
-          imagesCompressed: false,
-        });
-
-        // Trigger server-side compression (fire-and-forget)
-        fetch('/api/images/compress', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ propertyId: propId }),
-        }).catch(err => console.error('Compress trigger failed:', err));
-      }
-    } catch (err) {
-      console.error('Background upload failed:', err);
-    }
-  };
-
   const handleSubmit = async () => {
     setErrors({});
     if (!validateStep()) return;
@@ -565,7 +470,7 @@ export default function EditPropertyPage() {
       if (hasNewMedia) {
         const filesCopy = [...newFiles];
         const videoCopy = video;
-        uploadMediaInBackground(propertyId, user.uid, filesCopy, existingUrls, videoCopy, existingVideoUrl);
+        enqueuePropertyUpload({ propertyId, userId: user.uid, label: `Media for ${formattedAddress || address || 'campaign'}`, files: filesCopy, video: videoCopy });
       }
 
       // Redirect immediately

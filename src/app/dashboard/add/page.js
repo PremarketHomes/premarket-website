@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { authFetch } from '../../utils/authFetch';
 import { useRequireAgent } from '../../hooks/useRequireAgent';
-import { db, storage } from '../../firebase/clientApp';
+import { db } from '../../firebase/clientApp';
 import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 import {
   collection,
@@ -19,7 +19,7 @@ import {
   getDoc,
   getDocs,
 } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { enqueuePropertyUpload, enqueueManagedCreate } from '../../utils/mediaUploadManager';
 import ImagePositioner from '../../components/ImagePositioner';
 import { cropAreaToObjectPosition } from '../../utils/imageCrop';
 import {
@@ -155,6 +155,8 @@ export default function AddPropertyPage() {
   const [assignable, setAssignable] = useState({ role: null, agents: [] });
   const [ownerUid, setOwnerUid] = useState('');
   const managedRequestId = useRef(null);
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
   // Agent assignment state
   const [selectedAgentId, setSelectedAgentId] = useState(null);
@@ -560,101 +562,6 @@ export default function AddPropertyPage() {
     }
   };
 
-  // Convert HEIC/HEIF files to JPEG before upload
-  const convertHeicIfNeeded = async (file) => {
-    const ext = (file.name || '').toLowerCase();
-    if (ext.endsWith('.heic') || ext.endsWith('.heif') || file.type === 'image/heic' || file.type === 'image/heif') {
-      try {
-        const { default: heic2any } = await import('heic2any');
-        const blob = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 });
-        const converted = new File(
-          [blob],
-          file.name.replace(/\.heic$|\.heif$/i, '.jpg'),
-          { type: 'image/jpeg' }
-        );
-        return converted;
-      } catch (err) {
-        console.error('HEIC conversion failed:', err);
-        return file;
-      }
-    }
-    return file;
-  };
-
-  // Background upload helper — runs after redirect
-  const uploadMediaInBackground = async (propertyId, userId, imageFiles, videoFile, existingUrls = []) => {
-    const total = imageFiles.length;
-    const imageUrls = [...existingUrls];
-
-    try {
-      // Upload images one by one
-      for (let i = 0; i < total; i++) {
-        const file = await convertHeicIfNeeded(imageFiles[i]);
-        const storageRef = ref(storage, `propertyImages/${userId}/${Date.now()}-${file.name}`);
-        const uploadTask = uploadBytesResumable(storageRef, file);
-
-        await new Promise((resolve, reject) => {
-          uploadTask.on(
-            'state_changed',
-            null,
-            reject,
-            async () => {
-              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              imageUrls.push(downloadURL);
-              await updateDoc(doc(db, 'properties', propertyId), {
-                imageUrls: [...imageUrls],
-                imageUploadProgress: {
-                  uploaded: imageUrls.length - existingUrls.length,
-                  total,
-                  inProgress: (imageUrls.length - existingUrls.length) < total,
-                },
-              });
-              resolve();
-            }
-          );
-        });
-      }
-
-      // Upload video to Firebase Storage, then move to Bunny CDN
-      if (videoFile) {
-        try {
-          const videoStorageRef = ref(storage, `propertyVideos/${userId}/${Date.now()}-${videoFile.name}`);
-          const videoUploadTask = uploadBytesResumable(videoStorageRef, videoFile);
-
-          await new Promise((resolve, reject) => {
-            videoUploadTask.on(
-              'state_changed',
-              null,
-              reject,
-              async () => {
-                const videoDownloadURL = await getDownloadURL(videoUploadTask.snapshot.ref);
-                await updateDoc(doc(db, 'properties', propertyId), { videoUrl: videoDownloadURL });
-                resolve();
-              }
-            );
-          });
-        } catch (err) {
-          console.error('Video upload failed:', err);
-        }
-      }
-
-      // Mark upload complete, flag for compression
-      await updateDoc(doc(db, 'properties', propertyId), {
-        imageUploadProgress: { uploaded: total, total, inProgress: false },
-        imagesCompressed: false,
-      });
-
-      // Trigger server-side compression (fire-and-forget)
-      fetch('/api/images/compress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ propertyId }),
-      }).catch(err => console.error('Compress trigger failed:', err));
-    } catch (err) {
-      console.error('Background upload failed:', err);
-    }
-  };
-
   // Submit
   const handleSubmit = async () => {
     setErrors({});
@@ -682,33 +589,29 @@ export default function AddPropertyPage() {
       try {
         setIsSubmitting(true);
         if (!managedRequestId.current) managedRequestId.current = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}-0000000000`).replace(/[^A-Za-z0-9-]/g, '');
-        const urls = images.filter((img) => typeof img === 'string');
-        for (const f of images.filter((img) => typeof img !== 'string')) {
-          const file = await convertHeicIfNeeded(f);
-          const fd = new FormData();
-          fd.append('file', file);
-          const up = await authFetch('/api/upload-image', { method: 'POST', body: fd });
-          if (!up.ok) throw new Error('A photo could not be uploaded. Nothing was created. Please try again.');
-          urls.push((await up.json()).url);
-        }
-        const res = await authFetch('/api/properties/managed', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ownerUid,
-            requestId: managedRequestId.current,
-            acceptTerms: termsAccepted,
+        // Photos upload through the background manager (keeps running if you leave this page; resumable; the campaign is
+        // only created after every photo has uploaded, and the idempotent requestId prevents a duplicate on retry).
+        const redirectTo = assignable.role === 'officeAdmin' ? '/dashboard/office/campaigns?created=1' : '/dashboard?created=1';
+        const job = await enqueueManagedCreate({
+          userId: user.uid, label: `New campaign: ${formattedAddress || address || 'property'}`, requestId: managedRequestId.current, redirectTo,
+          images,
+          payload: {
+            ownerUid, acceptTerms: termsAccepted,
             property: {
-              address, formattedAddress, bathrooms, bedrooms, carSpaces, description, imageUrls: urls,
+              address, formattedAddress, bathrooms, bedrooms, carSpaces, description,
               ...(heroFocalPoint ? { heroFocalPoint } : {}),
               features: Object.keys(features).filter((f) => features[f]),
               location, price: priceRaw, squareFootage, title, propertyType: type, listingStatus, showSuburbOnly,
             },
-          }),
+          },
         });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body.error || 'The campaign could not be created.');
-        router.push(assignable.role === 'officeAdmin' ? '/dashboard/office/campaigns?created=1' : '/dashboard?created=1');
+        if (job.status === 'interrupted') {
+          setErrors({ step: 'The photos did not finish uploading, so the campaign has not been created yet. Press Resume in the upload box at the bottom of the screen, or try again.' });
+          setIsSubmitting(false);
+          return;
+        }
+        if (job.status === 'error') throw new Error(job.message || 'The campaign could not be created.');
+        if (mountedRef.current) router.push(redirectTo);
       } catch (err) {
         console.error('Managed submit failed:', err);
         setErrors({ step: err.message || 'Something went wrong. Please try again.' });
@@ -806,7 +709,7 @@ export default function AddPropertyPage() {
       if (needsUpload || video) {
         const filesCopy = [...imageFiles];
         const videoCopy = video;
-        uploadMediaInBackground(propertyId, user.uid, filesCopy, videoCopy, existingUrls);
+        enqueuePropertyUpload({ propertyId, userId: user.uid, label: `Media for ${formattedAddress || address || 'new campaign'}`, files: filesCopy, video: videoCopy });
       }
 
       // Redirect immediately with success flag

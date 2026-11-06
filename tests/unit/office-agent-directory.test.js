@@ -52,6 +52,7 @@ vi.mock('../../src/app/api/services/billingService', () => ({ settleChargesForAg
 let stagedByOffice = {};
 vi.mock('../../src/app/api/services/officeImportService', () => ({ listStagedAgents: async (o) => stagedByOffice[o] || [] }));
 
+import { overlayProfessionalProfile } from '../../src/app/utils/professionalProfile';
 import { mergeDirectory, validateProfilePatch, sniffImageType, profileCompleteness } from '../../src/app/api/services/officeAgentService';
 import { GET as getDirectory } from '../../src/app/api/offices/[officeId]/agent-directory/route';
 import { PATCH as patchProfile } from '../../src/app/api/offices/[officeId]/agent-profile/route';
@@ -176,6 +177,35 @@ describe('profile editing', () => {
     await patchProfile(req({ key: ann.key, phone: '0499 999 999' }, 'hannah'), params('hph'));
     const after = (await dir()).agents.find((a) => a.uid === 'active1');
     expect(after).toMatchObject({ name: 'Ann Active', photoUrl: `${CDN}ann-old.jpg`, phone: '0499 999 999', loginStatus: 'active' });
+  });
+  it('Remove photo: back to missing-photo, other details/campaigns/other agents untouched, nothing deleted', async () => {
+    store.set('properties/p-ann', { userId: 'active1', agentAvatar: null, title: 'T' });
+    const ann = (await dir()).agents.find((a) => a.uid === 'active1');
+    await patchProfile(req({ key: ann.key, photoUrl: `${CDN}office-agents/hph/new.png`, phone: '0499 999 999' }, 'hannah'), params('hph'));
+    const before = (await dir()).agents.find((a) => a.uid === 'active1');
+    expect(before.photoUrl).toBe(`${CDN}office-agents/hph/new.png`);
+    const otherBefore = JSON.stringify(store.get('users/invited1'));
+
+    const res = await patchProfile(req({ key: before.key, removePhoto: true }, 'hannah'), params('hph'));
+    expect(res.status).toBe(200);
+    const after = (await dir()).agents.find((a) => a.uid === 'active1');
+    expect(after).toMatchObject({ photoUrl: null, name: 'Ann Active', phone: '0499 999 999', loginStatus: 'active' });
+    expect(after.missing).toContain('photo');
+    expect(store.get('users/active1').avatar).toMatch(/Profile_avatar_placeholder/);
+    expect(store.get('users/active1').officeId).toBe('hph');
+    expect(store.get('properties/p-ann')).toEqual({ userId: 'active1', agentAvatar: null, title: 'T' });
+    expect(JSON.stringify(store.get('users/invited1'))).toBe(otherBefore);
+    // public profile: a cleared office photo no longer overrides, so visitors see the (placeholder) login avatar
+    const prof = [...store.entries()].find(([k]) => /^officeAgents\/[^/]+$/.test(k))[1];
+    expect(overlayProfessionalProfile({ avatar: store.get('users/active1').avatar }, prof).avatar).toMatch(/Profile_avatar_placeholder/);
+  });
+  it('Remove photo is office-admin only and cannot be combined with a new photo', async () => {
+    const ann = (await dir()).agents.find((a) => a.uid === 'active1');
+    for (const uid of ['teamadmin', 'active1', 'otheradmin']) {
+      expect((await patchProfile(req({ key: ann.key, removePhoto: true }, uid), params('hph'))).status).toBe(403);
+    }
+    expect(store.get('users/active1').avatar).toBe(`${CDN}ann-old.jpg`);
+    expect(() => validateProfilePatch({ removePhoto: true, photoUrl: `${CDN}x.png` })).toThrow();
   });
   it('Team Admins / agents / other-office admins cannot edit', async () => {
     const ivy = (await dir()).agents.find((a) => a.uid === 'invited1');
