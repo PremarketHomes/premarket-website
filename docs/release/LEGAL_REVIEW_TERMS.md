@@ -2,6 +2,11 @@
 
 Needed before HPH uses managed campaign creation. Nothing has been rewritten; this lists exactly what exists today.
 
+> **Decision 2026-11-06:** managed campaigns (office admins and BSOs creating campaigns for selling agents) were switched on in
+> production **on the business owner's authority, without counsel sign-off**. The questions below remain open for counsel.
+> Since this note was written, HPH's office admin (Hannah) and BSO (Peta) have their own named logins, so acceptances are recorded
+> against named HPH people; BSOs replace team creators as the second kind of creator.
+
 ## What happens
 In the Add Property wizard, an HPH office administrator (or a team creator) can create a campaign **for another agent**. At the Terms step they tick
 **"I have read and agree to the terms and conditions"** and the campaign is submitted. The assigned agent does not see or accept anything.

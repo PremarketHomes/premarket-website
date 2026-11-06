@@ -1,7 +1,11 @@
 # BSO Workspace: release checklist
 
-Branch: `feat/bso-workspace` (from `origin/main` e67550b). **Not merged, not deployed. No production data or permission has
-been changed.** Every production step below needs explicit approval.
+Branch: `feat/bso-workspace`, merged to `main` as 72a7dea and deployed 2026-11-06. `MANAGED_CAMPAIGNS_ENABLED=1` set in Vercel
+production on 2026-11-06 (terms activated on the business owner's authority; counsel review still open, see LEGAL_REVIEW_TERMS.md).
+Registration flags remain off. No BSO roles granted, no historical ownership changed (73 Riverwalk not migrated).
+
+First real campaign: check it read-only with `node scripts/verify-managed-campaign.js <propertyId>` (identities, photos on the CDN,
+buyer-page agent, campaign-link email, one office charge).
 
 ## What changes
 
