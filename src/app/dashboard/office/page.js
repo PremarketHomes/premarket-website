@@ -26,6 +26,7 @@ const IMPORT_ROW_LABEL = {
   'already-active-member': { text: 'Already an active member — skipped', ok: false },
   'already-invited': { text: 'Already invited — skipped', ok: false },
   'already-staged': { text: 'Already staged — skipped', ok: false },
+  'previously-removed': { text: 'Previously removed from the office — skipped', ok: false },
   'in-other-office': { text: 'Belongs to another office — skipped', ok: false },
   'duplicate-in-csv': { text: 'Duplicate email in this file — skipped', ok: false },
   invalid: { text: 'Invalid', ok: false },

@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+vi.mock('../../src/app/api/services/officeAgentRemovals', () => ({
+  loadRemovedSet: async () => ({ uids: new Set(), emails: new Set(), profileIds: new Set() }),
+  isRemovedEmail: () => false, isRemovedUid: () => false, excludeRemoved: (x) => x,
+}));
 
 const state = { users: {}, officeAdminInfo: {}, officeImports: {}, officeAgentContacts: {}, officeInvites: {}, officeActivations: {}, offices: {} };
 const authState = { users: new Map() };
