@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2, Search, Mail, Phone } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
+import BackToDashboard from '../../../components/BackToDashboard';
 
 const ACTIONS = { contact: 'Wants to be contacted', inspect: 'Wants an inspection', price: 'Wants the price guide', offer: 'Wants to make an offer' };
 const TIMEFRAMES = { now: 'Right away', '1-month': 'Within a month', '3-months': 'Within 3 months', '6-months': 'Within 6 months', later: 'Later' };
@@ -44,7 +45,7 @@ export default function RegistrationsPage() {
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4">
       <div className="max-w-5xl mx-auto">
-        <Link href="/dashboard" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 mb-2"><ArrowLeft className="w-4 h-4" /> Dashboard</Link>
+        <BackToDashboard className="mb-3" />
         <h1 className="text-2xl font-bold text-slate-900">Registrations</h1>
         <p className="text-sm text-slate-500 mt-1">
           {state.office.name} · {state.scope === 'office' ? 'all agents in the office' : 'your team'} · {state.registrations.length} buyers registered interest

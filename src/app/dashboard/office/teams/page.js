@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2, Plus, Pencil, Crown, UserMinus, X } from 'lucide-re
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
+import BackToDashboard from '../../../components/BackToDashboard';
 
 function Avatar({ m, size = 'w-9 h-9' }) {
   const initials = (m.name || m.email || '?').split(/\s+/).map((s) => s[0]).slice(0, 2).join('').toUpperCase();
@@ -126,7 +127,7 @@ export default function OfficeTeamsPage() {
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4">
       <div className="max-w-5xl mx-auto">
-        <Link href="/dashboard" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 mb-2"><ArrowLeft className="w-4 h-4" /> Dashboard</Link>
+        <BackToDashboard className="mb-3" />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Teams</h1>

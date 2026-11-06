@@ -8,6 +8,7 @@ import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
 import ImagePositioner from '../../../components/ImagePositioner';
 import { getCroppedImageBlob, blobToFile } from '../../../utils/imageCrop';
+import BackToDashboard from '../../../components/BackToDashboard';
 
 const LOGIN = {
   active: { label: 'Active', className: 'bg-emerald-100 text-emerald-700' },
@@ -45,6 +46,22 @@ function EditModal({ officeId, agent, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removingPhoto, setRemovingPhoto] = useState(false);
+
+  const removePhoto = async () => {
+    setRemovingPhoto(true); setError('');
+    try {
+      const res = await authFetch(`/api/offices/${officeId}/agent-profile`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: agent.key, removePhoto: true }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Could not remove the photo.');
+      onSaved('Photo removed.');
+    } catch (err) {
+      setError(err.message || 'Could not remove the photo.'); setConfirmRemove(false);
+    } finally { setRemovingPhoto(false); }
+  };
 
   // Same crop/zoom/reposition control as the settings avatar and AgentModal. The raw pick is held only until the positioner's Save bakes it
   // into a 480x480 PNG, which becomes the file that is uploaded (never the original).
@@ -138,10 +155,25 @@ function EditModal({ officeId, agent, onClose, onSaved }) {
             {originalSrc && file && (
               <button type="button" onClick={reposition} className="ml-3 text-sm font-semibold text-slate-500 hover:text-slate-800">Reposition</button>
             )}
+            {agent.photoUrl && !file && !confirmRemove && (
+              <button type="button" onClick={() => setConfirmRemove(true)} className="ml-3 text-sm font-semibold text-red-600 hover:text-red-700">Remove photo</button>
+            )}
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={pick} className="hidden" />
             <p className="text-xs text-slate-400 mt-1.5">JPEG, PNG or WebP, up to 5MB. You can crop and zoom before saving.</p>
           </div>
         </div>
+
+        {confirmRemove && (
+          <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-3.5" role="alertdialog" aria-label="Remove photo">
+            <p className="text-sm text-slate-800">Remove {agent.name || 'this agent'}&apos;s photo? They will show as missing a photo, including on their public profile. Their account, campaigns and other details are not changed.</p>
+            <div className="mt-3 flex gap-2">
+              <button type="button" onClick={removePhoto} disabled={removingPhoto} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60">
+                {removingPhoto && <Loader2 className="w-4 h-4 animate-spin" />} Remove photo
+              </button>
+              <button type="button" onClick={() => setConfirmRemove(false)} disabled={removingPhoto} className="px-3.5 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-white">Cancel</button>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-3">
           <label className="block text-xs font-semibold text-slate-600">Full name
@@ -306,9 +338,7 @@ export default function OfficeAgentsPage() {
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4">
       <div className="max-w-5xl mx-auto">
-        <Link href="/dashboard" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 mb-2">
-          <ArrowLeft className="w-4 h-4" /> Dashboard
-        </Link>
+        <BackToDashboard className="mb-3" />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Agents</h1>
@@ -421,7 +451,7 @@ export default function OfficeAgentsPage() {
       {editing && (
         <EditModal key={editing.key} officeId={state.office.id} agent={editing}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); setNotice('Profile saved.'); load(); }} />
+          onSaved={(msg) => { setEditing(null); setNotice(typeof msg === 'string' ? msg : 'Profile saved.'); load(); }} />
       )}
     </div>
   );
