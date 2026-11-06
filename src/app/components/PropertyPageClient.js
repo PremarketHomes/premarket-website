@@ -5,6 +5,7 @@ import { useEffect, useState, useRef } from 'react';
 import { getAuth } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { fetchAgentProfiles } from '../utils/fetchAgentProfiles';
+import { resolveListingAgent } from '../utils/listingAgent';
 import { shouldLinkAccount } from '../utils/registrationIdentity';
 import { db } from '../firebase/clientApp';
 import { doc, getDoc, addDoc, collection, serverTimestamp, updateDoc, deleteField } from 'firebase/firestore';
@@ -275,39 +276,39 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         const profiles = await fetchAgentProfiles([property.userId]);
         const userData = profiles[property.userId];
         if (userData) {
+          // The listing's presented agent is the ASSIGNED agent, never the owner/creator account
+          // (see utils/listingAgent.js). The owner's agency identity (company, office brand) still
+          // applies; their personal name, photo and phone never do when an agent is assigned.
+          let rosterAgent = null;
+          if (property.agentId) {
+            try {
+              const agentDoc = await getDoc(doc(db, 'agents', property.agentId));
+              if (agentDoc.exists()) rosterAgent = agentDoc.data();
+            } catch (err) {
+              console.error('Error fetching assigned agent:', err);
+            }
+          }
+          let directoryAgent = null;
+          if (property.agentId) {
+            try {
+              const res = await fetch(`/api/public/listing-agent?propertyId=${encodeURIComponent(propertyId)}`);
+              if (res.ok) directoryAgent = (await res.json()).agent || null;
+            } catch (err) {
+              console.error('Error resolving assigned agent profile (non-fatal):', err);
+            }
+          }
+          const listingAgent = resolveListingAgent({ property, ownerProfile: userData, rosterAgent, directoryAgent });
           const data = {
-            firstName: userData.firstName,
-            lastName: userData.lastName,
+            firstName: listingAgent.firstName,
+            lastName: listingAgent.lastName,
             companyName: userData.companyName,
-            avatar: userData.avatar,
+            avatar: listingAgent.avatar,
             logoUrl: userData.logoUrl,
             brandColors: userData.brandColors,
             officeId: userData.officeId || null,
-            phone: userData.phone,
+            phone: listingAgent.phone,
+            email: listingAgent.email,
           };
-
-          // If property has an assigned agent, override name/avatar
-          if (property.agentId) {
-            // Prefer denormalized fields on the property doc (always available)
-            if (property.agentName) {
-              data.firstName = property.agentName;
-              data.lastName = '';
-              if (property.agentAvatar) data.avatar = property.agentAvatar;
-            } else {
-              // Fallback: fetch from agents collection
-              try {
-                const agentDoc = await getDoc(doc(db, 'agents', property.agentId));
-                if (agentDoc.exists()) {
-                  const agentInfo = agentDoc.data();
-                  data.firstName = agentInfo.name;
-                  data.lastName = '';
-                  if (agentInfo.avatar) data.avatar = agentInfo.avatar;
-                }
-              } catch (err) {
-                console.error('Error fetching assigned agent:', err);
-              }
-            }
-          }
 
           setAgentData(data);
 

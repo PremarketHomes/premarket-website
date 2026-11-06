@@ -80,7 +80,8 @@ describe('compatibility boundaries (source guards)', () => {
   it('campaign page still lets a chosen listing agent override the account holder (existing behaviour kept)', () => {
     const page = read('src/app/components/PropertyPageClient.js');
     expect(page).toContain('if (property.agentId)');
-    expect(page).toContain('property.agentName');
+    // The assigned agent is resolved by the single resolver (name/photo/phone never fall back to the owner).
+    expect(page).toContain('resolveListingAgent({ property, ownerProfile: userData, rosterAgent, directoryAgent })');
   });
   it('billing, invoicing, auth and notification code do not read office profiles or the professional email', () => {
     for (const f of ['billingService', 'invoicePreviewService', 'invoiceRunService', 'resendService', 'notificationService', 'xeroService']) {

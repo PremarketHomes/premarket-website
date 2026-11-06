@@ -1,14 +1,15 @@
 'use client';
 
 import { motion, useInView, AnimatePresence } from 'framer-motion';
+import { listingCardAgent } from '../utils/listingAgent';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { db } from '../firebase/clientApp';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import {
 import { withOfficeBrand } from '../utils/officeBrand';
 import { fetchAgentProfiles } from '../utils/fetchAgentProfiles';
+import {
   GradientMesh,
   PulseBadge,
   GlowButton,
@@ -551,13 +552,8 @@ function FeaturedProperties() {
                   {property.userId && agents[property.userId] && (() => {
                     const accountAgent = agents[property.userId];
                     const assignedAgent = property.agentId && agentDocs[property.agentId];
-                    // Prefer denormalized fields, then agent doc, then account owner
-                    const displayName = property.agentName
-                      ? property.agentName
-                      : assignedAgent
-                        ? assignedAgent.name
-                        : [accountAgent.firstName, accountAgent.lastName].filter(Boolean).join(' ');
-                    const displayAvatar = property.agentAvatar || assignedAgent?.avatar || accountAgent.avatar;
+// The assigned agent, never the owner/admin account (see utils/listingAgent.js)
+const { displayName, displayAvatar } = listingCardAgent({ property, accountAgent, rosterAgent: assignedAgent || null });
                     return (
                       <div className="pt-3 border-t border-slate-100">
                         <div className="flex items-center gap-2.5">

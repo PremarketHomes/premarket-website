@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, Suspense } from 'react';
+import { listingCardAgent } from '../utils/listingAgent';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
@@ -912,13 +913,8 @@ function ListingsContent() {
                       {property.userId && agents[property.userId] && (() => {
                         const accountAgent = agents[property.userId];
                         const assignedAgent = property.agentId && agentDocs[property.agentId];
-                        // Prefer denormalized fields, then agent doc, then account owner
-                        const displayName = property.agentName
-                          ? property.agentName
-                          : assignedAgent
-                            ? assignedAgent.name
-                            : [accountAgent.firstName, accountAgent.lastName].filter(Boolean).join(' ');
-                        const displayAvatar = property.agentAvatar || assignedAgent?.avatar || accountAgent.avatar;
+// The assigned agent, never the owner/admin account (see utils/listingAgent.js)
+const { displayName, displayAvatar } = listingCardAgent({ property, accountAgent, rosterAgent: assignedAgent || null });
                         return (
                           <div className="pt-3 border-t border-slate-100">
                             <div className="flex items-center gap-2.5">

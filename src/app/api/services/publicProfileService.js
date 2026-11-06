@@ -77,6 +77,42 @@ export async function getPublicAgentProfiles(db, ids) {
   return profiles;
 }
 
+const normName = (n) => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * The office-directory profile of the agent ASSIGNED to a listing, for listings whose assignment is a
+ * listing-agent roster entry (`agents/{agentId}`, which has a name but no link to a login account).
+ *
+ * Only an exact, UNIQUE match is used: the listing's assigned name must equal the name of exactly one
+ * agent in the owner's own office. Zero or several matches return null (the caller then shows only the
+ * assigned name with a placeholder photo) — never the owner's details, never a guess.
+ * Returns the same allowlisted public fields as getPublicAgentProfiles (name, photo and phone come from
+ * the office directory profile when one is set).
+ */
+export async function getAssignedAgentProfile(db, propertyId) {
+  const propSnap = await db.collection('properties').doc(propertyId).get();
+  if (!propSnap.exists) return null;
+  const property = propSnap.data();
+  const assignedName = normName(property.agentName);
+  if (!property.agentId || !assignedName || !property.userId) return null;
+
+  const ownerSnap = await db.collection('users').doc(property.userId).get();
+  const officeId = ownerSnap.exists ? ownerSnap.data().officeId : null;
+  if (!officeId) return null;
+
+  const people = await db.collection('users').where('officeId', '==', officeId).get();
+  const candidates = people.docs.filter((d) => {
+    const u = d.data();
+    return isAgent(u) && normName(`${u.firstName || ''} ${u.lastName || ''}`) === assignedName;
+  });
+  if (candidates.length !== 1) return null;
+
+  const profiles = await getPublicAgentProfiles(db, [candidates[0].id]);
+  const profile = profiles[candidates[0].id];
+  if (!profile) return null;
+  return { firstName: profile.firstName || '', lastName: profile.lastName || '', avatar: profile.avatar || null, phone: profile.phone || null };
+}
+
 /**
  * Contact + preference fields for the buyers who registered serious interest on
  * one listing. Only users who actually appear on that listing's serious offers
