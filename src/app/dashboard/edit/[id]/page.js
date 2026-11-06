@@ -156,7 +156,7 @@ export default function EditPropertyPage() {
           let role = null;
           try {
             const res = await authFetch(`/api/properties/${propertyId}/managed`);
-            if (res.ok) role = (await res.json()).role || null;
+            if (res.ok) { const r = await res.json(); role = r.canEdit ? r.role || null : null; }
           } catch { /* not allowed */ }
           if (role !== 'bso' && role !== 'officeAdmin') {
             router.push('/dashboard');

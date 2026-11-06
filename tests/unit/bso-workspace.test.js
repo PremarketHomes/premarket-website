@@ -392,6 +392,22 @@ describe('editing and photos through the server', () => {
     expect(prop(ids.petaChantal1).listingStatus).toBe('sold');
     expect(recordPropertyCharge).toHaveBeenCalledTimes(5);
   });
+  it("the office admin edits office-managed campaigns, but an agent's own campaign stays read-only to the office", async () => {
+    const ids = await portfolio();
+    expect((await call(detailsRoute, 'hannah', { method: 'PUT', body: { property: input({ title: 'By Hannah' }) }, params: { id: ids.petaChantal1 } })).status).toBe(200);
+    expect(prop(ids.petaChantal1).title).toBe('By Hannah');
+    for (const id of ['chantalOwn', 'legacy']) {
+      expect((await call(detailsRoute, 'hannah', { method: 'PUT', body: { property: input({ title: 'Nope' }) }, params: { id } })).status).toBe(403);
+      expect((await call(mediaRoute, 'hannah', { method: 'POST', body: { urls: ['https://premarketvideos.b-cdn.net/z.jpg'] }, params: { id } })).status).toBe(403);
+      expect((await call(roleRoute, 'hannah', { params: { id } })).body).toMatchObject({ role: 'officeAdmin', canEdit: false });
+    }
+    expect(prop('chantalOwn').title).toBeUndefined();
+    // once Hannah deliberately assigns a manager, the office runs it
+    await call(managerRoute, 'hannah', { method: 'POST', body: { managerUid: 'peta' }, params: { id: 'chantalOwn' } });
+    expect((await call(roleRoute, 'peta', { params: { id: 'chantalOwn' } })).body).toMatchObject({ role: 'bso', canEdit: true });
+    expect((await call(detailsRoute, 'hannah', { method: 'PUT', body: { property: input({ title: 'Now managed' }) }, params: { id: 'chantalOwn' } })).status).toBe(200);
+    expect(readFileSync('src/app/dashboard/edit/[id]/page.js', 'utf8')).toContain('r.canEdit ? r.role || null : null');
+  });
   it('photos attach idempotently (a resumed upload never duplicates) and only https images are accepted', async () => {
     const ids = await portfolio();
     const url = 'https://premarketvideos.b-cdn.net/new.jpg';

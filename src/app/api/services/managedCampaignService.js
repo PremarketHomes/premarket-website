@@ -296,6 +296,17 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
   return { propertyId: id, duplicate: false, role, managedByUid, charge: charge?.reason || (charge?.created ? 'recorded' : null), notification };
 }
 
+/**
+ * Editing details/photos: the owner, the managing BSO, or an office admin for a campaign that has an assigned manager
+ * (office-managed). An agent's own campaign stays read-only to the office, exactly as before, unless the office admin
+ * deliberately assigns it a manager.
+ */
+function assertMayEdit(role, property) {
+  if (role === 'officeAdmin' && !property.managedByUid) {
+    throw new ManagedCampaignError("This is the agent's own campaign, so only the agent can edit it. Assign a manager first if the office should run it.", 403);
+  }
+}
+
 async function loadCampaignFor(db, { actorUid, propertyId, allow }) {
   if (typeof propertyId !== 'string' || !propertyId) throw new ManagedCampaignError('Campaign not found', 404);
   const ref = db.collection('properties').doc(propertyId);
@@ -312,7 +323,9 @@ async function loadCampaignFor(db, { actorUid, propertyId, allow }) {
 /** The caller's authority over one campaign (the edit page uses it to decide owner vs manager mode). */
 export async function getCampaignRole(db, { actorUid, propertyId }) {
   const { role, property } = await loadCampaignFor(db, { actorUid, propertyId });
-  return { propertyId, role, managedByUid: property.managedByUid || null };
+  let canEdit = true;
+  try { assertMayEdit(role, property); } catch { canEdit = false; }
+  return { propertyId, role, managedByUid: property.managedByUid || null, canEdit };
 }
 
 /**
@@ -361,6 +374,7 @@ export async function reassignManager(db, { actorUid, propertyId, managerUid }) 
  */
 export async function updateManagedDetails(db, { actorUid, propertyId, input }) {
   const { ref, property, owner, role } = await loadCampaignFor(db, { actorUid, propertyId });
+  assertMayEdit(role, property);
   const fields = sanitizePropertyInput(input);
   const patch = {
     ...fields,
@@ -384,6 +398,7 @@ export async function attachManagedMedia(db, { actorUid, propertyId, urls }) {
     throw new ManagedCampaignError('Photos must be https image links');
   }
   const { ref, property, owner, role } = await loadCampaignFor(db, { actorUid, propertyId });
+  assertMayEdit(role, property);
   const existing = Array.isArray(property.imageUrls) ? property.imageUrls : [];
   const added = [...new Set(urls)].filter((u) => !existing.includes(u));
   const imageUrls = [...existing, ...added];
@@ -452,6 +467,8 @@ export function toCampaignSummary(id, p, users, profiles) {
     sellingAgent,
     managedByUid,
     managedByName: nameOf(managedByUid),
+    // An explicitly assigned manager (not inferred from an older own-account upload): office admins may edit these.
+    officeManaged: !!p.managedByUid,
     managed: p.managedCreation === true,
     createdByUid: p.createdByUid || null,
     createdByRole: p.createdByRole || null,
