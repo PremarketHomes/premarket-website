@@ -68,6 +68,7 @@ import { GET as roleRoute, PATCH as manageRoute } from '../../src/app/api/proper
 import { POST as managerRoute } from '../../src/app/api/properties/[id]/managed/manager/route';
 import { PUT as detailsRoute } from '../../src/app/api/properties/[id]/managed/details/route';
 import { POST as mediaRoute } from '../../src/app/api/properties/[id]/managed/media/route';
+import { POST as videoRoute } from '../../src/app/api/properties/[id]/managed/video/route';
 import { POST as resendRoute } from '../../src/app/api/properties/[id]/campaign-link/resend/route';
 import { GET as bsoAccessRoute } from '../../src/app/api/bso/access/route';
 import { GET as bsoCampaignsRoute } from '../../src/app/api/bso/campaigns/route';
@@ -298,6 +299,46 @@ describe('access restrictions are enforced on the server', () => {
     const office = (await call(officeCampaignsRoute, 'hannah', { params: { officeId: 'off1' } })).body;
     expect(office.campaigns.filter((c) => c.needsManager).map((c) => c.id).sort()).toEqual([ids.petaChantal1, ids.petaChantal2, ids.petaBrad, ids.petaCara].sort());
     expect(prop(ids.petaChantal1).managedByUid).toBe('peta'); // history kept, never changed automatically
+  });
+});
+
+describe('BSO video management (same permission as photos; ownership and billing untouched)', () => {
+  const vid = (uid, pid) => `https://firebasestorage.googleapis.com/v0/b/premarket-homes.firebasestorage.app/o/${encodeURIComponent(`propertyVideos/${uid}/${pid}-x-walk.mp4`)}?alt=media&token=t`;
+  it('the managing BSO sets, replaces and removes the video; each change is audited', async () => {
+    const ids = await portfolio();
+    const id = ids.petaBrad;
+    const before = { ...prop(id) };
+    const chargesBefore = [...store.keys()].filter((k) => k.startsWith('propertyCharges/')).length;
+    let r = await call(videoRoute, 'peta', { method: 'POST', body: { videoUrl: vid('peta', id) }, params: { id } });
+    expect(r.status).toBe(200);
+    expect(prop(id).videoUrl).toBe(vid('peta', id));
+    expect(audits().at(-1)).toMatchObject({ action: 'campaign.setVideo', propertyId: id, actorUid: 'peta', actorRole: 'bso', ownerUid: 'brad' });
+    r = await call(videoRoute, 'peta', { method: 'POST', body: { videoUrl: null }, params: { id } });
+    expect(r.status).toBe(200);
+    expect(prop(id).videoUrl).toBeNull();
+    expect(audits().at(-1)).toMatchObject({ action: 'campaign.removeVideo', propertyId: id });
+    // ownership, manager, creator and billing never change
+    expect(prop(id)).toMatchObject({ userId: before.userId, managedByUid: before.managedByUid, createdByUid: before.createdByUid });
+    expect([...store.keys()].filter((k) => k.startsWith('propertyCharges/')).length).toBe(chargesBefore);
+  });
+  it('an existing agent campaign assigned to the BSO later can have its video managed too', async () => {
+    await portfolio();
+    await call(managerRoute, 'hannah', { method: 'POST', body: { managerUid: 'peta' }, params: { id: 'chantalOwn' } });
+    const r = await call(videoRoute, 'peta', { method: 'POST', body: { videoUrl: vid('peta', 'chantalOwn') }, params: { id: 'chantalOwn' } });
+    expect(r.status).toBe(200);
+    expect(prop('chantalOwn')).toMatchObject({ userId: 'chantal', videoUrl: vid('peta', 'chantalOwn') });
+  });
+  it('refused: another BSO, an unrelated agent, a link to someone else\'s upload, and an office admin on an agent\'s own campaign', async () => {
+    const ids = await portfolio();
+    const id = ids.petaBrad;
+    expect((await call(videoRoute, 'bea', { method: 'POST', body: { videoUrl: vid('bea', id) }, params: { id } })).status).toBe(404);
+    expect((await call(videoRoute, 'cara', { method: 'POST', body: { videoUrl: vid('cara', id) }, params: { id } })).status).toBe(404);
+    expect((await call(videoRoute, 'peta', { method: 'POST', body: { videoUrl: vid('bea', id) }, params: { id } })).status).toBe(400);
+    expect((await call(videoRoute, 'peta', { method: 'POST', body: { videoUrl: 'https://evil.example.com/x.mp4' }, params: { id } })).status).toBe(400);
+    expect((await call(videoRoute, 'peta', { method: 'POST', body: {}, params: { id } })).status).toBe(400);
+    expect((await call(videoRoute, 'hannah', { method: 'POST', body: { videoUrl: vid('hannah', 'chantalOwn') }, params: { id: 'chantalOwn' } })).status).toBe(403);
+    expect(prop(id).videoUrl).toBeUndefined();
+    expect(prop('chantalOwn').videoUrl).toBeUndefined();
   });
 });
 

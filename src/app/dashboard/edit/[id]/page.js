@@ -24,7 +24,7 @@ import AgentSelector from '../../../components/AgentSelector';
 import AgentModal from '../../../components/AgentModal';
 import ImagePositioner from '../../../components/ImagePositioner';
 import { cropAreaToObjectPosition } from '../../../utils/imageCrop';
-import { enqueuePropertyUpload, enqueueManagedMediaUpload } from '../../../utils/mediaUploadManager';
+import { enqueuePropertyUpload, enqueueManagedMediaUpload, enqueueManagedVideoUpload } from '../../../utils/mediaUploadManager';
 import {
   MapPin,
   DollarSign,
@@ -106,6 +106,7 @@ export default function EditPropertyPage() {
   const [positioningHero, setPositioningHero] = useState(false);
   const [video, setVideo] = useState(null); // new File to upload
   const [existingVideoUrl, setExistingVideoUrl] = useState(null);
+  const [savedVideoUrl, setSavedVideoUrl] = useState(null); // the campaign's videoUrl when the page loaded (managing BSO removal)
   const [eagerness, setEagerness] = useState(null);
   const [showSuburbOnly, setShowSuburbOnly] = useState(false);
   const [clientName, setClientName] = useState('');
@@ -203,6 +204,7 @@ export default function EditPropertyPage() {
 
         // Existing video
         setExistingVideoUrl(p.videoUrl || p.aiVideo?.url || null);
+        setSavedVideoUrl(p.videoUrl || null);
 
         // Eagerness
         if (p.isEager != null) setEagerness(p.isEager);
@@ -314,7 +316,8 @@ export default function EditPropertyPage() {
       const isImage = f.type.startsWith('image/') || ext === '.heic' || ext === '.heif';
 
       if (isVideo) {
-        if (managerMode) {
+        // The managing BSO handles video too (uploaded like an agent's own, attached through the server). Office admins: photos only.
+        if (managerMode && manageRole !== 'bso') {
           setMediaError('Photos only here: the selling agent can add a video to their own campaign.');
           continue;
         }
@@ -502,7 +505,8 @@ export default function EditPropertyPage() {
   };
 
   // Managing BSO / office admin: details through the server (allowlisted), new photos through the background upload
-  // manager (uploaded via the server, attached via the server). Ownership, the listing agent, video and billing are untouched.
+  // manager (uploaded via the server, attached via the server). A managing BSO can also add, replace or remove the video
+  // (uploaded like an agent's own video, attached via the server). Ownership, the listing agent and billing are untouched.
   const submitAsManager = async () => {
     const existingUrls = images.filter((img) => typeof img === 'string');
     const newFiles = images.filter((img) => typeof img !== 'string');
@@ -525,6 +529,14 @@ export default function EditPropertyPage() {
       if (!res.ok) throw new Error(out.error || 'The changes could not be saved.');
       if (newFiles.length > 0) {
         enqueueManagedMediaUpload({ propertyId, userId: user.uid, label: `Photos for ${formattedAddress || address || 'campaign'}`, files: [...newFiles] });
+      }
+      if (manageRole === 'bso') {
+        if (video) {
+          enqueueManagedVideoUpload({ propertyId, userId: user.uid, label: `Video for ${formattedAddress || address || 'campaign'}`, video });
+        } else if (savedVideoUrl && !existingVideoUrl) {
+          const vr = await authFetch(`/api/properties/${propertyId}/managed/video`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ videoUrl: null }) });
+          if (!vr.ok) throw new Error((await vr.json().catch(() => ({}))).error || 'The video could not be removed.');
+        }
       }
       router.push(manageRole === 'bso' ? '/dashboard?updated=1' : '/dashboard/office/campaigns?updated=1');
     } catch (err) {

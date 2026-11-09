@@ -67,6 +67,12 @@ async function defaultDeps() {
       if (!res.ok) { const e = new Error(out.error || 'The photos could not be added to the campaign.'); e.status = res.status; throw e; }
       return out;
     },
+    apiSetManagedVideo: async (propertyId, videoUrl) => {
+      const res = await authFetch(`/api/properties/${encodeURIComponent(propertyId)}/managed/video`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ videoUrl }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) { const e = new Error(out.error || 'The video could not be added to the campaign.'); e.status = res.status; throw e; }
+      return out;
+    },
     triggerCompress: (propertyId) => fetch('/api/images/compress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ propertyId }) }).catch(() => {}),
     convertHeic: async (file) => {
       const n = (file.name || '').toLowerCase();
@@ -201,6 +207,9 @@ async function run(job) {
       const urls = job.items.map((i) => i.url);
       await withRetry(d, () => d.apiAttachManagedMedia(job.propertyId, urls));
       d.triggerCompress(job.propertyId);
+    } else if (job.kind === 'managedVideo') {
+      // Uploaded to Storage above exactly like an agent's own video; attached through the server (the uploader is not the owner).
+      await withRetry(d, () => d.apiSetManagedVideo(job.propertyId, job.items[0].url));
     } else {
       const hasImages = job.items.some((i) => i.kind === 'image');
       const total = job.items.filter((i) => i.kind === 'image').length;
@@ -211,7 +220,7 @@ async function run(job) {
       });
       if (hasImages) d.triggerCompress(job.propertyId);
     }
-    setStatus(job, 'complete', job.kind === 'managed' ? 'Campaign created.' : job.kind === 'managedMedia' ? 'Photos added.' : 'All media uploaded.');
+    setStatus(job, 'complete', job.kind === 'managed' ? 'Campaign created.' : job.kind === 'managedMedia' ? 'Photos added.' : job.kind === 'managedVideo' ? 'Video added.' : 'All media uploaded.');
     await unpersist(job.id);
   } catch (e) {
     const permanent = e && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429;
@@ -250,6 +259,21 @@ export async function enqueueManagedMediaUpload({ propertyId, userId, label, fil
   const job = {
     id: newId(), kind: 'managedMedia', userId, propertyId, label: label || 'Campaign photos', status: 'queued', createdAt: Date.now(),
     items: files.map((f) => mkItem('image', f)),
+  };
+  jobs.set(job.id, job); emit();
+  await persist(job);
+  run(job);
+  return job.id;
+}
+
+/**
+ * A video for a campaign the user MANAGES but does not own (managing BSO): the file goes to Firebase Storage exactly like an
+ * agent's own video (propertyVideos/{uploader uid}/...), then the server attaches it. Background and resumable like the rest.
+ */
+export async function enqueueManagedVideoUpload({ propertyId, userId, label, video }) {
+  const job = {
+    id: newId(), kind: 'managedVideo', userId, propertyId, label: label || 'Campaign video', status: 'queued', createdAt: Date.now(),
+    items: [mkItem('video', video)],
   };
   jobs.set(job.id, job); emit();
   await persist(job);

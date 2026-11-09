@@ -19,7 +19,7 @@ import {
   getDoc,
   getDocs,
 } from 'firebase/firestore';
-import { enqueuePropertyUpload, enqueueManagedCreate } from '../../utils/mediaUploadManager';
+import { enqueuePropertyUpload, enqueueManagedCreate, enqueueManagedVideoUpload } from '../../utils/mediaUploadManager';
 import ImagePositioner from '../../components/ImagePositioner';
 import { cropAreaToObjectPosition } from '../../utils/imageCrop';
 import {
@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { onSnapshot, query, where } from 'firebase/firestore';
 import AgentSelector from '../../components/AgentSelector';
+import AgentCombobox from '../components/AgentCombobox';
 import AgentModal from '../../components/AgentModal';
 import { pickNotificationUser } from '../../utils/notificationUser';
 import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
@@ -655,7 +656,8 @@ function AddPropertyInner() {
     if (ownerUid) {
       // Office admin / BSO creating FOR the selling agent: the server checks authority, makes the selling agent the owner
       // and records the managing user. Photos go through the existing image upload first.
-      if (video) {
+      // A BSO uploads the whole campaign, video included (it is attached once the campaign exists). Office admins: photos only.
+      if (video && !isBsoCreator) {
         setErrors({ step: 'Video cannot be added when creating a campaign for another agent. Remove it, and the agent can add it later.' });
         return;
       }
@@ -685,6 +687,14 @@ function AddPropertyInner() {
           return;
         }
         if (job.status === 'error') throw new Error(job.message || 'The campaign could not be created.');
+        if (video && isBsoCreator) {
+          if (job.propertyId) {
+            // Background, resumable: uploaded like an agent's own video, then attached through the server.
+            await enqueueManagedVideoUpload({ propertyId: job.propertyId, userId: user.uid, label: `Video for ${formattedAddress || address || 'campaign'}`, video });
+          } else {
+            console.error('Managed create returned no campaign id; video not attached');
+          }
+        }
         if (mountedRef.current) router.push(redirectTo);
       } catch (err) {
         console.error('Managed submit failed:', err);
@@ -863,7 +873,14 @@ function AddPropertyInner() {
                 {(hasAssignable || agentsPending || agentsUnavailable) && (
                   <div className="mb-8 rounded-md border border-stone-200 bg-white p-4">
                     <label htmlFor="campaign-for" className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Selling agent</label>
-                    {hasAssignable ? (
+                    {hasAssignable && isBsoCreator ? (
+                      <AgentCombobox
+                        id="campaign-for"
+                        agents={assignable.agents}
+                        value={ownerUid}
+                        onChange={(uid) => { setOwnerUid(uid); managedRequestId.current = null; }}
+                      />
+                    ) : hasAssignable ? (
                       <select
                         id="campaign-for"
                         value={ownerUid}
@@ -890,9 +907,11 @@ function AddPropertyInner() {
                     <p className="text-xs text-stone-500 mt-2">
                       {agentsUnavailable
                         ? "Couldn't load your office's agents. Reload the page to try again."
+                        : selectorIsBso
+                        ? "Search and select the agent you're creating this campaign for. The selected agent will appear on the property listing. You'll manage the campaign on their behalf."
                         : ownerUid
-                        ? `Buyers will see the selling agent's name, photo and phone. The campaign belongs to the selling agent and appears on their dashboard; ${isBsoCreator ? 'you manage it from your Dashboard' : 'you are recorded as the creator'}. Photos only: the agent can add a video later. Billing follows the agent's existing billing arrangement.`
-                        : selectorIsBso ? 'Choose any agent in your office, including agents who have not logged in to Premarket yet.' : 'You can create campaigns for any agent in your office.'}
+                        ? "Buyers will see the selling agent's name, photo and phone. The campaign belongs to the selling agent and appears on their dashboard; you are recorded as the creator. Photos only: the agent can add a video later. Billing follows the agent's existing billing arrangement."
+                        : 'You can create campaigns for any agent in your office.'}
                     </p>
                     {ownerUid && assignable.role === 'officeAdmin' && (assignable.bsos || []).length > 0 && (
                       <div className="mt-4">
