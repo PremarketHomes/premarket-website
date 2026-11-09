@@ -36,7 +36,7 @@ describe('Add Property is extended, not duplicated', () => {
   });
   it('the selling-agent selector holds its place above the address while agents load (no layout jump)', () => {
     // BSO / Office "New Campaign" links pass a layout-only hint; the role still comes from the server.
-    expect(read('src/app/dashboard/bso/page.js')).toContain('href="/dashboard/add?as=bso"');
+    expect(read('src/app/dashboard/page.js')).toContain("const addHref = isBso ? '/dashboard/add?as=bso' : '/dashboard/add';");
     expect(read('src/app/dashboard/office/campaigns/page.js')).toContain('href="/dashboard/add?as=officeAdmin"');
     expect(add).toContain('{(hasAssignable || agentsPending || agentsUnavailable) && (');
     expect(add).toContain("'Loading agents…'");

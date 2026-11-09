@@ -1560,7 +1560,7 @@ export default function PropertyReportPage() {
           <div className="flex items-center justify-between gap-3">
             {/* Left: Back + Title */}
             <div className="flex items-center gap-3 min-w-0">
-              <Link href={viewerLevel === 'teamMember' ? '/dashboard/team' : viewerLevel === 'manager' ? '/dashboard/bso' : readOnly ? '/dashboard/office/team' : '/dashboard'} className="p-2 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
+              <Link href={viewerLevel === 'teamMember' ? '/dashboard/team' : viewerLevel === 'manager' ? '/dashboard' : readOnly ? '/dashboard/office/team' : '/dashboard'} className="p-2 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
                 <ArrowLeft className="w-5 h-5 text-slate-600" />
               </Link>
               <div className="min-w-0">
@@ -1721,7 +1721,7 @@ export default function PropertyReportPage() {
               {viewerLevel === 'manager' ? (
                 <>
                   <span className="font-semibold">Viewing as the campaign&apos;s BSO</span>
-                  <span className="text-indigo-800"> — this report is read-only. Edit the campaign, its photos and its buyer link from My Campaigns.</span>
+                  <span className="text-indigo-800"> — this report is read-only. Edit the campaign, its photos and its buyer link from your Dashboard.</span>
                 </>
               ) : viewerLevel !== 'teamMember' ? (
                 <>

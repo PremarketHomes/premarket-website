@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useOfficeBrand } from '../utils/officeBrand';
 import { isPlaceholderAvatar } from '../utils/avatar';
 import AgentGreeting from './components/AgentGreeting';
+import { BsoCampaignList, useBsoCampaigns } from './components/BsoCampaigns';
+import { bsoCampaignStats, BSO_TAB_FILTERS } from '../utils/bsoDashboard';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -50,7 +52,6 @@ import {
   Clock,
   Building,
   UserPlus,
-  Briefcase,
 } from 'lucide-react';
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 
@@ -74,7 +75,7 @@ function ShimmerImage({ src, alt, ...props }) {
 }
 
 // --- Sidebar ---
-function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, userName, userData }) {
+function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, userName, userData, isBso = false }) {
   // Office-linked agents show their office's agency title, resolved
   // live — a neutral placeholder while it loads and a retry if it
   // fails, NEVER their old personal company name.
@@ -91,17 +92,6 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     fetch('/api/features').then((r) => (r.ok ? r.json() : null)).then((b) => { if (cancelled) return; if (b?.officeRegistrations === true) setRegistrationsOn(true); if (b?.managedCampaigns === true) setCampaignsOn(true); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
-  // BSO is authorised server-side only (officeAdminInfo.bsoUids, re-checked on every request); this only shows the link.
-  const [isBso, setIsBso] = useState(false);
-  useEffect(() => {
-    if (!userData?.officeId || !campaignsOn) return undefined;
-    let cancelled = false;
-    authFetch('/api/bso/access')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((b) => { if (!cancelled && b?.bso === true) setIsBso(true); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [userData?.officeId, campaignsOn]);
   useEffect(() => {
     let cancelled = false;
     authFetch('/api/leadership/access')
@@ -110,13 +100,14 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+  // A BSO's Dashboard is their campaign workspace (the campaigns they manage), so they get no separate
+  // "My Campaigns" link and no User Manual link. Everyone else's navigation is unchanged.
   const navItems = [
-    ...(isBso ? [{ id: 'bso', label: 'My Campaigns', icon: Briefcase, href: '/dashboard/bso' }] : []),
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'sold', label: 'Sold', icon: CheckCircle },
     { id: 'archived', label: 'Archive', icon: Archive },
-    { id: 'add', label: 'Add Property', icon: Plus, href: '/dashboard/add' },
-    { id: 'user-manual', label: 'User Manual', icon: BookOpen, href: '/dashboard/user-manual' },
+    { id: 'add', label: 'Add Property', icon: Plus, href: isBso ? '/dashboard/add?as=bso' : '/dashboard/add' },
+    ...(isBso ? [] : [{ id: 'user-manual', label: 'User Manual', icon: BookOpen, href: '/dashboard/user-manual' }]),
     // Colleagues in the same verified office can share read-only sight of each
     // other's campaigns. Only offered to office-linked agents.
     ...(userData?.officeId
@@ -666,7 +657,12 @@ function BillingContactPrompt() {
 }
 
 // --- Empty State ---
-function EmptyState() {
+function EmptyState({
+  title = 'No properties yet',
+  text = 'Add your first property to start collecting buyer opinions and market insights.',
+  cta = 'Add Your First Property',
+  href = '/dashboard/add',
+} = {}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -674,16 +670,16 @@ function EmptyState() {
       className="bg-white rounded-md border border-stone-200 px-6 py-16 sm:py-20 text-center"
     >
       <div className="mx-auto mb-7 h-px w-10 bg-[#c64500]" aria-hidden="true" />
-      <h3 className="font-serif text-2xl text-stone-900 mb-3">No properties yet</h3>
+      <h3 className="font-serif text-2xl text-stone-900 mb-3">{title}</h3>
       <p className="text-sm text-stone-500 leading-relaxed mb-8 max-w-sm mx-auto">
-        Add your first property to start collecting buyer opinions and market insights.
+        {text}
       </p>
       <Link
-        href="/dashboard/add"
+        href={href}
         className="add-property-pulse inline-flex items-center gap-2 px-6 py-3 bg-[#e38100] hover:bg-[#cc7400] text-white text-sm font-semibold tracking-wide rounded-md transition-colors"
       >
         <Plus className="w-4 h-4" strokeWidth={1.75} />
-        Add Your First Property
+        {cta}
       </Link>
     </motion.div>
   );
@@ -1068,6 +1064,22 @@ function DashboardPage() {
   // Shared team portfolio: teammates' read-only listings (server-authorised) and the chosen view.
   const [teamRows, setTeamRows] = useState([]);
   const [teamView, setTeamView] = useState('all'); // 'all' | 'mine' | 'team'
+  // BSO: authorised server-side only (officeAdminInfo.bsoUids, re-checked on every request). For a BSO the Dashboard
+  // shows the campaigns they manage instead of only the properties they own. 'unknown' until the check returns, so an
+  // office agent never sees a flash of the wrong dashboard.
+  const [bsoStatus, setBsoStatus] = useState('unknown'); // 'unknown' | 'yes' | 'no'
+  useEffect(() => {
+    if (loading) return undefined;
+    if (!userData?.officeId) { setBsoStatus('no'); return undefined; }
+    let cancelled = false;
+    authFetch('/api/bso/access')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (!cancelled) setBsoStatus(b?.bso === true ? 'yes' : 'no'); })
+      .catch(() => { if (!cancelled) setBsoStatus('no'); });
+    return () => { cancelled = true; };
+  }, [loading, userData?.officeId]);
+  const isBso = bsoStatus === 'yes';
+  const bso = useBsoCampaigns(isBso);
 
   // Logo onboarding for agents without a logo
   useEffect(() => {
@@ -1354,6 +1366,13 @@ function DashboardPage() {
     ? currentTabProperties.filter(p => p.agentId === filterAgentId)
     : currentTabProperties;
   const displayProperties = agentFilteredProperties;
+  // BSO dashboard: figures, counts and list come from the campaigns they manage (see components/BsoCampaigns.js).
+  const addHref = isBso ? '/dashboard/add?as=bso' : '/dashboard/add';
+  const bsoStats = bsoCampaignStats(bso.campaigns);
+  const bsoSoldCount = bso.campaigns.filter(BSO_TAB_FILTERS.sold).length;
+  const bsoArchivedCount = bso.campaigns.filter(BSO_TAB_FILTERS.archived).length;
+  const gridLoading = propertiesLoading || bsoStatus === 'unknown' || (isBso && (bso.status === 'idle' || bso.status === 'loading'));
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
   return (
     <div className="min-h-screen bg-[#faf9f7] text-stone-900">
@@ -1365,6 +1384,7 @@ function DashboardPage() {
         setSidebarOpen={setSidebarOpen}
         userName={userName}
         userData={userData}
+        isBso={isBso}
       />
 
       {/* Main Content */}
@@ -1376,7 +1396,7 @@ function DashboardPage() {
               <Menu className="w-5 h-5 text-stone-700" strokeWidth={1.5} />
             </button>
             <span className="font-serif text-lg text-stone-900">Dashboard</span>
-            <Link href="/dashboard/add" className="p-2 hover:bg-stone-100 rounded-md" aria-label="Add property">
+            <Link href={addHref} className="p-2 hover:bg-stone-100 rounded-md" aria-label="Add property">
               <Plus className="w-5 h-5 text-[#e38100]" strokeWidth={2} />
             </Link>
           </div>
@@ -1406,9 +1426,9 @@ function DashboardPage() {
               </h1>
               <p className={`text-sm text-stone-500 mt-2 ${activeTab === 'archived' || activeTab === 'sold' ? '' : 'hidden sm:block'}`}>
                 {activeTab === 'archived'
-                  ? `${archivedProperties.length} ${archivedProperties.length === 1 ? 'property' : 'properties'}`
+                  ? (isBso ? plural(bsoArchivedCount, 'campaign', 'campaigns') : `${archivedProperties.length} ${archivedProperties.length === 1 ? 'property' : 'properties'}`)
                   : activeTab === 'sold'
-                  ? `${soldProperties.length} ${soldProperties.length === 1 ? 'property' : 'properties'}`
+                  ? (isBso ? plural(bsoSoldCount, 'campaign', 'campaigns') : `${soldProperties.length} ${soldProperties.length === 1 ? 'property' : 'properties'}`)
                   : <span>
                       Welcome back, {userName}
                       {!userData?.officeId && !userData?.companyName && (
@@ -1418,7 +1438,7 @@ function DashboardPage() {
               </p>
             </div>
             <Link
-              href="/dashboard/add"
+              href={addHref}
               className="add-property-pulse hidden sm:inline-flex shrink-0 items-center gap-2 px-6 py-3 bg-[#e38100] hover:bg-[#cc7400] text-white text-sm font-semibold tracking-wide rounded-md transition-colors"
             >
               <Plus className="w-4 h-4" strokeWidth={1.75} />
@@ -1439,8 +1459,8 @@ function DashboardPage() {
             </div>
           )}
 
-          {/* Agent Filter */}
-          {teamAgents.length > 0 && (
+          {/* Agent Filter (a BSO's campaign list has its own "Filter by agent") */}
+          {!isBso && teamAgents.length > 0 && (
             <div className="flex items-center gap-3">
               <select
                 value={filterAgentId}
@@ -1456,7 +1476,7 @@ function DashboardPage() {
           )}
 
           {/* Team portfolio switch — only when teammates have listings to show */}
-          {hasTeamListings && (
+          {!isBso && hasTeamListings && (
             <div className="flex items-center gap-1 -mt-2" role="tablist" aria-label="Property view">
               {[
                 ['all', 'All', viewCounts.mine + viewCounts.team],
@@ -1480,12 +1500,21 @@ function DashboardPage() {
 
           {/* Overview Stats */}
           {activeTab === 'overview' && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200 border border-stone-200 rounded-md overflow-hidden">
-              <StatCard label="Total Properties" value={propertiesLoading ? '...' : stats.properties} />
-              <StatCard label="Public Listings" value={propertiesLoading ? '...' : stats.live} />
-              <StatCard label="Total Views" value={propertiesLoading ? '...' : stats.views} />
-              <StatCard label="Buyer Opinions" value={propertiesLoading ? '...' : stats.opinions} />
-            </div>
+            isBso ? (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200 border border-stone-200 rounded-md overflow-hidden" data-testid="bso-stats">
+                <StatCard label="Total Managed Campaigns" value={gridLoading ? '...' : bsoStats.campaigns} />
+                <StatCard label="Live Campaigns" value={gridLoading ? '...' : bsoStats.live} />
+                <StatCard label="Total Views" value={gridLoading ? '...' : bsoStats.views} />
+                <StatCard label="Buyer Opinions" value={gridLoading ? '...' : bsoStats.opinions} />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200 border border-stone-200 rounded-md overflow-hidden">
+                <StatCard label="Total Properties" value={gridLoading ? '...' : stats.properties} />
+                <StatCard label="Public Listings" value={gridLoading ? '...' : stats.live} />
+                <StatCard label="Total Views" value={gridLoading ? '...' : stats.views} />
+                <StatCard label="Buyer Opinions" value={gridLoading ? '...' : stats.opinions} />
+              </div>
+            )
           )}
 
           {/* Agency Branding Nudge (overview only) — independent agents
@@ -1521,9 +1550,9 @@ function DashboardPage() {
 
           {/* Quick Actions (overview only) — phones only: from tablet up the same
               link lives in the page header and the sidebar. */}
-          {activeTab === 'overview' && !propertiesLoading && properties.length > 0 && (
+          {activeTab === 'overview' && !gridLoading && (isBso ? bso.campaigns.length > 0 : properties.length > 0) && (
             <Link
-              href="/dashboard/add"
+              href={addHref}
               className="sm:hidden bg-white rounded-md border border-stone-200 px-5 py-4 flex items-center gap-4 hover:border-stone-300 transition-colors group"
             >
               <Plus className="w-5 h-5 text-[#e38100]" strokeWidth={1.5} />
@@ -1535,11 +1564,27 @@ function DashboardPage() {
             </Link>
           )}
 
-          {/* Properties Grid */}
-          {propertiesLoading ? (
+          {/* Properties Grid (for a BSO: the campaigns they manage) */}
+          {gridLoading ? (
             <div className="flex items-center justify-center py-20">
               <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#c64500] border-t-transparent" />
             </div>
+          ) : isBso ? (
+            bso.status === 'error' ? (
+              <div className="bg-white rounded-md border border-stone-200 px-6 py-12 text-center">
+                <p className="text-sm text-stone-500">We could not load your campaigns.</p>
+                <button onClick={bso.reload} className="mt-3 text-sm font-semibold text-[#c64500] hover:text-[#a63a00]">Try again</button>
+              </div>
+            ) : activeTab === 'overview' && bso.campaigns.length === 0 ? (
+              <EmptyState
+                title="No campaigns yet"
+                text="Campaigns you upload for your agents, and campaigns assigned to you to manage, will appear here."
+                cta="Add Property"
+                href={addHref}
+              />
+            ) : (
+              <BsoCampaignList campaigns={bso.campaigns} tab={activeTab} onChanged={bso.reload} />
+            )
           ) : activeTab !== 'archived' && activeTab !== 'sold' && properties.length === 0 && !hasTeamListings ? (
             <EmptyState />
           ) : displayProperties.length === 0 ? (

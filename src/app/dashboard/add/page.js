@@ -664,7 +664,7 @@ function AddPropertyInner() {
         if (!managedRequestId.current) managedRequestId.current = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}-0000000000`).replace(/[^A-Za-z0-9-]/g, '');
         // Photos upload through the background manager (keeps running if you leave this page; resumable; the campaign is
         // only created after every photo has uploaded, and the idempotent requestId prevents a duplicate on retry).
-        const redirectTo = assignable.role === 'officeAdmin' ? '/dashboard/office/campaigns?created=1' : isBsoCreator ? '/dashboard/bso?created=1' : '/dashboard?created=1';
+        const redirectTo = assignable.role === 'officeAdmin' ? '/dashboard/office/campaigns?created=1' : '/dashboard?created=1'; // a BSO's campaigns are on their Dashboard
         const job = await enqueueManagedCreate({
           userId: user.uid, label: `New campaign: ${formattedAddress || address || 'property'}`, requestId: managedRequestId.current, redirectTo,
           images,
@@ -891,7 +891,7 @@ function AddPropertyInner() {
                       {agentsUnavailable
                         ? "Couldn't load your office's agents. Reload the page to try again."
                         : ownerUid
-                        ? `Buyers will see the selling agent's name, photo and phone. The campaign belongs to the selling agent and appears on their dashboard; ${isBsoCreator ? 'you manage it from My Campaigns' : 'you are recorded as the creator'}. Photos only: the agent can add a video later. Billing follows the agent's existing billing arrangement.`
+                        ? `Buyers will see the selling agent's name, photo and phone. The campaign belongs to the selling agent and appears on their dashboard; ${isBsoCreator ? 'you manage it from your Dashboard' : 'you are recorded as the creator'}. Photos only: the agent can add a video later. Billing follows the agent's existing billing arrangement.`
                         : selectorIsBso ? 'Choose any agent in your office, including agents who have not logged in to Premarket yet.' : 'You can create campaigns for any agent in your office.'}
                     </p>
                     {ownerUid && assignable.role === 'officeAdmin' && (assignable.bsos || []).length > 0 && (

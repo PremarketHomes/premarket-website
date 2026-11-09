@@ -4,7 +4,7 @@ import { verifyAuth } from '../../middleware/auth';
 import { getBsoAccess } from '../../services/bsoService';
 import { managedCampaignsEnabled } from '../../services/environmentGuard';
 
-/** GET /api/bso/access — whether the caller currently holds the BSO role (drives the "My Campaigns" navigation). */
+/** GET /api/bso/access — whether the caller currently holds the BSO role (drives the BSO Dashboard). */
 export async function GET(request) {
   try {
     const auth = await verifyAuth(request);

@@ -526,7 +526,7 @@ export default function EditPropertyPage() {
       if (newFiles.length > 0) {
         enqueueManagedMediaUpload({ propertyId, userId: user.uid, label: `Photos for ${formattedAddress || address || 'campaign'}`, files: [...newFiles] });
       }
-      router.push(manageRole === 'bso' ? '/dashboard/bso?updated=1' : '/dashboard/office/campaigns?updated=1');
+      router.push(manageRole === 'bso' ? '/dashboard?updated=1' : '/dashboard/office/campaigns?updated=1');
     } catch (err) {
       console.error('Managed update failed:', err);
       setErrors({ step: err.message || 'Something went wrong. Please try again.' });

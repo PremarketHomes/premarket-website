@@ -95,7 +95,7 @@ describe('the allowlist', () => {
     for (const uid of realRule.TEST_CAMPAIGN_CREATOR_UIDS) expect(uid).toMatch(/^[A-Za-z0-9]{20,128}$/);
   });
   it('the allowlist stays server-side: no client page imports it', () => {
-    for (const p of ['src/app/dashboard/add/page.js', 'src/app/dashboard/page.js', 'src/app/dashboard/bso/page.js', 'src/app/dashboard/office/campaigns/page.js']) {
+    for (const p of ['src/app/dashboard/add/page.js', 'src/app/dashboard/page.js', 'src/app/dashboard/components/BsoCampaigns.js', 'src/app/dashboard/office/campaigns/page.js']) {
       expect(readFileSync(p, 'utf8')).not.toMatch(/testCampaigns|TEST_CAMPAIGN_CREATOR_UIDS/);
     }
   });
