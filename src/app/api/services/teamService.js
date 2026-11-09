@@ -34,7 +34,7 @@ import { BASE_URL } from './emailTemplates';
 import { sendTeamInviteEmail } from './resendService';
 import { toOfficeTeamProperty } from './officeTeamService';
 import { isEligibleTeamAgent } from './teamAccess';
-import { isTestCampaign } from '../../utils/testCampaign';
+import { loadTestCampaignIds } from './testCampaigns';
 
 export const TEAM_INVITE_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
 export const MAX_INVITES_PER_DAY = 10;
@@ -522,11 +522,12 @@ export async function listTeamProperties(uid) {
   if (!(await loadOffice(direct, me.user.officeId))) throw new TeamError('Your office is not active.', 403, 'office-inactive');
 
   const mates = (await activeTeamMembers(me.team)).filter((m) => m.uid !== uid);
+  const testIds = await loadTestCampaignIds(adminDb); // test campaigns are not shared or counted
   const lists = await Promise.all(
     mates.map(async (m) => {
       const snap = await adminDb.collection('properties').where('userId', '==', m.uid).get();
       return snap.docs
-        .filter((d) => d.data().hidden !== true && !isTestCampaign(d.data())) // test campaigns are not shared or counted
+        .filter((d) => d.data().hidden !== true && !testIds.has(d.id))
         .map((d) => ({
           ...toOfficeTeamProperty(d.id, d.data()),
           owner: { uid: m.uid, name: displayName(m) || m.email || 'Teammate' },

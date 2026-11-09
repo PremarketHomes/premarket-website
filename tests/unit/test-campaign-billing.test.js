@@ -1,196 +1,260 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 
-// The real module (billing below sees a mocked copy whose allowlist is ['luke']).
-const realRule = await vi.importActual('../../src/app/utils/testCampaign');
+// The real allowlist module (everything else in this file sees a copy whose allowlist is ['luke']).
+const realRule = await vi.importActual('../../src/app/api/services/testCampaigns');
 
-// ── The rule itself, with an explicit allowlist (the shipped list is exercised separately below) ──
-const ALLOW = ['luke'];
-const own = (extra = {}) => ({ userId: 'luke', testCampaign: true, ...extra });
-
-describe('isTestCampaign: the one rule billing, reporting and labels share', () => {
-  it('is a test campaign only when flagged, owned by the authorised account, and created by it for itself', () => {
-    expect(realRule.isTestCampaign(own(), ALLOW)).toBe(true);
-    expect(realRule.isTestCampaign(own({ createdByUid: 'luke' }), ALLOW)).toBe(true);
-  });
-  it('anything else is a normal, billable campaign', () => {
-    expect(realRule.isTestCampaign(own({ testCampaign: undefined }), ALLOW)).toBe(false);
-    expect(realRule.isTestCampaign(own({ testCampaign: false }), ALLOW)).toBe(false);
-    expect(realRule.isTestCampaign(own({ testCampaign: 'true' }), ALLOW)).toBe(false); // strictly boolean true
-    expect(realRule.isTestCampaign({ userId: 'jo', testCampaign: true }, ALLOW)).toBe(false); // any other agent
-    expect(realRule.isTestCampaign({ uid: 'luke', userId: 'jo', testCampaign: true }, ALLOW)).toBe(false); // billed owner is jo
-    expect(realRule.isTestCampaign({ userId: 'jo', createdByUid: 'luke', managedCreation: true, testCampaign: true }, ALLOW)).toBe(false); // Luke for a selling agent
-    expect(realRule.isTestCampaign(own({ managedCreation: true }), ALLOW)).toBe(false);
-    expect(realRule.isTestCampaign(own({ createdByUid: 'hannah' }), ALLOW)).toBe(false); // uploaded by someone else
-    expect(realRule.isTestCampaign(own({ agentId: 'roster1' }), ALLOW)).toBe(false); // own account, for a roster selling agent
-    expect(realRule.isTestCampaign(null, ALLOW)).toBe(false);
-    expect(realRule.canCreateTestCampaign('', ALLOW)).toBe(false);
-    expect(realRule.canCreateTestCampaign(undefined, ALLOW)).toBe(false);
-  });
-  it('the shipped allowlist is frozen and holds at most one named test account (never an office-wide exemption)', () => {
-    expect(Object.isFrozen(realRule.TEST_CAMPAIGN_ACCOUNT_UIDS)).toBe(true);
-    expect(realRule.TEST_CAMPAIGN_ACCOUNT_UIDS.length).toBeLessThanOrEqual(1);
-    for (const uid of realRule.TEST_CAMPAIGN_ACCOUNT_UIDS) expect(uid).toMatch(/^[A-Za-z0-9]{20,128}$/); // a Firebase uid, not an email
-    // With the shipped list, an account that is not on it is never exempt, whatever it stores.
-    expect(realRule.isTestCampaign({ userId: 'not-on-the-list', testCampaign: true })).toBe(false);
-  });
-});
-
-// ── Billing, end to end through billingService with an in-memory Firestore ──
-vi.mock('firebase-admin/firestore', () => ({ FieldValue: { serverTimestamp: () => 'TS', delete: () => 'DEL' } }));
-vi.mock('../../src/app/utils/testCampaign', async (importOriginal) => {
-  const m = await importOriginal();
-  return { ...m, isTestCampaign: (p) => m.isTestCampaign(p, ['luke']), canCreateTestCampaign: (u) => m.canCreateTestCampaign(u, ['luke']) };
-});
-
+// ── In-memory Firestore: docs, where ('==' / 'in'), add, atomic batch.create, transactions ──
 let store;
-function ref(col, id) {
+const exists = (c, id) => store[c]?.[id] !== undefined;
+function alreadyExists() { const e = new Error('ALREADY_EXISTS'); e.code = 6; return e; }
+function ref(c, id) {
   return {
-    id, _col: col,
-    get: async () => ({ exists: store[col]?.[id] !== undefined, id, data: () => store[col]?.[id] }),
-    set: async (d) => { (store[col] ||= {})[id] = { ...d }; },
-    create: async (d) => { if (store[col]?.[id]) { const e = new Error('ALREADY_EXISTS'); e.code = 6; throw e; } (store[col] ||= {})[id] = { ...d }; },
-    update: async (p) => { store[col][id] = { ...store[col][id], ...p }; },
+    id, _c: c,
+    get: async () => ({ exists: exists(c, id), id, data: () => store[c]?.[id] }),
+    set: async (d) => { (store[c] ||= {})[id] = { ...d }; },
+    create: async (d) => { if (exists(c, id)) throw alreadyExists(); (store[c] ||= {})[id] = { ...d }; },
+    update: async (p) => { store[c][id] = { ...store[c][id], ...p }; },
+    delete: async () => { delete store[c]?.[id]; },
   };
 }
 let auto = 0;
+function col(c, filters = []) {
+  const docs = () => Object.entries(store[c] || {})
+    .filter(([, d]) => filters.every(([f, op, v]) => (op === 'in' ? v.includes(d[f]) : op === '==' ? d[f] === v : true)))
+    .map(([id, d]) => ({ id, ref: ref(c, id), data: () => d }));
+  return {
+    doc: (id) => ref(c, id || `auto${++auto}`),
+    add: async (d) => { const id = `auto${++auto}`; (store[c] ||= {})[id] = { ...d }; return { id }; },
+    where: (f, op, v) => col(c, [...filters, [f, op, v]]),
+    get: async () => { const ds = docs(); return { docs: ds, empty: ds.length === 0, size: ds.length }; },
+  };
+}
 const fakeDb = {
-  collection: (col) => ({
-    doc: (id) => ref(col, id || `auto${++auto}`),
-    get: async () => ({ docs: Object.entries(store[col] || {}).map(([id, d]) => ({ id, data: () => d })) }),
-    where: (f, op, v) => ({ get: async () => ({ docs: Object.entries(store[col] || {}).filter(([, d]) => d[f] === v).map(([id, d]) => ({ id, data: () => d })) }) }),
-  }),
-  runTransaction: async (fn) => { const w = []; await fn({ set: (r, d) => w.push(() => { (store[r._col] ||= {})[r.id] = { ...d }; }) }); w.forEach((x) => x()); },
+  collection: (c) => col(c),
+  batch: () => {
+    const ops = [];
+    return {
+      create: (r, d) => ops.push({ r, d }),
+      commit: async () => { if (ops.some(({ r }) => exists(r._c, r.id))) throw alreadyExists(); ops.forEach(({ r, d }) => { (store[r._c] ||= {})[r.id] = { ...d }; }); },
+    };
+  },
+  runTransaction: async (fn) => {
+    const w = [];
+    const out = await fn({
+      get: (r) => r.get(),
+      set: (r, d) => w.push(() => { (store[r._c] ||= {})[r.id] = { ...d }; }),
+      update: (r, p) => w.push(() => { store[r._c][r.id] = { ...store[r._c][r.id], ...p }; }),
+    });
+    w.forEach((x) => x());
+    return out;
+  },
 };
 vi.mock('../../src/app/firebase/adminApp', () => ({ adminDb: new Proxy({}, { get: (_, p) => fakeDb[p] }) }));
+vi.mock('firebase-admin/firestore', () => ({ FieldValue: { serverTimestamp: () => 'TS', delete: () => 'DEL' } }));
+vi.mock('firebase-admin/auth', () => ({ getAuth: () => ({ getUser: async (uid) => ({ uid, disabled: false }) }) }));
+const sendEmail = vi.fn(async () => ({ id: 'email' }));
+vi.mock('../../src/app/api/services/resendService', () => ({ sendEmail: (...a) => sendEmail(...a), sendPropertyReadyEmail: vi.fn() }));
+vi.mock('../../src/app/api/services/testCampaigns', async (importOriginal) => {
+  const m = await importOriginal();
+  return { ...m, canCreateTestCampaign: (u) => m.canCreateTestCampaign(u, ['luke']) };
+});
+
+const { createManagedProperty, resendCampaignLink, listOfficeCampaigns, listBsoCampaigns, listAssignableAgents, reassignManager } =
+  await import('../../src/app/api/services/managedCampaignService');
+const billing = await import('../../src/app/api/services/billingService');
+const { loadTestCampaignIds, isTestCampaignId } = await import('../../src/app/api/services/testCampaigns');
 
 const ACTIVATED = new Date('2026-10-21T00:00:00Z');
+const agent = (first, extra = {}) => ({ firstName: first, lastName: 'X', email: `${first.toLowerCase()}@hph.example`, agent: true, officeId: 'hph', accountStatus: 'active', ...extra });
 beforeEach(() => {
+  sendEmail.mockClear();
   store = {
     settings: { invoicing: { pricePerListing: 200, gstRate: 0, excludeAgentIds: [], billingActivatedAt: ACTIVATED } },
-    officeAdminInfo: { hph: { name: 'Harcourts Property Hub', status: 'active', officeAdminUids: ['hannah'] } },
-    users: {
-      luke: { firstName: 'Luke', lastName: 'W', email: 'luke@example.com', agent: true, officeId: 'hph' },
-      jo: { firstName: 'Jo', lastName: 'Lee', email: 'jo@example.com', agent: true, officeId: 'hph' },
-      hannah: { firstName: 'Hannah', lastName: 'A', email: 'h@example.com', agent: true, officeId: 'hph' },
-    },
+    officeAdminInfo: { hph: { name: 'Harcourts Property Hub', status: 'active', officeAdminUids: ['hannah'], bsoUids: ['luke', 'peta'] } },
+    users: { luke: agent('Luke'), peta: agent('Peta'), hannah: agent('Hannah'), phil: agent('Phil'), jo: agent('Jo') },
   };
 });
-const now = () => new Date();
+const input = (address) => ({ address: 'Robina QLD Australia', formattedAddress: address, price: '$950,000', bedrooms: 3, bathrooms: 2, carSpaces: 2, propertyType: 'House', listingStatus: 'pre-market', title: address, location: { latitude: -28, longitude: 153 }, imageUrls: [] });
+let n = 0;
+const create = (actorUid, ownerUid, extra = {}) => createManagedProperty(fakeDb, {
+  actorUid, ownerUid, requestId: `req-${String(++n).padStart(16, '0')}`, input: input(`${n} Test St`), acceptTerms: true, managerUid: null, ...extra,
+});
 const charge = (id) => store.propertyCharges?.[id];
-const audits = () => Object.values(store.officeCampaignAudit || {});
+const audits = (id) => Object.values(store.officeCampaignAudit || {}).filter((a) => a.propertyId === id);
+const campaignLinkEmails = () => sendEmail.mock.calls.filter(([a]) => /campaign/i.test(JSON.stringify(a)));
 
-describe('billing: test campaigns are never charged; every other campaign is billed exactly as before', () => {
-  it("Luke's own TEST campaign: no charge, no billable event, one audit entry with the reason", async () => {
-    const { recordPropertyCharge } = await import('../../src/app/api/services/billingService.js');
-    const r = await recordPropertyCharge({ id: 'p1', ...own(), address: '1 Test St', createdAt: now() });
-    expect(r).toEqual({ created: false, reason: 'test-campaign' });
+describe('the allowlist', () => {
+  it('only the listed creator uid may create test campaigns', () => {
+    expect(realRule.canCreateTestCampaign('luke', ['luke'])).toBe(true);
+    for (const u of ['peta', 'hannah', '', undefined, null]) expect(realRule.canCreateTestCampaign(u, ['luke'])).toBe(false);
+  });
+  it('ships frozen with at most one Firebase uid (never office-wide, never an email)', () => {
+    expect(Object.isFrozen(realRule.TEST_CAMPAIGN_CREATOR_UIDS)).toBe(true);
+    expect(realRule.TEST_CAMPAIGN_CREATOR_UIDS.length).toBeLessThanOrEqual(1);
+    for (const uid of realRule.TEST_CAMPAIGN_CREATOR_UIDS) expect(uid).toMatch(/^[A-Za-z0-9]{20,128}$/);
+  });
+  it('the allowlist stays server-side: no client page imports it', () => {
+    for (const p of ['src/app/dashboard/add/page.js', 'src/app/dashboard/page.js', 'src/app/dashboard/bso/page.js', 'src/app/dashboard/office/campaigns/page.js']) {
+      expect(readFileSync(p, 'utf8')).not.toMatch(/testCampaigns|TEST_CAMPAIGN_CREATOR_UIDS/);
+    }
+  });
+});
+
+describe('creating a test campaign for a real selling agent (Luke as BSO, Phil as selling agent)', () => {
+  it('Phil owns it; NO pending charge — only a server-side EXCLUDED record with reason and approver; audited', async () => {
+    const r = await create('luke', 'phil', { testCampaign: true });
+    expect(r).toMatchObject({ duplicate: false, role: 'bso', testCampaign: true, charge: 'test-campaign', notification: 'sent' });
+    const p = store.properties[r.propertyId];
+    expect(p).toMatchObject({ userId: 'phil', managedByUid: 'luke', createdByUid: 'luke', testCampaign: true, testCampaignBy: 'luke' });
+    expect(charge(r.propertyId)).toMatchObject({
+      status: 'excluded', testCampaign: true, testCampaignApprovedBy: 'luke', agentUserId: 'phil', billingEntityKey: 'office:hph',
+      adjustment: { action: 'excluded', adminUid: 'luke' },
+    });
+    expect(charge(r.propertyId).adjustment.reason).toMatch(/Test campaign/);
+    expect(Object.values(store.propertyCharges).filter((c) => c.status === 'pending')).toHaveLength(0);
+    expect(audits(r.propertyId).map((a) => a.action).sort()).toEqual(['campaign.create', 'campaign.testCampaignBillingExempt']);
+    expect(audits(r.propertyId).find((a) => a.action === 'campaign.create').testCampaign).toBe(true);
+  });
+
+  it('apart from billing it is a normal campaign: Phil gets the campaign-link email and notification, and resend works', async () => {
+    const r = await create('luke', 'phil', { testCampaign: true });
+    const toPhil = () => sendEmail.mock.calls.filter(([a]) => JSON.stringify(a.to) .includes('phil@hph.example'));
+    expect(toPhil()).toHaveLength(1);
+    expect(Object.values(store.notifications || {}).filter((x) => x.type === 'newProspect' && x.property.userId === 'phil')).toHaveLength(1);
+    const resend = await resendCampaignLink(fakeDb, { actorUid: 'luke', propertyId: r.propertyId });
+    expect(resend).toMatchObject({ sent: true });
+    expect(toPhil()).toHaveLength(2);
+    expect(charge(r.propertyId).status).toBe('excluded'); // still not billed
+  });
+
+  it('works for any HPH selling agent', async () => {
+    for (const owner of ['phil', 'jo', 'hannah']) {
+      const r = await create('luke', owner, { testCampaign: true });
+      expect(charge(r.propertyId)).toMatchObject({ status: 'excluded', agentUserId: owner });
+    }
+  });
+
+  it('a double submit / retry returns the same campaign and still has exactly one excluded record', async () => {
+    const args = { actorUid: 'luke', ownerUid: 'phil', requestId: 'req-retry-000000000001', input: input('1 Retry St'), acceptTerms: true, managerUid: null, testCampaign: true };
+    const a = await createManagedProperty(fakeDb, args);
+    const b = await createManagedProperty(fakeDb, args);
+    expect(b).toEqual({ propertyId: a.propertyId, duplicate: true });
+    expect(Object.keys(store.propertyCharges)).toEqual([a.propertyId]);
+  });
+});
+
+describe('everything else stays billable', () => {
+  it("Luke's NORMAL campaign for Phil: $200 pending charge on the office, Phil emailed, as before", async () => {
+    const r = await create('luke', 'phil');
+    expect(r.testCampaign).toBe(false);
+    expect(charge(r.propertyId)).toMatchObject({ status: 'pending', totalInc: 200, billingEntityKey: 'office:hph', agentUserId: 'phil' });
+    expect(charge(r.propertyId).testCampaign).toBeUndefined();
+    expect(store.properties[r.propertyId].testCampaign).toBeUndefined();
+    expect(campaignLinkEmails().length).toBe(1);
+  });
+
+  it('another BSO (Peta) or an office admin asking for a test campaign is refused; nothing is created or charged', async () => {
+    await expect(create('peta', 'phil', { testCampaign: true })).rejects.toMatchObject({ status: 403 });
+    await expect(create('hannah', 'phil', { testCampaign: true })).rejects.toMatchObject({ status: 403 });
+    expect(store.properties).toBeUndefined();
     expect(store.propertyCharges).toBeUndefined();
-    expect(audits()).toHaveLength(1);
-    expect(audits()[0]).toMatchObject({ action: 'campaign.testCampaignBillingExempt', propertyId: 'p1', ownerUid: 'luke', officeId: 'hph' });
-    expect(audits()[0].reason).toMatch(/no charge recorded/);
   });
 
-  it('retries and the hourly / pre-invoice sweeps never charge it either, and audit it only once', async () => {
-    const { recordPropertyCharge, reconcileMissingCharges } = await import('../../src/app/api/services/billingService.js');
-    store.properties = { p1: { ...own(), address: '1 Test St', createdAt: now() } };
-    await recordPropertyCharge({ id: 'p1', ...store.properties.p1 });
-    await recordPropertyCharge({ id: 'p1', ...store.properties.p1 }); // client retry
-    await reconcileMissingCharges(); // hourly cron + before every invoice run
-    await reconcileMissingCharges();
-    expect(store.propertyCharges).toBeUndefined();
-    expect(audits()).toHaveLength(1);
+  it('only a strict boolean true counts; any other value is rejected', async () => {
+    await expect(create('luke', 'phil', { testCampaign: 'true' })).rejects.toThrow(/Invalid test campaign/);
+    await expect(create('luke', 'phil', { testCampaign: 1 })).rejects.toThrow(/Invalid test campaign/);
+    const r = await create('luke', 'phil', { testCampaign: false });
+    expect(charge(r.propertyId).status).toBe('pending');
   });
 
-  it("Luke's NORMAL campaign (not ticked) is billed at $200 to the office, as before", async () => {
-    const { recordPropertyCharge } = await import('../../src/app/api/services/billingService.js');
-    const r = await recordPropertyCharge({ id: 'p2', userId: 'luke', address: '2 Real St', createdAt: now() });
-    expect(r.created).toBe(true);
-    expect(charge('p2')).toMatchObject({ status: 'pending', totalInc: 200, billingEntityKey: 'office:hph', agentUserId: 'luke' });
-    expect(audits()).toHaveLength(0);
+  it('nobody can bypass billing by editing campaign fields: a forged normal campaign is still charged by the sweep', async () => {
+    // Phil's normal campaign whose charge never got recorded (e.g. a failed call)...
+    store.properties = { forged: { userId: 'phil', createdAt: new Date(), managedCreation: true, createdByUid: 'luke', managedByUid: 'luke', testCampaign: true, testCampaignBy: 'luke' } };
+    const swept = await billing.reconcileMissingCharges(); // hourly cron and before every invoice run
+    expect(swept.created).toBe(1);
+    expect(charge('forged')).toMatchObject({ status: 'pending', totalInc: 200 });
+    expect(await isTestCampaignId(fakeDb, 'forged')).toBe(false);
+    expect((await loadTestCampaignIds(fakeDb)).has('forged')).toBe(false);
+  });
+});
+
+describe('an approved test campaign can never become a charge later', () => {
+  it('retries, the hourly / pre-invoice sweeps and office join/leave settlement add nothing', async () => {
+    const r = await create('luke', 'phil', { testCampaign: true });
+    const before = { ...charge(r.propertyId) };
+    await billing.recordPropertyCharge({ id: r.propertyId, ...store.properties[r.propertyId] });
+    await billing.reconcileMissingCharges();
+    await billing.settleChargesForAgent('phil');
+    expect(charge(r.propertyId)).toEqual(before);
+    expect(Object.keys(store.propertyCharges)).toEqual([r.propertyId]);
   });
 
-  it('a campaign Luke creates for a selling agent is billed at $200, even if it somehow carries the test flag', async () => {
-    const { recordPropertyCharge } = await import('../../src/app/api/services/billingService.js');
-    const r = await recordPropertyCharge({ id: 'p3', userId: 'jo', createdByUid: 'luke', createdByRole: 'officeAdmin', managedCreation: true, testCampaign: true, address: '3 Agent St', createdAt: now() });
-    expect(r.created).toBe(true);
-    expect(charge('p3')).toMatchObject({ totalInc: 200, billingEntityKey: 'office:hph', agentUserId: 'jo' });
+  it('reassigning the selling agent or the managing BSO, or removing the display flag, adds no charge', async () => {
+    const r = await create('luke', 'phil', { testCampaign: true });
+    await reassignManager(fakeDb, { actorUid: 'hannah', propertyId: r.propertyId, managerUid: 'peta' });
+    store.properties[r.propertyId] = { ...store.properties[r.propertyId], userId: 'jo', testCampaign: false, testCampaignBy: null }; // new selling agent, flag stripped
+    await billing.reconcileMissingCharges();
+    await billing.settleChargesForAgent('jo');
+    expect(store.properties[r.propertyId].managedByUid).toBe('peta');
+    expect(charge(r.propertyId)).toMatchObject({ status: 'excluded', testCampaign: true });
+    expect(Object.values(store.propertyCharges).filter((c) => c.status === 'pending')).toHaveLength(0);
   });
 
-  it("Luke's own-account upload for a roster selling agent is billed, even if ticked", async () => {
-    const { recordPropertyCharge } = await import('../../src/app/api/services/billingService.js');
-    expect((await recordPropertyCharge({ id: 'p4', ...own({ agentId: 'roster1' }), createdAt: now() })).created).toBe(true);
+  it('invoice runs and the daily dry run only ever select pending charges', () => {
+    expect(readFileSync('src/app/api/services/invoiceRunService.js', 'utf8')).toContain(".collection('propertyCharges').where('status', '==', 'pending')");
+    expect(readFileSync('src/app/api/cron/invoice-dry-run/route.js', 'utf8')).toContain(".collection('propertyCharges').where('status', '==', 'pending')");
   });
 
-  it('other agents, BSOs and office admins stay billable even if their campaign stores testCampaign: true', async () => {
-    const { recordPropertyCharge } = await import('../../src/app/api/services/billingService.js');
-    expect((await recordPropertyCharge({ id: 'p5', userId: 'jo', testCampaign: true, createdAt: now() })).created).toBe(true);
-    expect((await recordPropertyCharge({ id: 'p6', userId: 'hannah', testCampaign: true, createdAt: now() })).created).toBe(true);
-    expect(charge('p5').totalInc).toBe(200);
-    expect(charge('p6').totalInc).toBe(200);
-  });
-
-  it('a sweep over a mixed office charges every campaign except the test one', async () => {
-    const { reconcileMissingCharges } = await import('../../src/app/api/services/billingService.js');
-    store.properties = {
-      t1: { ...own(), createdAt: now() },
-      n1: { userId: 'luke', createdAt: now() },
-      a1: { userId: 'jo', createdAt: now() },
-      a2: { userId: 'jo', testCampaign: true, createdAt: now() },
-      m1: { userId: 'jo', createdByUid: 'luke', managedCreation: true, testCampaign: true, createdAt: now() },
-    };
-    const r = await reconcileMissingCharges();
-    expect(r).toEqual({ created: 4, skipped: 1 });
-    expect(Object.keys(store.propertyCharges).sort()).toEqual(['a1', 'a2', 'm1', 'n1']);
-  });
-
-  it('existing charges are never altered or reversed, even if a campaign is later flagged', async () => {
-    const { recordPropertyCharge } = await import('../../src/app/api/services/billingService.js');
-    await recordPropertyCharge({ id: 'p7', userId: 'luke', createdAt: now() });
-    const before = { ...charge('p7') };
-    const r = await recordPropertyCharge({ id: 'p7', ...own(), createdAt: now() });
-    expect(r.reason).toBe('already-recorded');
-    expect(charge('p7')).toEqual(before);
-    expect(audits()).toHaveLength(0);
-  });
-
-  it('the server-side create-and-charge path (imports) honours the same rule', async () => {
-    const { createPropertyAndChargeAtomically } = await import('../../src/app/api/services/billingService.js');
-    const t = await createPropertyAndChargeAtomically({ ...own(), address: '8 Test St' });
-    expect(t.charged).toBe(false);
-    expect(store.properties[t.propertyId].testCampaign).toBe(true);
-    expect(audits()).toHaveLength(1);
-    const n = await createPropertyAndChargeAtomically({ userId: 'luke', address: '9 Real St' });
-    expect(n.charged).toBe(true);
-    expect(charge(n.propertyId).totalInc).toBe(200);
-  });
-
-  it('pricing and billing configuration are untouched', async () => {
-    const svc = await import('../../src/app/api/services/billingService.js');
-    expect(svc.DEFAULT_PRICE_PER_LISTING).toBe(200);
+  it('existing charges, pricing and billing settings are untouched', async () => {
+    store.propertyCharges = { old: { status: 'invoiced', totalInc: 200, agentUserId: 'phil' } };
+    await create('luke', 'phil', { testCampaign: true });
+    expect(store.propertyCharges.old).toEqual({ status: 'invoiced', totalInc: 200, agentUserId: 'phil' });
+    expect(billing.DEFAULT_PRICE_PER_LISTING).toBe(200);
     expect(store.settings.invoicing).toEqual({ pricePerListing: 200, gstRate: 0, excludeAgentIds: [], billingActivatedAt: ACTIVATED });
   });
 });
 
-describe('labels, reporting and the upload option', () => {
-  const read = (p) => readFileSync(p, 'utf8');
-  it('Leadership and Team Dashboards leave test campaigns out; Office > Campaigns and the owner dashboard label them', () => {
-    expect(read('src/app/api/services/leadershipService.js')).toContain('.filter((p) => !isTestCampaign(p))');
-    expect(read('src/app/api/services/teamService.js')).toContain("d.data().hidden !== true && !isTestCampaign(d.data())");
-    expect(read('src/app/api/services/managedCampaignService.js')).toContain('testCampaign: isTestCampaign(p),');
-    expect(read('src/app/dashboard/office/campaigns/page.js')).toContain('{c.testCampaign && <span');
-    expect(read('src/app/dashboard/page.js')).toContain('{isTestCampaign(property) && (');
+describe('labels, reporting and emails read the server-only record', () => {
+  it('Office > Campaigns and My Campaigns label the test campaign, not the normal one (or a forged flag)', async () => {
+    const t = await create('luke', 'phil', { testCampaign: true });
+    const normal = await create('luke', 'phil');
+    store.properties[normal.propertyId].testCampaign = true; // forged display flag: ignored
+    const office = await listOfficeCampaigns(fakeDb, 'hph');
+    const bso = await listBsoCampaigns(fakeDb, 'luke');
+    for (const list of [office.campaigns, bso.campaigns]) {
+      expect(list.find((c) => c.id === t.propertyId).testCampaign).toBe(true);
+      expect(list.find((c) => c.id === normal.propertyId).testCampaign).toBe(false);
+    }
   });
-  it('the upload page offers the option only to the authorised account, only for its own campaign, before submission', () => {
-    const add = read('src/app/dashboard/add/page.js');
-    expect(add).toContain('const testCampaignEligible = canCreateTestCampaign(user?.uid) && !ownerUid && !selectedAgentId;');
-    expect(add).toContain('{testCampaignEligible && (');
-    expect(add).toContain('...(testCampaign && testCampaignEligible ? { testCampaign: true, testCampaignMarkedAt: serverTimestamp() } : {}),');
-    // The managed (for a selling agent) payload never carries it.
-    const managed = add.slice(add.indexOf('if (ownerUid) {'), add.indexOf('// Separate pre-existing URLs'));
-    expect(managed).not.toContain('testCampaign');
-    // The $200 pricing disclosure and terms checkbox are still shown on the same step.
-    expect(add).toContain('I have read and agree to the terms and conditions');
-    expect(add).toContain("retail.state === 'none' && (");
+
+  it('the agents list tells only the allowlisted creator that the option is available', async () => {
+    expect((await listAssignableAgents(fakeDb, 'luke')).testCampaignAllowed).toBe(true);
+    expect((await listAssignableAgents(fakeDb, 'peta')).testCampaignAllowed).toBe(false);
+    expect((await listAssignableAgents(fakeDb, 'hannah')).testCampaignAllowed).toBe(false);
+  });
+
+  it('Leadership and Team Dashboards leave test campaigns out', () => {
+    const read = (p) => readFileSync(p, 'utf8');
+    expect(read('src/app/api/services/leadershipService.js')).toContain('.filter((p) => !testIds.has(p.id))');
+    expect(read('src/app/api/services/teamService.js')).toContain("d.data().hidden !== true && !testIds.has(d.id)");
+  });
+
+  it('email and notification paths have no test-campaign special case (campaign link, buyer interest, follow-ups)', () => {
+    const read = (p) => readFileSync(p, 'utf8');
+    for (const p of ['src/app/api/services/agentNotificationService.js', 'src/app/api/offers/notify-interest/route.js', 'src/app/api/cron/property-followup/route.js', 'src/app/api/services/notificationService.js']) {
+      expect(read(p)).not.toMatch(/testCampaign|isTestCampaignId|loadTestCampaignIds/);
+    }
+  });
+
+  it('the upload page offers the option only when the server allows it, only for a selling agent, before submission', () => {
+    const add = readFileSync('src/app/dashboard/add/page.js', 'utf8');
+    expect(add).toContain('const testCampaignOffered = assignable.testCampaignAllowed === true && !!ownerUid;');
+    expect(add).toContain('{testCampaignOffered && (');
+    expect(add).toContain('...(testCampaign && testCampaignOffered ? { testCampaign: true } : {}),');
+    // The agent's own (client-side) upload never carries it.
+    const own = add.slice(add.indexOf('// Save property metadata immediately'), add.indexOf('const docRef = await addDoc'));
+    expect(own).not.toContain('testCampaign');
+    expect(readFileSync('src/app/api/properties/managed/route.js', 'utf8')).toContain('testCampaign: body.testCampaign ?? null');
   });
 });
