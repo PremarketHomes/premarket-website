@@ -39,7 +39,6 @@ import {
   Car,
   Video,
   GripVertical,
-  Clock,
 } from 'lucide-react';
 import { loginUrlForCurrentPage } from '../../../utils/loginRedirect';
 
@@ -50,10 +49,9 @@ const STEPS = {
   DETAILS: 4,
   IMAGES: 5,
   TITLE: 6,
-  EAGERNESS: 7,
 };
-
-const eagernessOptions = ['Very serious', 'Serious if the price is right', 'Just testing the waters'];
+// The seller-eagerness step was removed (as in Add Property). Saving never writes isEager, so any answer
+// already on a property is kept as it is.
 
 const homeTypes = ['House', 'Apartment', 'Villa', 'Townhouse', 'Acreage', 'Duplex', 'Land'];
 const homeFeatures = [
@@ -107,7 +105,6 @@ export default function EditPropertyPage() {
   const [video, setVideo] = useState(null); // new File to upload
   const [existingVideoUrl, setExistingVideoUrl] = useState(null);
   const [savedVideoUrl, setSavedVideoUrl] = useState(null); // the campaign's videoUrl when the page loaded (managing BSO removal)
-  const [eagerness, setEagerness] = useState(null);
   const [showSuburbOnly, setShowSuburbOnly] = useState(false);
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
@@ -207,7 +204,6 @@ export default function EditPropertyPage() {
         setSavedVideoUrl(p.videoUrl || null);
 
         // Eagerness
-        if (p.isEager != null) setEagerness(p.isEager);
 
         // Client info
         setClientName(p.clientName || '');
@@ -417,9 +413,6 @@ export default function EditPropertyPage() {
     if (step === STEPS.TITLE && !title.trim()) {
       newErrors.step = 'Please enter a title for the listing.';
     }
-    if (step === STEPS.EAGERNESS && eagerness === null) {
-      newErrors.step = 'Please select a sales timeline.';
-    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -471,7 +464,6 @@ export default function EditPropertyPage() {
         propertyType: type,
         listingStatus,
         showSuburbOnly,
-        isEager: eagerness,
         clientName: clientName.trim() || null,
         clientEmail: clientEmail.trim() || null,
         clientPhone: clientPhone.trim() || null,
@@ -521,7 +513,6 @@ export default function EditPropertyPage() {
             imageUrls: existingUrls, heroFocalPoint: heroFocalPoint || null,
             features: Object.keys(features).filter((f) => features[f]),
             location, price: priceRaw, squareFootage, title, propertyType: type, listingStatus, showSuburbOnly,
-            isEager: eagerness,
           },
         }),
       });
@@ -1003,33 +994,6 @@ export default function EditPropertyPage() {
               </div>
             )}
 
-            {/* Step 7: Sales Timeline */}
-            {step === STEPS.EAGERNESS && (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                <div className="flex items-center gap-3 mb-2">
-                  <Clock className="w-6 h-6 text-orange-500" />
-                  <h2 className="text-2xl font-bold text-slate-900">Sales Timeline</h2>
-                </div>
-                <p className="text-slate-500 mb-6">How eager are you to sell?</p>
-
-                <div className="grid grid-cols-1 gap-3">
-                  {eagernessOptions.map((option, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setEagerness(idx)}
-                      className={`px-6 py-4 rounded-xl text-lg font-medium transition-all border text-left ${
-                        eagerness === idx
-                          ? 'bg-gradient-to-r from-[#e48900] to-[#c64500] text-white border-orange-500 shadow-lg'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-orange-300 hover:shadow-md'
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Agent Modal for inline create */}
             <AnimatePresence>
               {showAgentModal && (
@@ -1074,7 +1038,7 @@ export default function EditPropertyPage() {
               <div />
             )}
 
-            {step < STEPS.EAGERNESS ? (
+            {step < STEPS.TITLE ? (
               <button
                 onClick={onNext}
                 className="px-8 py-3 bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold rounded-xl shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all"
