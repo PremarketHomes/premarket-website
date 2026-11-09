@@ -34,6 +34,21 @@ describe('Add Property is extended, not duplicated', () => {
     expect(add).toContain("Choose the selling agent for this campaign.");
     expect(add).toContain("managerUid: assignable.role === 'officeAdmin' ? (managerUid || null) : null");
   });
+  it('the selling-agent selector holds its place above the address while agents load (no layout jump)', () => {
+    // BSO / Office "New Campaign" links pass a layout-only hint; the role still comes from the server.
+    expect(read('src/app/dashboard/bso/page.js')).toContain('href="/dashboard/add?as=bso"');
+    expect(read('src/app/dashboard/office/campaigns/page.js')).toContain('href="/dashboard/add?as=officeAdmin"');
+    expect(add).toContain('{(hasAssignable || agentsPending || agentsUnavailable) && (');
+    expect(add).toContain("'Loading agents…'");
+    expect(add).toContain('const agentsPending = !assignableLoaded && !!expectedRole;');
+    // The placeholder sits before the address heading, in the same box as the real selector.
+    expect(add.indexOf("'Loading agents…'")).toBeLessThan(add.indexOf('Where is the property?'));
+    // The hint never decides the role: isBsoCreator and the submitted managerUid still come from the server response.
+    expect(add).toContain("const isBsoCreator = assignable.role === 'bso';");
+    expect(add).toContain('if (agentsPending) {');
+    // useSearchParams is wrapped in Suspense so the page still prerenders.
+    expect(add).toContain('<Suspense fallback={<PageSpinner />}><AddPropertyInner /></Suspense>');
+  });
   it('managed submit goes through the server with an idempotency key and never writes properties from the browser', () => {
     const managed = add.slice(add.indexOf('if (ownerUid) {'), add.indexOf('try {\n      setIsSubmitting(true);\n\n      // Separate pre-existing'));
     // The photos upload, then the campaign is created, by the background upload manager (same endpoint, same idempotent requestId).
