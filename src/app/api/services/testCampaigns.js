@@ -24,7 +24,9 @@
  *
  * Changing this list is a code change on purpose (reviewed, in git history). One named Premarket account only.
  */
-export const TEST_CAMPAIGN_CREATOR_UIDS = Object.freeze([]);
+// Luke Wilson (lukew@propertyhubgc.com.au, Harcourts Property Hub). Supplied by him on 2026-11-09; the public
+// profile for this uid is Luke Wilson, Harcourts Property Hub.
+export const TEST_CAMPAIGN_CREATOR_UIDS = Object.freeze(['ibVrf8kbB1hJ7oSxnjJlKNoiRcm1']);
 
 export const TEST_CAMPAIGN_EXEMPTION_REASON =
   'Test campaign: created by an authorised Premarket test account and marked Test before submission. Not billable.';
