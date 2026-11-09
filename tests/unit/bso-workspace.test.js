@@ -242,7 +242,9 @@ describe('BSO dashboard (server-filtered portfolio)', () => {
     const agentsInFilter = [...new Set(r.body.campaigns.map((c) => c.sellingAgent.key))].sort();
     expect(agentsInFilter).toEqual(['brad', 'cara', 'chantal']);
     expect(r.body.campaigns.filter((c) => c.sellingAgent.key === 'chantal')).toHaveLength(3);
-    expect(JSON.stringify(r.body)).not.toMatch(/offer|opinion|buyerEmail|buyerPhone/i);
+    // Only a per-campaign opinion COUNT (for the Dashboard figures): never offers, opinions or buyer details.
+    for (const c of r.body.campaigns) expect(typeof c.opinions).toBe('number');
+    expect(JSON.stringify(r.body.campaigns.map(({ opinions, ...rest }) => rest))).not.toMatch(/offer|opinion|buyerEmail|buyerPhone/i);
   });
   it("Bea only sees her own; non-BSOs (agents, former team admins, the office admin) are refused", async () => {
     const ids = await portfolio();
@@ -296,6 +298,34 @@ describe('access restrictions are enforced on the server', () => {
     const office = (await call(officeCampaignsRoute, 'hannah', { params: { officeId: 'off1' } })).body;
     expect(office.campaigns.filter((c) => c.needsManager).map((c) => c.id).sort()).toEqual([ids.petaChantal1, ids.petaChantal2, ids.petaBrad, ids.petaCara].sort());
     expect(prop(ids.petaChantal1).managedByUid).toBe('peta'); // history kept, never changed automatically
+  });
+});
+
+describe('BSO Dashboard figures and assigned campaigns', () => {
+  it('each campaign carries its views and buyer-opinion count; an agent campaign assigned later appears too', async () => {
+    const ids = await portfolio();
+    store.set(`properties/${ids.petaBrad}`, { ...store.get(`properties/${ids.petaBrad}`), stats: { views: 12 } });
+    store.set('offers/o1', { propertyId: ids.petaBrad, type: 'opinion' });
+    store.set('offers/o2', { propertyId: ids.petaBrad, type: 'opinion', serious: true });
+    store.set('offers/o3', { propertyId: ids.petaBrad, type: 'like' }); // not an opinion
+    store.set('offers/o4', { propertyId: 'chantalOwn', type: 'opinion' });
+    // Before: Chantal's own upload is not Peta's. Hannah (office admin) assigns it to Peta with Change manager.
+    expect((await call(bsoCampaignsRoute, 'peta')).body.campaigns.find((c) => c.id === 'chantalOwn')).toBeUndefined();
+    const reassign = await call(managerRoute, 'hannah', { method: 'POST', body: { managerUid: 'peta' }, params: { id: 'chantalOwn' } });
+    expect(reassign.status).toBe(200);
+    const byId = Object.fromEntries((await call(bsoCampaignsRoute, 'peta')).body.campaigns.map((c) => [c.id, c]));
+    expect(byId[ids.petaBrad]).toMatchObject({ views: 12, opinions: 2, access: 'bso', sellingAgent: { name: 'Brad Seller' } });
+    expect(byId.chantalOwn).toMatchObject({ access: 'bso', managedByUid: 'peta', ownerUid: 'chantal', opinions: 1, sellingAgent: { uid: 'chantal' } });
+    expect(byId[ids.petaCara]).toMatchObject({ views: 0, opinions: 0 });
+    // Ownership, creator and billing untouched by the assignment
+    expect(prop('chantalOwn').userId).toBe('chantal');
+    expect(prop('chantalOwn').createdByUid).toBeUndefined();
+  });
+  it('a BSO with no assigned campaigns gets an empty list (the Dashboard then shows its empty state)', async () => {
+    await portfolio();
+    const r = await call(bsoCampaignsRoute, 'otherbso');
+    expect(r.status).toBe(200);
+    expect(r.body.campaigns).toEqual([]);
   });
 });
 

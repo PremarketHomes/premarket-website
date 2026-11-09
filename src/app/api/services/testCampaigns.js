@@ -16,7 +16,7 @@
  * only ever pick up 'pending' charges.
  *
  * That record is also the source of truth for reporting (Leadership, Team Dashboards) and labels (Office > Campaigns,
- * My Campaigns). `testCampaign` on the property itself is a display hint only.
+ * the BSO Dashboard). `testCampaign` on the property itself is a display hint only.
  *
  * Apart from billing and reporting, a test campaign is a normal campaign: it is on the selling agent's dashboard, and
  * every email and notification (campaign link, buyer registrations incl. the legacy Cloud Function, follow-ups) goes

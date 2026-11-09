@@ -58,6 +58,12 @@ const nextConfig = {
         destination: '/',
         permanent: false,
       },
+      // The BSO "My Campaigns" page became the BSO's Dashboard. Old links and bookmarks land there (query kept).
+      {
+        source: '/dashboard/bso',
+        destination: '/dashboard',
+        permanent: false,
+      },
     ];
   },
 

@@ -210,7 +210,7 @@ describe('report page: read-only mode and Team link (source-level)', () => {
     expect(page).toMatch(/\{readOnly && \([\s\S]{0,800}Viewing as office admin/);
     // The managing BSO's read-only view is labelled as such (and links back to My Campaigns).
     expect(page).toMatch(/\{readOnly && \([\s\S]{0,500}Viewing as the campaign&apos;s BSO/);
-    expect(page).toContain("viewerLevel === 'manager' ? '/dashboard/bso'");
+    expect(page).toContain("viewerLevel === 'manager' ? '/dashboard'"); // a BSO's campaigns are on their Dashboard
   });
   it('every management action is gated behind !readOnly', () => {
     for (const marker of ['Send Report - primary action', '{/* iPad mode */}', 'Sold Status Action']) {

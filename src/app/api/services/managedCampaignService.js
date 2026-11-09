@@ -563,13 +563,32 @@ export async function listBsoCampaigns(db, actorUid) {
     const p = d.data();
     // Same live rule as resolveCampaignRole: the selling agent must still be in the BSO's office.
     if (p.hidden === true || !users.has(p.userId)) continue;
-    out.set(d.id, { ...toCampaignSummary(d.id, p, users, profiles, testIds), access: p.userId === actorUid ? 'owner' : 'bso' });
+    out.set(d.id, { ...toCampaignSummary(d.id, p, users, profiles, testIds), access: p.userId === actorUid ? 'owner' : 'bso', views: viewsOf(p) });
   }
   for (const d of ownSnap.docs) {
     if (d.data().hidden === true || out.has(d.id)) continue;
-    out.set(d.id, { ...toCampaignSummary(d.id, d.data(), users, profiles, testIds), access: 'owner' });
+    out.set(d.id, { ...toCampaignSummary(d.id, d.data(), users, profiles, testIds), access: 'owner', views: viewsOf(d.data()) });
   }
+  // Counts only (never the opinions themselves), for the BSO dashboard's figures. The BSO already has report access to
+  // every campaign listed here.
+  const opinions = await countOpinions(db, [...out.keys()]);
+  for (const [id, c] of out) c.opinions = opinions.get(id) || 0;
   return { office: { id: access.officeId, name: access.officeName }, campaigns: [...out.values()].sort(byNewest) };
+}
+
+const viewsOf = (p) => (Number.isFinite(Number(p.stats?.views)) ? Number(p.stats.views) : 0);
+
+/** Buyer opinions per campaign: the same rule as the agent dashboard (offers of type 'opinion'). */
+async function countOpinions(db, propertyIds) {
+  const counts = new Map();
+  for (const ids of chunk(propertyIds, 10)) {
+    const snap = await db.collection('offers').where('propertyId', 'in', ids).get();
+    for (const d of snap.docs) {
+      const o = d.data();
+      if (o.type === 'opinion') counts.set(o.propertyId, (counts.get(o.propertyId) || 0) + 1);
+    }
+  }
+  return counts;
 }
 
 /**
