@@ -29,7 +29,6 @@
 
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
-import { isTestCampaign, TEST_CAMPAIGN_EXEMPTION_REASON } from '../../utils/testCampaign';
 
 // $200 (or whatever settings/invoicing.pricePerListing is set to) is the
 // GST-INCLUSIVE total an agency is charged per property — confirmed
@@ -810,18 +809,20 @@ export function computeChargeAmounts(pricePerListing, gstRate) {
  * callers treat that as "create/leave the property, skip the charge,"
  * never as an error.
  */
-async function resolveChargeForAgent({ propertyId, propertyAddress, agentUserId, propertyCreatedAt }) {
+async function resolveChargeForAgent({ propertyId, propertyAddress, agentUserId, propertyCreatedAt }, { recordOnly = false } = {}) {
   const [agentDoc, settings] = await Promise.all([
     adminDb.collection('users').doc(agentUserId).get(),
     getInvoicingSettings(),
   ]);
   const agent = agentDoc.exists ? agentDoc.data() : {};
 
-  if (!isPropertyBillable(propertyCreatedAt, settings.billingActivatedAt)) {
+  // recordOnly: building a non-billable record (a test campaign's exclusion), which must exist whatever the cutoff
+  // or exclusion list says, so the campaign can never be picked up and charged later.
+  if (!recordOnly && !isPropertyBillable(propertyCreatedAt, settings.billingActivatedAt)) {
     return null;
   }
 
-  if (settings.excludeAgentIds.includes(agentUserId)) {
+  if (!recordOnly && settings.excludeAgentIds.includes(agentUserId)) {
     return null;
   }
 
@@ -885,14 +886,6 @@ export async function recordPropertyCharge(property) {
   const existing = await chargeRef.get();
   if (existing.exists) return { created: false, chargeId: propertyId, reason: 'already-recorded' };
 
-  // Every path that records a charge for an existing property comes through here (the upload's record-charge
-  // call, the hourly reconcile sweep, the pre-invoice sweep, office join/leave settlement, the ad-hoc agency
-  // invoice, managed creation). An existing charge is never touched (returned above).
-  if (isTestCampaign(property)) {
-    await auditTestCampaignExemption(propertyId, agentUserId);
-    return { created: false, reason: 'test-campaign' };
-  }
-
   const chargeData = await resolveChargeForAgent({
     propertyId,
     propertyAddress: property.address || property.formattedAddress,
@@ -921,30 +914,6 @@ function isAlreadyExistsError(err) {
   // failed .create() on an existing doc; the mocked adminApp used in
   // this project's unit tests throws a plain Error with this message.
   return err?.code === 6 || /already exists/i.test(err?.message || '');
-}
-
-/**
- * One audit entry per test campaign, in the campaign audit history (server-only `officeCampaignAudit`). The fixed
- * document id makes it once-only whichever path sees the campaign first; later sweeps find it there and move on.
- * Best-effort: a failed audit write never turns a test campaign into a charge.
- */
-async function auditTestCampaignExemption(propertyId, ownerUid) {
-  const ref = adminDb.collection('officeCampaignAudit').doc(`testCampaign_${propertyId}`);
-  try {
-    if ((await ref.get()).exists) return;
-    const owner = await adminDb.collection('users').doc(ownerUid).get();
-    await ref.create({
-      action: 'campaign.testCampaignBillingExempt',
-      propertyId,
-      ownerUid,
-      actorUid: ownerUid,
-      officeId: (owner.exists && owner.data()?.officeId) || null,
-      reason: TEST_CAMPAIGN_EXEMPTION_REASON,
-      at: FieldValue.serverTimestamp(),
-    });
-  } catch (err) {
-    if (!isAlreadyExistsError(err)) console.error(`Test campaign audit failed for ${propertyId}:`, err?.message);
-  }
 }
 
 /**
@@ -978,12 +947,9 @@ export async function createPropertyAndChargeAtomically(propertyData, { skipChar
   const propRef = adminDb.collection('properties').doc();
   const chargeRef = adminDb.collection('propertyCharges').doc(propRef.id);
   const agentUserId = propertyData.userId || propertyData.uid;
-  const testCampaign = isTestCampaign(propertyData);
 
   let chargeData = null;
-  if (testCampaign) {
-    // no charge for a test campaign (audited after the property exists, below)
-  } else if (!skipCharge && agentUserId) {
+  if (!skipCharge && agentUserId) {
     chargeData = await resolveChargeForAgent({
       propertyId: propRef.id,
       propertyAddress: propertyData.address || propertyData.formattedAddress,
@@ -1002,9 +968,30 @@ export async function createPropertyAndChargeAtomically(propertyData, { skipChar
     tx.set(propRef, propertyData);
     if (chargeData) tx.set(chargeRef, chargeData);
   });
-  if (testCampaign) await auditTestCampaignExemption(propRef.id, agentUserId);
 
   return { propertyId: propRef.id, charged: !!chargeData };
+}
+
+/**
+ * The billing record for an approved TEST campaign (see testCampaigns.js): the same shape as the charge this
+ * campaign would otherwise get, but created already 'excluded', with the reason and who approved it. The caller
+ * writes it in the same atomic write that creates the property, so no sweep can ever add a pending charge first.
+ * Excluded records are never invoiced (runs only select 'pending'), and recordPropertyCharge never adds a second
+ * record for the same property, so it stays unbillable through retries, sweeps and reassignment.
+ */
+export async function buildTestCampaignExclusion({ propertyId, propertyAddress, agentUserId, approvedByUid, reason }) {
+  if (!propertyId || !agentUserId || !approvedByUid) throw new Error('buildTestCampaignExclusion: missing arguments');
+  const charge = await resolveChargeForAgent(
+    { propertyId, propertyAddress, agentUserId, propertyCreatedAt: new Date() },
+    { recordOnly: true },
+  );
+  return {
+    ...charge,
+    status: 'excluded',
+    testCampaign: true,
+    testCampaignApprovedBy: approvedByUid,
+    adjustment: { action: 'excluded', reason, adminUid: approvedByUid, at: FieldValue.serverTimestamp() },
+  };
 }
 
 /**

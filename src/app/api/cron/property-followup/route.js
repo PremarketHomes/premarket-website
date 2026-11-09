@@ -3,6 +3,7 @@ import { adminDb } from '../../../firebase/adminApp';
 import { verifyCron } from '../../middleware/auth';
 import { Timestamp } from 'firebase-admin/firestore';
 import { sendPropertyFollowUpEmail } from '../../services/resendService';
+import { loadTestCampaignIds } from '../../services/testCampaigns';
 
 export const maxDuration = 300;
 
@@ -49,11 +50,14 @@ export async function GET(request) {
         .where('createdAt', '<=', Timestamp.fromDate(day30End))
         .get(),
     ]);
+    // Test campaigns never send follow-up emails to the selling agent.
+    const testIds = await loadTestCampaignIds(adminDb);
 
     // Process 14-day follow-ups
     for (const doc of snap14.docs) {
       const data = doc.data();
       if (data.followUp14Sent) continue; // Already sent
+      if (testIds.has(doc.id)) continue;
       if (data.soldPrice || data.soldAt) continue; // Already sold
 
       const agentId = data.userId || data.uid;
@@ -84,6 +88,7 @@ export async function GET(request) {
     for (const doc of snap30.docs) {
       const data = doc.data();
       if (data.followUp30Sent) continue;
+      if (testIds.has(doc.id)) continue;
       if (data.soldPrice || data.soldAt) continue;
 
       const agentId = data.userId || data.uid;

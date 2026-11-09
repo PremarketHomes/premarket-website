@@ -22,6 +22,7 @@ export async function POST(request) {
     const result = await createManagedProperty(adminDb, {
       actorUid: auth.uid, ownerUid: body.ownerUid, requestId: body.requestId,
       input: body.property, acceptTerms: body.acceptTerms, managerUid: body.managerUid ?? null,
+      testCampaign: body.testCampaign ?? null, // honoured only for the allowlisted creator (checked in the service)
     });
     return NextResponse.json({ success: true, ...result }, { status: result.duplicate ? 200 : 201 });
   } catch (err) {

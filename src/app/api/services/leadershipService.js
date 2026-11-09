@@ -27,7 +27,7 @@
 import { getAuth } from 'firebase-admin/auth';
 import { redactOffersForTeam, redactLikesForTeam } from './teamRedaction';
 import { serializeForClient } from './propertyAccessService';
-import { isTestCampaign } from '../../utils/testCampaign';
+import { loadTestCampaignIds } from './testCampaigns';
 import {
   LEADERSHIP_TIMEZONE, propertyStatus, buildLeadershipData, buildAgentProfile, rankAgents, fullName, safeCount,
 } from './leadershipMetrics';
@@ -133,8 +133,9 @@ async function loadLastSignIns(uids) {
 
 async function loadInputs(db, scope) {
   const { members, pending } = await loadMembers(db, scope.officeId);
-  // Test campaigns (Premarket's own billing-exempt testing) are left out of every leadership figure.
-  const properties = (members.length ? await loadProperties(db, members.map((m) => m.uid)) : []).filter((p) => !isTestCampaign(p));
+  // Test campaigns (server-only billing record, see testCampaigns.js) are left out of every leadership figure.
+  const testIds = await loadTestCampaignIds(db);
+  const properties = (members.length ? await loadProperties(db, members.map((m) => m.uid)) : []).filter((p) => !testIds.has(p.id));
   const visible = properties.filter((p) => p.hidden !== true);
   const opinions = visible.length ? await loadOpinions(db, visible.map((p) => p.id)) : [];
   const lastSignIns = await loadLastSignIns(members.map((m) => m.uid));

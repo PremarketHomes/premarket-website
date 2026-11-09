@@ -1,8 +1,8 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { createHash } from 'node:crypto';
-import { recordPropertyCharge } from './billingService';
+import { recordPropertyCharge, buildTestCampaignExclusion } from './billingService';
+import { canCreateTestCampaign, loadTestCampaignIds, TEST_CAMPAIGN_EXEMPTION_REASON } from './testCampaigns';
 import { pickNotificationUser } from '../../utils/notificationUser';
-import { isTestCampaign } from '../../utils/testCampaign';
 import { sendCampaignLinkOnce } from './agentNotificationService';
 import { loadActiveOffice, isActiveBso, getBsoAccess, bsoUidsOf, isUsableAccount } from './bsoService';
 
@@ -155,12 +155,14 @@ export async function listAssignableAgents(db, actorUid) {
     .filter((d) => d.id !== actorUid && isAgentUser(d.data()) && isUsableAccount(d.data()))
     .map((d) => ({ ...personView(d.id, d.data(), profiles), email: d.data().email || null }))
     .sort((a, b) => (a.name || a.email || '').localeCompare(b.name || b.email || ''));
-  if (role !== 'officeAdmin') return { role, agents };
+  // Whether this verified account may tick "Test campaign" (server decides; the allowlist never reaches the browser).
+  const testCampaignAllowed = canCreateTestCampaign(actorUid);
+  if (role !== 'officeAdmin') return { role, agents, testCampaignAllowed };
   const bsos = docs
     .filter((d) => bsoUidsOf(office).includes(d.id) && isUsableAccount(d.data()))
     .map((d) => ({ uid: d.id, name: personView(d.id, d.data(), profiles).name || d.data().email || 'BSO' }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  return { role, agents, bsos };
+  return { role, agents, bsos, testCampaignAllowed };
 }
 
 /* ───────────────────────── input → property document ───────────────────────── */
@@ -221,10 +223,14 @@ const isAlreadyExists = (err) => err?.code === 6 || /ALREADY_EXISTS/i.test(err?.
  * a double-submit or retry returns the SAME campaign and never creates a second record, charge or email.
  * The manager is the creating BSO; an office admin manages it themself unless they choose one of the office's BSOs.
  */
-export async function createManagedProperty(db, { actorUid, ownerUid, requestId, input, acceptTerms, managerUid }) {
+export async function createManagedProperty(db, { actorUid, ownerUid, requestId, input, acceptTerms, managerUid, testCampaign }) {
   if (acceptTerms !== true) throw new ManagedCampaignError('The campaign terms must be accepted to continue.');
   if (typeof requestId !== 'string' || !/^[A-Za-z0-9-]{16,64}$/.test(requestId)) throw new ManagedCampaignError('Missing request id');
   if (typeof ownerUid !== 'string' || !ownerUid) throw new ManagedCampaignError('Choose the selling agent for this campaign');
+  // Test campaign: only the verified creator on the allowlist, only when explicitly requested (strictly `true`).
+  const isTest = testCampaign === true;
+  if (testCampaign != null && testCampaign !== false && !isTest) throw new ManagedCampaignError('Invalid test campaign value');
+  if (isTest && !canCreateTestCampaign(actorUid)) throw new ManagedCampaignError('Test campaigns are not available for this account.', 403);
 
   const owner = await loadUser(db, ownerUid);
   if (!owner || !isAgentUser(owner) || !isUsableAccount(owner)) throw new ManagedCampaignError('Agent not found', 404);
@@ -261,12 +267,27 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
     // Management (live authority) and attribution/audit, both separate from ownership.
     managedByUid,
     managedCreation: true, createdByUid: actorUid, createdByRole: role,
+    // Display hint only; the server-only billing record below is what billing, reporting and emails rely on.
+    ...(isTest ? { testCampaign: true, testCampaignBy: actorUid } : {}),
   };
 
   const ref = db.collection('properties').doc(id);
   let duplicate = false;
   try {
-    await ref.create(data);
+    if (isTest) {
+      // The property and its non-billable billing record land together or not at all: no sweep can slip a
+      // pending charge in between.
+      const exclusion = await buildTestCampaignExclusion({
+        propertyId: id, propertyAddress: data.address || data.formattedAddress, agentUserId: ownerUid,
+        approvedByUid: actorUid, reason: TEST_CAMPAIGN_EXEMPTION_REASON,
+      });
+      const batch = db.batch();
+      batch.create(ref, data);
+      batch.create(db.collection('propertyCharges').doc(id), exclusion);
+      await batch.commit();
+    } else {
+      await ref.create(data);
+    }
   } catch (err) {
     if (!isAlreadyExists(err)) throw err;
     duplicate = true;
@@ -275,26 +296,36 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
 
   // Same side-effects the existing agent flow performs after creating a property.
   try { await db.collection('draftProperties').doc(id).set({ ...data, override: true }); } catch (e) { console.error('draftProperties write failed', id, e.message); }
-  try {
-    await db.collection('notifications').add({
-      property: data, createdAt: new Date(), read: false, type: 'newProspect',
-      user: pickNotificationUser(owner, ownerUid),
-    });
-  } catch (e) { console.error('notification write failed', id, e.message); }
+  if (!isTest) { // a test campaign does not notify the selling agent
+    try {
+      await db.collection('notifications').add({
+        property: data, createdAt: new Date(), read: false, type: 'newProspect',
+        user: pickNotificationUser(owner, ownerUid),
+      });
+    } catch (e) { console.error('notification write failed', id, e.message); }
+  }
   let charge = null;
-  try {
-    // Billing is exactly the existing rule, attributed to the owner. Best-effort like the agent flow: the
-    // monthly run sweeps any property missing a charge.
-    charge = await recordPropertyCharge({ id, ...data, createdAt: new Date() });
-  } catch (e) { console.error('Failed to record managed property charge (monthly run will catch it):', id, e.message); }
-  await audit(db, { action: 'campaign.create', propertyId: id, ownerUid, actorUid, actorRole: role, managedByUid, officeId: owner.officeId });
+  if (!isTest) {
+    try {
+      // Billing is exactly the existing rule, attributed to the owner. Best-effort like the agent flow: the
+      // monthly run sweeps any property missing a charge.
+      charge = await recordPropertyCharge({ id, ...data, createdAt: new Date() });
+    } catch (e) { console.error('Failed to record managed property charge (monthly run will catch it):', id, e.message); }
+  }
+  await audit(db, { action: 'campaign.create', propertyId: id, ownerUid, actorUid, actorRole: role, managedByUid, officeId: owner.officeId, ...(isTest ? { testCampaign: true } : {}) });
+  if (isTest) {
+    await audit(db, { action: 'campaign.testCampaignBillingExempt', propertyId: id, ownerUid, actorUid, actorRole: role, officeId: owner.officeId, reason: TEST_CAMPAIGN_EXEMPTION_REASON });
+  }
 
   // Email the SELLING AGENT their campaign link (once; a retry or double-submit never re-sends). Failure never
-  // affects the campaign: it is logged in emailLog and an authorised user can resend.
+  // affects the campaign: it is logged in emailLog and an authorised user can resend. Never for a test campaign.
   let notification = 'error';
-  try { notification = (await sendCampaignLinkOnce({ propertyId: id, recipientUid: ownerUid, seq: 1 })).reason || 'sent'; } catch (e) { console.error('campaign link email failed', id, e.message); }
+  if (isTest) notification = 'test-campaign';
+  else {
+    try { notification = (await sendCampaignLinkOnce({ propertyId: id, recipientUid: ownerUid, seq: 1 })).reason || 'sent'; } catch (e) { console.error('campaign link email failed', id, e.message); }
+  }
 
-  return { propertyId: id, duplicate: false, role, managedByUid, charge: charge?.reason || (charge?.created ? 'recorded' : null), notification };
+  return { propertyId: id, duplicate: false, role, managedByUid, testCampaign: isTest, charge: isTest ? 'test-campaign' : (charge?.reason || (charge?.created ? 'recorded' : null)), notification };
 }
 
 /**
@@ -451,7 +482,7 @@ export function managerUidOf(p, sellingAgent) {
 }
 
 /** Campaign summary for lists: address, selling agent, manager, creator, status. Never offers, opinions or buyers. */
-export function toCampaignSummary(id, p, users, profiles) {
+export function toCampaignSummary(id, p, users, profiles, testIds = null) {
   const owner = users.get(p.userId);
   const sellingAgent = sellingAgentOf(p, users, profiles);
   const managedByUid = managerUidOf(p, sellingAgent);
@@ -471,7 +502,8 @@ export function toCampaignSummary(id, p, users, profiles) {
     // An explicitly assigned manager (not inferred from an older own-account upload): office admins may edit these.
     officeManaged: !!p.managedByUid,
     managed: p.managedCreation === true,
-    testCampaign: isTestCampaign(p),
+    // From the server-only billing record (loadTestCampaignIds), never from the campaign's own editable fields.
+    testCampaign: !!testIds?.has(id),
     createdByUid: p.createdByUid || null,
     createdByRole: p.createdByRole || null,
     createdByName: nameOf(p.createdByUid || p.userId),
@@ -492,6 +524,7 @@ export async function listOfficeCampaigns(db, officeId) {
     loadOfficeProfiles(db, officeId),
     loadActiveOffice(db, officeId),
   ]);
+  const testIds = await loadTestCampaignIds(db);
   const users = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
   const bsos = new Set(bsoUidsOf(office).filter((uid) => isUsableAccount(users.get(uid))));
   const admins = new Set(adminUidsOf(office).filter((uid) => users.has(uid)));
@@ -501,7 +534,7 @@ export async function listOfficeCampaigns(db, officeId) {
     for (const d of snap.docs) {
       const p = d.data();
       if (p.hidden === true) continue;
-      const c = toCampaignSummary(d.id, p, users, profiles);
+      const c = toCampaignSummary(d.id, p, users, profiles, testIds);
       // An assigned manager who is no longer a BSO or office admin here has lost access: flag it for reassignment.
       c.needsManager = !!p.managedByUid && !bsos.has(p.managedByUid) && !admins.has(p.managedByUid) && !c.archived;
       campaigns.push(c);
@@ -527,17 +560,18 @@ export async function listBsoCampaigns(db, actorUid) {
     db.collection('users').where('officeId', '==', access.officeId).get(),
     loadOfficeProfiles(db, access.officeId),
   ]);
+  const testIds = await loadTestCampaignIds(db);
   const users = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
   const out = new Map();
   for (const d of managedSnap.docs) {
     const p = d.data();
     // Same live rule as resolveCampaignRole: the selling agent must still be in the BSO's office.
     if (p.hidden === true || !users.has(p.userId)) continue;
-    out.set(d.id, { ...toCampaignSummary(d.id, p, users, profiles), access: p.userId === actorUid ? 'owner' : 'bso' });
+    out.set(d.id, { ...toCampaignSummary(d.id, p, users, profiles, testIds), access: p.userId === actorUid ? 'owner' : 'bso' });
   }
   for (const d of ownSnap.docs) {
     if (d.data().hidden === true || out.has(d.id)) continue;
-    out.set(d.id, { ...toCampaignSummary(d.id, d.data(), users, profiles), access: 'owner' });
+    out.set(d.id, { ...toCampaignSummary(d.id, d.data(), users, profiles, testIds), access: 'owner' });
   }
   return { office: { id: access.officeId, name: access.officeName }, campaigns: [...out.values()].sort(byNewest) };
 }
