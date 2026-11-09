@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { Suspense, useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { authFetch } from '../../utils/authFetch';
 import { useRequireAgent } from '../../hooks/useRequireAgent';
@@ -75,10 +75,48 @@ const homeFeatures = [
 
 const GMAPS_LIBRARIES = ['places'];
 
+// Layout hint only: which selling-agent selector to reserve space for while
+// /api/properties/managed/agents loads. Never grants anything; the server
+// response alone decides the role, the agents and what can be submitted.
+const ASSIGNABLE_ROLES = ['bso', 'officeAdmin'];
+const assignableHintKey = (uid) => `premarket_add_assignable_role:${uid}`;
+function readAssignableHint(uid) {
+  if (!uid || typeof window === 'undefined') return null;
+  try {
+    const v = window.localStorage.getItem(assignableHintKey(uid));
+    return ASSIGNABLE_ROLES.includes(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+function writeAssignableHint(uid, role) {
+  if (!uid || typeof window === 'undefined') return;
+  try {
+    if (ASSIGNABLE_ROLES.includes(role)) window.localStorage.setItem(assignableHintKey(uid), role);
+    else window.localStorage.removeItem(assignableHintKey(uid));
+  } catch {
+    // storage unavailable: the hint is a convenience only
+  }
+}
+
+function PageSpinner() {
+  return (
+    <div className="min-h-screen bg-[#faf9f7] flex items-center justify-center">
+      <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-[#e38100]" />
+    </div>
+  );
+}
+
+// useSearchParams needs a Suspense boundary; the fallback matches the page's own loading spinner.
 export default function AddPropertyPage() {
+  return <Suspense fallback={<PageSpinner />}><AddPropertyInner /></Suspense>;
+}
+
+function AddPropertyInner() {
   useRequireAgent();
   const { user, userData, loading: authLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const autocompleteRef = useRef(null);
 
   const { isLoaded: mapsLoaded } = useJsApiLoader({
@@ -157,6 +195,19 @@ export default function AddPropertyPage() {
   // Office admins may hand management to one of the office's BSOs ('' = they manage it themself). BSOs always manage what they create.
   const [managerUid, setManagerUid] = useState('');
   const isBsoCreator = assignable.role === 'bso';
+  const [assignableLoaded, setAssignableLoaded] = useState(false);
+  const [assignableFailed, setAssignableFailed] = useState(false);
+  // Expected selector (from the BSO / Office "New Campaign" link, or the role last seen on this device), so the
+  // selector's place is held from the first render instead of popping in above the address.
+  const asParam = searchParams.get('as');
+  const expectedRole = useMemo(
+    () => (ASSIGNABLE_ROLES.includes(asParam) ? asParam : readAssignableHint(user?.uid)),
+    [asParam, user?.uid],
+  );
+  const hasAssignable = assignable.agents.length > 0;
+  const agentsPending = !assignableLoaded && !!expectedRole;
+  const agentsUnavailable = assignableLoaded && assignableFailed && !!expectedRole;
+  const selectorIsBso = hasAssignable ? isBsoCreator : expectedRole === 'bso';
   const managedRequestId = useRef(null);
   const mountedRef = useRef(true);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
@@ -270,10 +321,20 @@ export default function AddPropertyPage() {
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
+    const uid = user.uid;
     authFetch('/api/properties/managed/agents')
       .then((r) => (r.ok ? r.json() : null))
-      .then((b) => { if (!cancelled && b?.agents) setAssignable(b); })
-      .catch(() => {});
+      .then((b) => {
+        if (cancelled) return;
+        if (b?.agents) {
+          setAssignable(b);
+          writeAssignableHint(uid, b.agents.length > 0 ? b.role : null);
+        } else {
+          setAssignableFailed(true);
+        }
+      })
+      .catch(() => { if (!cancelled) setAssignableFailed(true); })
+      .finally(() => { if (!cancelled) setAssignableLoaded(true); });
     return () => { cancelled = true; };
   }, [user]);
 
@@ -523,7 +584,9 @@ export default function AddPropertyPage() {
     const newErrors = {};
 
     if (step === STEPS.ADDRESS) {
-      if (isBsoCreator && !ownerUid) {
+      if (agentsPending) {
+        newErrors.step = 'Agents are still loading. One moment.';
+      } else if (isBsoCreator && !ownerUid) {
         newErrors.step = 'Choose the selling agent for this campaign.';
       } else if (!address || !location?.latitude || !location?.longitude) {
         newErrors.step = 'Please select a valid address from suggestions.';
@@ -726,13 +789,7 @@ export default function AddPropertyPage() {
     }
   };
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-[#faf9f7] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-[#e38100]" />
-      </div>
-    );
-  }
+  if (authLoading) return <PageSpinner />;
 
   if (!user) return null;
 
@@ -795,24 +852,41 @@ export default function AddPropertyPage() {
             {/* Step 1: Address */}
             {step === STEPS.ADDRESS && (
               <div className="">
-                {assignable.agents.length > 0 && (
+                {/* Shown when the server says the user may create for others (assignable.agents.length > 0). While that
+                    answer is loading and a selector is expected, the same box is held in place, disabled. */}
+                {(hasAssignable || agentsPending || agentsUnavailable) && (
                   <div className="mb-8 rounded-md border border-stone-200 bg-white p-4">
                     <label htmlFor="campaign-for" className="block text-[11px] uppercase tracking-[0.14em] text-stone-500 mb-2">Selling agent</label>
-                    <select
-                      id="campaign-for"
-                      value={ownerUid}
-                      onChange={(e) => { setOwnerUid(e.target.value); managedRequestId.current = null; }}
-                      className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white text-stone-900 outline-none focus:border-stone-500"
-                    >
-                      <option value="">{isBsoCreator ? 'Choose the selling agent…' : 'Myself'}</option>
-                      {assignable.agents.map((a) => (
-                        <option key={a.uid} value={a.uid}>{a.name || a.email}{a.loginStatus === 'invited' ? ' (not logged in yet)' : ''}</option>
-                      ))}
-                    </select>
+                    {hasAssignable ? (
+                      <select
+                        id="campaign-for"
+                        value={ownerUid}
+                        onChange={(e) => { setOwnerUid(e.target.value); managedRequestId.current = null; }}
+                        className="w-full px-4 py-3 rounded-md border border-stone-300 bg-white text-stone-900 outline-none focus:border-stone-500"
+                      >
+                        <option value="">{isBsoCreator ? 'Choose the selling agent…' : 'Myself'}</option>
+                        {assignable.agents.map((a) => (
+                          <option key={a.uid} value={a.uid}>{a.name || a.email}{a.loginStatus === 'invited' ? ' (not logged in yet)' : ''}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <select
+                        id="campaign-for"
+                        value=""
+                        disabled
+                        aria-busy={agentsPending}
+                        onChange={() => {}}
+                        className="w-full px-4 py-3 rounded-md border border-stone-200 bg-stone-50 text-stone-400 outline-none"
+                      >
+                        <option value="">{agentsPending ? 'Loading agents…' : 'Agents unavailable'}</option>
+                      </select>
+                    )}
                     <p className="text-xs text-stone-500 mt-2">
-                      {ownerUid
+                      {agentsUnavailable
+                        ? "Couldn't load your office's agents. Reload the page to try again."
+                        : ownerUid
                         ? `Buyers will see the selling agent's name, photo and phone. The campaign belongs to the selling agent and appears on their dashboard; ${isBsoCreator ? 'you manage it from My Campaigns' : 'you are recorded as the creator'}. Photos only: the agent can add a video later. Billing follows the agent's existing billing arrangement.`
-                        : isBsoCreator ? 'Choose any agent in your office, including agents who have not logged in to Premarket yet.' : 'You can create campaigns for any agent in your office.'}
+                        : selectorIsBso ? 'Choose any agent in your office, including agents who have not logged in to Premarket yet.' : 'You can create campaigns for any agent in your office.'}
                     </p>
                     {ownerUid && assignable.role === 'officeAdmin' && (assignable.bsos || []).length > 0 && (
                       <div className="mt-4">

@@ -124,8 +124,10 @@ describe('upload page and dashboard banner', () => {
     expect(add).toContain('termsAcceptedAt: serverTimestamp()');
   });
 
-  it('office-linked agents never get the $200 billing banner', () => {
+  it('the retired "Billing Is Now Active" $200 banner is gone for everyone (no flash while user data loads)', () => {
     const dash = read('src/app/dashboard/page.js');
-    expect(dash).toMatch(/\{!userData\?\.officeId && \(\s*<>\s*<BillingAnnouncementBanner/);
+    expect(dash).not.toContain('BillingAnnouncementBanner');
+    expect(dash).not.toContain('Billing Is Now Active');
+    expect(dash).not.toContain('$200 campaign fee');
   });
 });

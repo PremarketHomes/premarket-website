@@ -103,7 +103,7 @@ function BsoInner() {
             <h1 className="text-2xl font-bold text-slate-900">My Campaigns</h1>
             <p className="text-sm text-slate-500 mt-1">{state.office?.name} · {active.length} campaigns · {active.filter((c) => c.visibility).length} with a live buyer link</p>
           </div>
-          <Link href="/dashboard/add" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"><Plus className="w-4 h-4" /> New Campaign</Link>
+          <Link href="/dashboard/add?as=bso" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"><Plus className="w-4 h-4" /> New Campaign</Link>
         </div>
         {notice && <p className="mt-3 text-sm text-slate-600 break-all" role="status">{notice}</p>}
 

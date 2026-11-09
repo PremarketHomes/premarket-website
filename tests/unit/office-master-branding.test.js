@@ -47,9 +47,9 @@ describe('surfaces apply the office brand / hide billing prompts for office agen
     expect(s).toMatch(/Agency Logo \(independent agents only\) \*\/\}\s*\{\(userData\?\.isAgent \|\| userData\?\.agent\) && !officeId/);
   });
 
-  it('dashboard hides the billing announcement + billing-contact prompt for office-linked agents only', () => {
+  it('dashboard hides the billing-contact prompt for office-linked agents only', () => {
     const s = read('src/app/dashboard/page.js');
-    expect(s).toMatch(/\{!userData\?\.officeId && \(\s*<>\s*<BillingAnnouncementBanner[\s\S]*?<BillingContactPrompt \/>\s*<\/>/);
+    expect(s).toContain('{!userData?.officeId && <BillingContactPrompt />}');
   });
 
   it('billing logic is untouched by this change', () => {
