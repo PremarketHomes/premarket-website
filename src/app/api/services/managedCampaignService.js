@@ -421,6 +421,36 @@ export async function updateManagedDetails(db, { actorUid, propertyId, input }) 
  * Attach photos (already uploaded through /api/upload-image) to a campaign. Idempotent: a URL already on the campaign is
  * never added twice, so a resumed upload job can safely repeat this call.
  */
+// Video for a campaign the caller manages: the browser uploads the file to Firebase Storage exactly as an agent's own
+// video upload does (propertyVideos/{uploader uid}/{propertyId}-...), then the server attaches it, because only the owner
+// may write the property directly. Only a download link to that object in this project's bucket is accepted.
+const STORAGE_BUCKET = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'premarket-homes.firebasestorage.app';
+export function isOwnUploadedVideoUrl(url, { actorUid, propertyId, bucket = STORAGE_BUCKET }) {
+  if (typeof url !== 'string' || url.length > 2000 || !actorUid || !propertyId) return false;
+  let u;
+  try { u = new URL(url); } catch { return false; }
+  if (u.protocol !== 'https:' || u.hostname !== 'firebasestorage.googleapis.com' || u.port) return false;
+  const m = u.pathname.match(/^\/v0\/b\/([^/]+)\/o\/([^/]+)$/);
+  if (!m || m[1] !== bucket) return false;
+  let object;
+  try { object = decodeURIComponent(m[2]); } catch { return false; }
+  return object.startsWith(`propertyVideos/${actorUid}/${propertyId}-`) && !object.includes('..') && !object.slice(`propertyVideos/${actorUid}/`.length).includes('/');
+}
+
+/** Set (videoUrl) or remove (null) a managed campaign's video. Same edit permission as photos and details. */
+export async function setManagedVideo(db, { actorUid, propertyId, videoUrl }) {
+  if (videoUrl !== null && !isOwnUploadedVideoUrl(videoUrl, { actorUid, propertyId })) {
+    throw new ManagedCampaignError('The video must be uploaded from this page');
+  }
+  const { ref, property, owner, role } = await loadCampaignFor(db, { actorUid, propertyId });
+  assertMayEdit(role, property);
+  if ((property.videoUrl || null) === videoUrl) return { propertyId, changed: false };
+  await ref.update({ videoUrl, updatedAt: FieldValue.serverTimestamp() });
+  try { await db.collection('draftProperties').doc(propertyId).set({ videoUrl }, { merge: true }); } catch (e) { console.error('draftProperties write failed', propertyId, e.message); }
+  await audit(db, { action: videoUrl ? 'campaign.setVideo' : 'campaign.removeVideo', propertyId, ownerUid: property.userId, actorUid, actorRole: role, officeId: owner?.officeId || null });
+  return { propertyId, changed: true };
+}
+
 export async function attachManagedMedia(db, { actorUid, propertyId, urls }) {
   if (!Array.isArray(urls) || urls.length === 0 || urls.length > MAX_IMAGES || !urls.every(isHttpsImage)) {
     throw new ManagedCampaignError('Photos must be https image links');
