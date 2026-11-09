@@ -2,6 +2,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { createHash } from 'node:crypto';
 import { recordPropertyCharge } from './billingService';
 import { pickNotificationUser } from '../../utils/notificationUser';
+import { isTestCampaign } from '../../utils/testCampaign';
 import { sendCampaignLinkOnce } from './agentNotificationService';
 import { loadActiveOffice, isActiveBso, getBsoAccess, bsoUidsOf, isUsableAccount } from './bsoService';
 
@@ -470,6 +471,7 @@ export function toCampaignSummary(id, p, users, profiles) {
     // An explicitly assigned manager (not inferred from an older own-account upload): office admins may edit these.
     officeManaged: !!p.managedByUid,
     managed: p.managedCreation === true,
+    testCampaign: isTestCampaign(p),
     createdByUid: p.createdByUid || null,
     createdByRole: p.createdByRole || null,
     createdByName: nameOf(p.createdByUid || p.userId),

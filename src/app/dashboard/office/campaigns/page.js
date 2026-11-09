@@ -153,7 +153,10 @@ function CampaignsInner() {
                   ? <img src={c.imageUrl} alt="" className="w-16 h-12 rounded-lg object-cover bg-slate-100 shrink-0" />
                   : <div className="w-16 h-12 rounded-lg bg-slate-100 shrink-0" />}
                 <div className="min-w-0">
-                  <p className="font-semibold text-slate-900 truncate">{c.address || 'Untitled campaign'}</p>
+                  <p className="font-semibold text-slate-900 truncate">
+                    {c.testCampaign && <span className="mr-1.5 inline-flex px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold align-middle" title="Premarket test campaign: not billed, not counted in reporting">Test</span>}
+                    {c.address || 'Untitled campaign'}
+                  </p>
                   <p className="text-sm text-slate-600 truncate">{c.sellingAgent?.name || c.ownerName || c.ownerEmail}{c.sellingAgent?.loginStatus === 'invited' && <span className="text-slate-400"> · not logged in yet</span>}</p>
                   <p className="text-xs text-slate-500 truncate">
                     {c.managedByUid ? <>Managed by {c.managedByName || 'unknown'}</> : 'Managed by the agent'}

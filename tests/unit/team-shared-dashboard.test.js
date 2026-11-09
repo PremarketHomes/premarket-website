@@ -4,7 +4,7 @@ import fs from 'node:fs';
 // Source-level guards for the shared team dashboard (dashboard/page.js wiring).
 const read = (rel) => fs.readFileSync(new URL(`../../src/app/${rel}`, import.meta.url), 'utf-8');
 const page = read('dashboard/page.js');
-const card = page.slice(page.indexOf('function PropertyCard('), page.indexOf('// --- Billing Announcement Banner ---'));
+const card = page.slice(page.indexOf('function PropertyCard('), page.indexOf('// --- Billing Contact Prompt ---'));
 
 describe('dashboard: shared team portfolio', () => {
   it('defaults to the All view with Mine / Team filters', () => {
