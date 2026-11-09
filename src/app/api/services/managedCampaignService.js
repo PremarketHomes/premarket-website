@@ -296,16 +296,14 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
 
   // Same side-effects the existing agent flow performs after creating a property.
   try { await db.collection('draftProperties').doc(id).set({ ...data, override: true }); } catch (e) { console.error('draftProperties write failed', id, e.message); }
-  if (!isTest) { // a test campaign does not notify the selling agent
-    try {
-      await db.collection('notifications').add({
-        property: data, createdAt: new Date(), read: false, type: 'newProspect',
-        user: pickNotificationUser(owner, ownerUid),
-      });
-    } catch (e) { console.error('notification write failed', id, e.message); }
-  }
+  try {
+    await db.collection('notifications').add({
+      property: data, createdAt: new Date(), read: false, type: 'newProspect',
+      user: pickNotificationUser(owner, ownerUid),
+    });
+  } catch (e) { console.error('notification write failed', id, e.message); }
   let charge = null;
-  if (!isTest) {
+  if (!isTest) { // a test campaign already has its excluded billing record (written with the property above)
     try {
       // Billing is exactly the existing rule, attributed to the owner. Best-effort like the agent flow: the
       // monthly run sweeps any property missing a charge.
@@ -318,12 +316,10 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
   }
 
   // Email the SELLING AGENT their campaign link (once; a retry or double-submit never re-sends). Failure never
-  // affects the campaign: it is logged in emailLog and an authorised user can resend. Never for a test campaign.
+  // affects the campaign: it is logged in emailLog and an authorised user can resend. Test campaigns too: apart from
+  // billing they behave exactly like any other campaign.
   let notification = 'error';
-  if (isTest) notification = 'test-campaign';
-  else {
-    try { notification = (await sendCampaignLinkOnce({ propertyId: id, recipientUid: ownerUid, seq: 1 })).reason || 'sent'; } catch (e) { console.error('campaign link email failed', id, e.message); }
-  }
+  try { notification = (await sendCampaignLinkOnce({ propertyId: id, recipientUid: ownerUid, seq: 1 })).reason || 'sent'; } catch (e) { console.error('campaign link email failed', id, e.message); }
 
   return { propertyId: id, duplicate: false, role, managedByUid, testCampaign: isTest, charge: isTest ? 'test-campaign' : (charge?.reason || (charge?.created ? 'recorded' : null)), notification };
 }

@@ -16,8 +16,11 @@
  * only ever pick up 'pending' charges.
  *
  * That record is also the source of truth for reporting (Leadership, Team Dashboards) and labels (Office > Campaigns,
- * My Campaigns), and it stops campaign emails to the selling agent. `testCampaign` on the property itself is a
- * display hint only.
+ * My Campaigns). `testCampaign` on the property itself is a display hint only.
+ *
+ * Apart from billing and reporting, a test campaign is a normal campaign: it is on the selling agent's dashboard, and
+ * every email and notification (campaign link, buyer registrations incl. the legacy Cloud Function, follow-ups) goes
+ * to the selling agent as usual, so the full real-world workflow can be tested.
  *
  * Changing this list is a code change on purpose (reviewed, in git history). One named Premarket account only.
  */

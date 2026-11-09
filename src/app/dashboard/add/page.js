@@ -1522,8 +1522,9 @@ function AddPropertyInner() {
                     <span className="text-sm text-stone-900">
                       <span className="font-semibold">Test campaign</span>
                       <span className="block text-stone-600 mt-0.5">
-                        Premarket testing only. No campaign fee is charged, the selling agent is not emailed, and it is
-                        labelled Test and left out of reporting. Leave unticked for any real campaign.
+                        Premarket testing only. No campaign fee is charged; everything else works exactly like a real
+                        campaign, including emails to the selling agent. Labelled Test and left out of reporting.
+                        Leave unticked for any real campaign.
                       </span>
                     </span>
                   </label>

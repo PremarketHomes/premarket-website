@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { sendNewBuyerInterestEmail } from '../../services/resendService';
-import { isTestCampaignId } from '../../services/testCampaigns';
 
 // How long a claimed-but-unfinished notification attempt blocks a retry.
 // Covers the real double-click/rapid-retry race this exists for, without
@@ -125,13 +124,6 @@ export async function POST(req) {
       return NextResponse.json(SKIPPED);
     }
     const property = propertySnap.data();
-
-    // A test campaign never emails the selling agent about buyer interest (the registration itself is still saved).
-    if (await isTestCampaignId(adminDb, propertyId)) {
-      console.log(`notify-interest: skipped for offer ${offerId} (test campaign ${propertyId})`);
-      await offerRef.update({ interestNotifyingSince: FieldValue.delete() });
-      return NextResponse.json(SKIPPED);
-    }
 
     const agentUserId = property.userId;
     if (!agentUserId) {

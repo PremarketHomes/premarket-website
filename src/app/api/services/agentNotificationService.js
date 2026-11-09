@@ -3,7 +3,6 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '../../firebase/adminApp';
 import { claim, finish } from './notificationService';
 import { sendCampaignLinkToAgentEmail } from './agentCampaignEmail';
-import { isTestCampaignId } from './testCampaigns';
 
 /**
  * Campaign-link email to the agent a campaign was created FOR. Same durable once-only machinery as every
@@ -38,8 +37,6 @@ export async function checkAgentContactEligibility(uid, user) {
 export async function sendCampaignLinkOnce({ propertyId, recipientUid, seq = 1, retryOnly = false }) {
   if (!propertyId || !recipientUid) return { sent: false, reason: 'invalid-arguments' };
   if (process.env.DISABLE_AGENT_CAMPAIGN_EMAILS === '1') return { sent: false, reason: 'disabled' };
-  // Test campaigns never email the selling agent (creation or "Email link to agent").
-  if (await isTestCampaignId(adminDb, propertyId)) return { sent: false, reason: 'test-campaign' };
 
   const key = campaignLinkKey({ propertyId, recipientUid, seq });
   const logRef = adminDb.collection('emailLog').doc(key);

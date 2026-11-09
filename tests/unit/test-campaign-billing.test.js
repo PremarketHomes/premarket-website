@@ -104,7 +104,7 @@ describe('the allowlist', () => {
 describe('creating a test campaign for a real selling agent (Luke as BSO, Phil as selling agent)', () => {
   it('Phil owns it; NO pending charge — only a server-side EXCLUDED record with reason and approver; audited', async () => {
     const r = await create('luke', 'phil', { testCampaign: true });
-    expect(r).toMatchObject({ duplicate: false, role: 'bso', testCampaign: true, charge: 'test-campaign', notification: 'test-campaign' });
+    expect(r).toMatchObject({ duplicate: false, role: 'bso', testCampaign: true, charge: 'test-campaign', notification: 'sent' });
     const p = store.properties[r.propertyId];
     expect(p).toMatchObject({ userId: 'phil', managedByUid: 'luke', createdByUid: 'luke', testCampaign: true, testCampaignBy: 'luke' });
     expect(charge(r.propertyId)).toMatchObject({
@@ -117,13 +117,15 @@ describe('creating a test campaign for a real selling agent (Luke as BSO, Phil a
     expect(audits(r.propertyId).find((a) => a.action === 'campaign.create').testCampaign).toBe(true);
   });
 
-  it('Phil is not emailed or notified (creation, and "Email link to agent")', async () => {
+  it('apart from billing it is a normal campaign: Phil gets the campaign-link email and notification, and resend works', async () => {
     const r = await create('luke', 'phil', { testCampaign: true });
-    expect(sendEmail).not.toHaveBeenCalled();
-    expect(Object.values(store.notifications || {})).toHaveLength(0);
+    const toPhil = () => sendEmail.mock.calls.filter(([a]) => JSON.stringify(a.to) .includes('phil@hph.example'));
+    expect(toPhil()).toHaveLength(1);
+    expect(Object.values(store.notifications || {}).filter((x) => x.type === 'newProspect' && x.property.userId === 'phil')).toHaveLength(1);
     const resend = await resendCampaignLink(fakeDb, { actorUid: 'luke', propertyId: r.propertyId });
-    expect(resend).toMatchObject({ sent: false, reason: 'test-campaign' });
-    expect(sendEmail).not.toHaveBeenCalled();
+    expect(resend).toMatchObject({ sent: true });
+    expect(toPhil()).toHaveLength(2);
+    expect(charge(r.propertyId).status).toBe('excluded'); // still not billed
   });
 
   it('works for any HPH selling agent', async () => {
@@ -232,13 +234,17 @@ describe('labels, reporting and emails read the server-only record', () => {
     expect((await listAssignableAgents(fakeDb, 'hannah')).testCampaignAllowed).toBe(false);
   });
 
-  it('Leadership, Team Dashboards, follow-up emails and buyer-interest emails leave test campaigns out', () => {
+  it('Leadership and Team Dashboards leave test campaigns out', () => {
     const read = (p) => readFileSync(p, 'utf8');
     expect(read('src/app/api/services/leadershipService.js')).toContain('.filter((p) => !testIds.has(p.id))');
     expect(read('src/app/api/services/teamService.js')).toContain("d.data().hidden !== true && !testIds.has(d.id)");
-    expect(read('src/app/api/cron/property-followup/route.js').match(/if \(testIds\.has\(doc\.id\)\) continue;/g)).toHaveLength(2);
-    expect(read('src/app/api/offers/notify-interest/route.js')).toContain('if (await isTestCampaignId(adminDb, propertyId)) {');
-    expect(read('src/app/api/services/agentNotificationService.js')).toContain("if (await isTestCampaignId(adminDb, propertyId)) return { sent: false, reason: 'test-campaign' };");
+  });
+
+  it('email and notification paths have no test-campaign special case (campaign link, buyer interest, follow-ups)', () => {
+    const read = (p) => readFileSync(p, 'utf8');
+    for (const p of ['src/app/api/services/agentNotificationService.js', 'src/app/api/offers/notify-interest/route.js', 'src/app/api/cron/property-followup/route.js', 'src/app/api/services/notificationService.js']) {
+      expect(read(p)).not.toMatch(/testCampaign|isTestCampaignId|loadTestCampaignIds/);
+    }
   });
 
   it('the upload page offers the option only when the server allows it, only for a selling agent, before submission', () => {

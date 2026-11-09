@@ -80,7 +80,7 @@ function BsoInner() {
     const res = await authFetch(`/api/properties/${c.id}/campaign-link/resend`, { method: 'POST' });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) return setNotice(body.error || 'The link could not be sent.');
-    setNotice(body.sent ? `Buyer link emailed to ${c.sellingAgent?.name || 'the agent'}.` : body.reason === 'test-campaign' ? 'Test campaign: no email is sent to the selling agent.' : 'The email was not sent (the agent may be unsubscribed or unreachable).');
+    setNotice(body.sent ? `Buyer link emailed to ${c.sellingAgent?.name || 'the agent'}.` : 'The email was not sent (the agent may be unsubscribed or unreachable).');
   };
   const copyLink = async (c) => {
     const link = buyerLink(c.id);
@@ -138,7 +138,7 @@ function BsoInner() {
                     : <div className="w-16 h-12 rounded-lg bg-slate-100 shrink-0" />}
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-900 truncate">
-                    {c.testCampaign && <span className="mr-1.5 inline-flex px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold align-middle" title="Premarket test campaign: not billed, selling agent not emailed, not counted in reporting">Test</span>}
+                    {c.testCampaign && <span className="mr-1.5 inline-flex px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold align-middle" title="Premarket test campaign: not billed, not counted in reporting">Test</span>}
                     {c.address || 'Untitled campaign'}
                   </p>
                     <p className="text-sm text-slate-600 truncate">
