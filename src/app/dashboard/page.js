@@ -53,6 +53,7 @@ import {
   Briefcase,
 } from 'lucide-react';
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
+import { isTestCampaign } from '../utils/testCampaign';
 
 // --- Shimmer Image Wrapper ---
 function ShimmerImage({ src, alt, ...props }) {
@@ -357,6 +358,11 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           }`}>
             {isSold ? 'Sold' : property.archived === true ? 'Archived' : property.visibility === true ? 'Public' : 'Private'}
           </span>
+          {isTestCampaign(property) && (
+            <span className="ml-1.5 inline-flex px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] rounded-sm bg-amber-100 text-amber-900" title="Test campaign: not billed, not counted in reporting">
+              Test
+            </span>
+          )}
         </div>
         {/* Top-right badges */}
         <div className="absolute top-3 right-3 flex items-center gap-1.5">

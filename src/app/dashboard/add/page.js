@@ -45,6 +45,7 @@ import AgentSelector from '../../components/AgentSelector';
 import AgentModal from '../../components/AgentModal';
 import { pickNotificationUser } from '../../utils/notificationUser';
 import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
+import { canCreateTestCampaign } from '../../utils/testCampaign';
 
 const STEPS = {
   ADDRESS: 1,
@@ -214,6 +215,11 @@ function AddPropertyInner() {
 
   // Agent assignment state
   const [selectedAgentId, setSelectedAgentId] = useState(null);
+
+  // Test campaign (Premarket's own testing; see utils/testCampaign.js). Offered only to the authorised test account,
+  // only for its own campaign ("Myself", no roster agent). Billing re-checks the saved campaign server-side.
+  const [testCampaign, setTestCampaign] = useState(false);
+  const testCampaignEligible = canCreateTestCampaign(user?.uid) && !ownerUid && !selectedAgentId;
   const [teamAgents, setTeamAgents] = useState([]);
   const [showAgentModal, setShowAgentModal] = useState(false);
 
@@ -744,6 +750,7 @@ function AddPropertyInner() {
         agentAvatar: selectedAgentId ? (teamAgents.find(a => a.id === selectedAgentId)?.avatar || null) : null,
         stats: { views: 0 },
         termsAcceptedAt: serverTimestamp(),
+        ...(testCampaign && testCampaignEligible ? { testCampaign: true, testCampaignMarkedAt: serverTimestamp() } : {}),
       };
 
       const docRef = await addDoc(collection(db, 'properties'), propertyData);
@@ -1498,6 +1505,29 @@ function AddPropertyInner() {
 
                 {!termsAccepted && errors.step && (
                   <p className="mt-3 text-sm text-[#e38100] font-medium">You must accept the terms to continue.</p>
+                )}
+
+                {testCampaignEligible && (
+                  <label
+                    data-testid="test-campaign-option"
+                    className={`mt-4 flex items-start gap-3 p-4 rounded-md border cursor-pointer transition-all ${
+                      testCampaign ? 'border-amber-500 bg-amber-50' : 'border-dashed border-stone-300 hover:border-stone-400'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={testCampaign}
+                      onChange={(e) => setTestCampaign(e.target.checked)}
+                      className="mt-0.5 w-5 h-5 rounded border-stone-300 accent-amber-600"
+                    />
+                    <span className="text-sm text-stone-900">
+                      <span className="font-semibold">Test campaign</span>
+                      <span className="block text-stone-600 mt-0.5">
+                        Premarket testing only. No campaign fee is charged, it is labelled Test, and it is left out of
+                        Leadership and Team reporting. Leave unticked for any real campaign.
+                      </span>
+                    </span>
+                  </label>
                 )}
               </div>
             )}
