@@ -11,8 +11,10 @@ describe('Add Property: eagerness question removed', () => {
     expect(add).not.toContain('STEPS.EAGERNESS');
     expect(add).toContain('isEager: null');
   });
-  it('the Edit page and all readers of isEager are left alone', () => {
-    expect(edit).toContain('STEPS.EAGERNESS');
+  it('the Edit page no longer asks either, and never writes isEager (existing answers kept); readers left alone', () => {
+    expect(edit).not.toContain('STEPS.EAGERNESS');
+    expect(edit).not.toMatch(/How eager are you to sell|Sales Timeline|sales timeline/);
+    expect(edit).not.toMatch(/isEager\s*:/);
     const helpers = fs.readFileSync(path.join(process.cwd(), 'src/app/api/v1/helpers.js'), 'utf8');
     expect(helpers).toMatch(/if \(val == null\) return false/);
     expect(helpers).toMatch(/if \(val == null\) return 0/);

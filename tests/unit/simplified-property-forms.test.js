@@ -37,11 +37,12 @@ describe('Add Property', () => {
 });
 
 describe('Edit Property', () => {
-  it('has no client step or AI generation, and Save Changes is on the final (EAGERNESS) step', () => {
-    expect(stepsOf(edit).at(-1)[0]).toBe('EAGERNESS');
+  it('has no client step or AI generation, and Save Changes is on the final (TITLE) step', () => {
+    expect(stepsOf(edit).at(-1)[0]).toBe('TITLE');
+    expect(stepsOf(edit)).toHaveLength(6);
     expect(edit).not.toMatch(/CLIENT_INFO|Client Information|client information fields/);
     expect(edit).not.toMatch(/handleGenerateAI|Generate with AI|generate-listing/);
-    expect(edit).toContain('step < STEPS.EAGERNESS ?');
+    expect(edit).toContain('step < STEPS.TITLE ?');
     expect(edit).toContain('Save Changes');
   });
   it('loads existing client data into state and writes it back, so it is preserved', () => {

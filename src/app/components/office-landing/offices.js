@@ -13,6 +13,9 @@ export const OFFICES = {
     navy: '#001f49',
     blue: '#00aeef',
     logo: { src: '/offices/hph/logo-white.png', width: 390, height: 174 }, // white-on-transparent, for navy backgrounds
+    // Full-colour logo on white (supplied by HPH), for light backgrounds. It is also the office's Premarket branding logo:
+    // an office admin sets https://premarket.homes/offices/hph/logo-colour.png in Office > Branding (no code hardcodes it).
+    logoColour: { src: '/offices/hph/logo-colour.png', width: 636, height: 314 },
     contactHref: null, // optional tel:/mailto: link; none until supplied
   },
 };
