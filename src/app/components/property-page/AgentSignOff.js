@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import { isOptimizableImageUrl } from '../../utils/imageHost';
 import { formatDisplayPhone } from '../../utils/phone';
 import PremarketBadge from './PremarketBadge';
 
@@ -40,7 +41,9 @@ export default function AgentSignOff({ agentData, displayLogoUrl }) {
               alt={fullName || 'Agent'}
               width={64}
               height={64}
-              unoptimized
+              // Shown at 64 px: a resized copy (64/128 px) instead of the original upload, which can be over 1 MB.
+              // Hosts the image optimiser can't fetch fall back to the original.
+              unoptimized={!isOptimizableImageUrl(agentData.avatar)}
               className="w-16 h-16 rounded-full object-cover flex-shrink-0"
             />
           ) : (
