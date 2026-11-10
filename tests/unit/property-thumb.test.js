@@ -67,3 +67,14 @@ describe('every property list uses it; editing and full-screen views keep origin
     expect(read('src/app/dashboard/edit/[id]/page.js')).not.toContain('PropertyThumb');
   });
 });
+
+describe('listing cards: agent photo and agency logo are resized too', () => {
+  it('public /listings and homepage grids', () => {
+    for (const p of ['src/app/listings/page.js', 'src/app/components/PublicHomepage.js']) {
+      const s = read(p);
+      expect(s, p).toMatch(/<PropertyThumb\s+src=\{displayAvatar\}[\s\S]{0,120}width=\{36\}/);
+      expect(s, p).toMatch(/<PropertyThumb\s+src=\{accountAgent\.logoUrl\}[\s\S]{0,300}onError=\{\(e\) => \{ e\.currentTarget\.style\.display = 'none'; \}\}/);
+      expect(s, p).not.toMatch(/src=\{(displayAvatar|accountAgent\.logoUrl)\}[^>]*unoptimized/);
+    }
+  });
+});
