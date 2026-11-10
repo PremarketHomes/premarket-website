@@ -12,25 +12,59 @@ import { BSO_TAB_FILTERS } from '../../utils/bsoDashboard';
  * them) plus any they own. Every action goes through the same server routes and permission checks as before.
  */
 
-/** Loads the BSO's campaigns once `enabled` (the caller has confirmed the BSO role). */
-export function useBsoCampaigns(enabled) {
-  const [state, setState] = useState({ status: 'idle', office: null, campaigns: [] });
-  const reload = useCallback(async () => {
+// Last role the server confirmed for this user on this device: a display hint only (which layout to hold while the
+// answer is on its way). The server decides every time; nothing is granted from this value.
+const roleHintKey = (uid) => `premarket_dash_role:${uid}`;
+function readRoleHint(uid) {
+  if (!uid || typeof window === 'undefined') return null;
+  try { const v = window.localStorage.getItem(roleHintKey(uid)); return v === 'bso' || v === 'agent' ? v : null; } catch { return null; }
+}
+function writeRoleHint(uid, role) {
+  if (!uid || typeof window === 'undefined') return;
+  try { window.localStorage.setItem(roleHintKey(uid), role); } catch { /* storage unavailable: hint only */ }
+}
+
+/**
+ * BSO role and campaigns. Users with no office are never BSOs and make no request. A user this device already knows
+ * as a BSO goes straight to GET /api/bso/campaigns (one request: 200 = BSO with campaigns, 403 = no longer a BSO).
+ * Everyone else asks the lightweight GET /api/bso/access first and only loads campaigns if the server says BSO, so
+ * regular agents and office admins never pay for the heavier campaign route. The server decides every time.
+ * `role` stays 'unknown' only while that answer is pending.
+ */
+export function useBsoDashboard({ uid, officeId, authLoading }) {
+  const [state, setState] = useState({ role: 'unknown', status: 'idle', office: null, campaigns: [] });
+  const hint = useMemo(() => readRoleHint(uid), [uid]);
+  const load = useCallback(async () => {
     try {
+      if (hint !== 'bso') {
+        const access = await authFetch('/api/bso/access');
+        const body = access.ok ? await access.json() : null;
+        if (body?.bso !== true) {
+          writeRoleHint(uid, 'agent');
+          return setState({ role: 'agent', status: 'ready', office: null, campaigns: [] });
+        }
+      }
       const res = await authFetch('/api/bso/campaigns');
+      if (res.status === 403) {
+        writeRoleHint(uid, 'agent');
+        return setState({ role: 'agent', status: 'ready', office: null, campaigns: [] });
+      }
       if (!res.ok) throw new Error(`campaigns ${res.status}`);
       const body = await res.json();
-      setState({ status: 'ready', office: body.office, campaigns: body.campaigns || [] });
+      writeRoleHint(uid, 'bso');
+      setState({ role: 'bso', status: 'ready', office: body.office, campaigns: body.campaigns || [] });
     } catch {
-      setState((s) => ({ ...s, status: 'error' }));
+      // Unknown failure: a known BSO sees the campaign error (with retry); anyone else the agent dashboard, as before.
+      setState((s) => ({ ...s, role: s.role === 'bso' || hint === 'bso' ? 'bso' : 'agent', status: 'error' }));
     }
-  }, []);
+  }, [uid, hint]);
   useEffect(() => {
-    if (!enabled) return;
+    if (authLoading || !uid) return;
+    if (!officeId) { setState({ role: 'agent', status: 'ready', office: null, campaigns: [] }); return; }
     setState((s) => (s.status === 'idle' ? { ...s, status: 'loading' } : s));
-    reload();
-  }, [enabled, reload]);
-  return { ...state, reload };
+    load();
+  }, [authLoading, uid, officeId, load]);
+  return { ...state, hint, reload: load };
 }
 
 const date = (iso) => (iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
