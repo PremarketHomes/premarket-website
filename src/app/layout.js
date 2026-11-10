@@ -89,8 +89,13 @@ export default function RootLayout({ children }) {
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="theme-color" content="#e48900" />
 
-        {/* Google Tag Manager */}
-        <Script id="google-tag-manager" strategy="afterInteractive">
+        {/* Analytics queue, created before the page runs, so events pushed early (e.g. property_view on mount) wait in it
+            and Google Tag Manager processes them when it loads. */}
+        {/* Plain inline script (not next/script): it is in the server HTML and runs while the page is parsed. */}
+        <script id="datalayer-init" dangerouslySetInnerHTML={{ __html: 'window.dataLayer = window.dataLayer || [];' }} />
+        {/* Google Tag Manager: loaded when the browser is idle after the page has loaded (was straight after hydration),
+            so its ~290 KB no longer competes with the page on mobile. Queued events are not lost. */}
+        <Script id="google-tag-manager" strategy="lazyOnload">
           {`
             (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
             new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
