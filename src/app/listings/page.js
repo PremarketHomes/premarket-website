@@ -15,6 +15,7 @@ import { SkeletonCard, Spinner } from '../components/marketing/Loading';
 import { Sparkles, ShieldCheck, Heart, MessageSquare } from 'lucide-react';
 import { withOfficeBrand } from '../utils/officeBrand';
 import { fetchAgentProfiles } from '../utils/fetchAgentProfiles';
+import PropertyThumb from '../components/PropertyThumb';
 
 function ShimmerImage({ src, alt, ...props }) {
   const [loaded, setLoaded] = useState(false);
@@ -29,7 +30,7 @@ function ShimmerImage({ src, alt, ...props }) {
           `}</style>
         </div>
       )}
-      <Image
+      <PropertyThumb
         src={src}
         alt={alt}
         {...props}
@@ -826,7 +827,7 @@ function ListingsContent() {
                           alt={property.title || 'Property'}
                           fill
                           className="object-cover group-hover:scale-105 transition-transform duration-300"
-                          unoptimized
+                          sizes="(min-width: 1024px) 480px, (min-width: 640px) 50vw, 100vw"
                         />
                       ) : (
                         <div className="w-full h-full bg-slate-200 flex items-center justify-center">

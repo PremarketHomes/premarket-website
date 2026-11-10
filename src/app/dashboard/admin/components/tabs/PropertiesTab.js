@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { formatDate, getPropertyImage } from '../../utils/formatters';
 import { authFetch } from '../../../../utils/authFetch';
+import PropertyThumb from '../../../../components/PropertyThumb';
 
 export default function PropertiesTab({ user }) {
   const router = useRouter();
@@ -347,7 +348,7 @@ export default function PropertiesTab({ user }) {
                   >
                     <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                       {getPropertyImage(p) ? (
-                        <img src={getPropertyImage(p)} alt="" className="w-full h-full object-cover" />
+                        <PropertyThumb src={getPropertyImage(p)} width={48} height={48} className="w-full h-full object-cover" />
                       ) : (
                         <Building2 className="w-5 h-5 text-slate-400" />
                       )}

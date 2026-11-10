@@ -9,6 +9,7 @@ import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
 import { startOfficeRequest, officeResponse } from '../../../utils/officePrefetch';
 import BackToDashboard from '../../../components/BackToDashboard';
+import PropertyThumb from '../../../components/PropertyThumb';
 
 const date = (iso) => (iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 const FILTERS = [['all', 'All'], ['live', 'Link live'], ['hidden', 'Link hidden'], ['managed', 'Created by office'], ['needs-manager', 'Needs a manager'], ['archived', 'Archived']];
@@ -155,8 +156,7 @@ function CampaignsInner() {
               <div className="flex items-start gap-3">
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 {c.imageUrl
-                  // eslint-disable-next-line @next/next/no-img-element
-                  ? <img src={c.imageUrl} alt="" className="w-16 h-12 rounded-lg object-cover bg-slate-100 shrink-0" />
+                  ? <PropertyThumb src={c.imageUrl} width={64} height={48} className="w-16 h-12 rounded-lg object-cover bg-slate-100 shrink-0" />
                   : <div className="w-16 h-12 rounded-lg bg-slate-100 shrink-0" />}
                 <div className="min-w-0">
                   <p className="font-semibold text-slate-900 truncate">

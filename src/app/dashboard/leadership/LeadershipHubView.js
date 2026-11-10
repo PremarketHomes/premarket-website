@@ -8,6 +8,7 @@ import {
 } from 'recharts';
 import { Trophy, ArrowUpDown, ArrowLeft, Info, User, FileText, LogOut } from 'lucide-react';
 import { ORANGE, CHARCOAL, fmtInt, campaignPrice, fmtDate, fmtMonth, initials, STATUS_LABEL } from './format';
+import PropertyThumb from '../../components/PropertyThumb';
 
 const PERIODS = [
   { id: 'week', label: 'This Week' },
@@ -322,7 +323,7 @@ function Portfolio({ data, reportBase, sample }) {
             const body = (
               <div className={`${card} overflow-hidden h-full hover:border-stone-300 transition-colors`}>
                 <div className="relative h-36 bg-stone-100">
-                  {p.thumbnail ? <img src={p.thumbnail} alt="" className="w-full h-full object-cover" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center text-stone-300"><FileText className="w-8 h-8" strokeWidth={1} /></div>}
+                  {p.thumbnail ? <PropertyThumb src={p.thumbnail} fill sizes="(min-width: 1280px) 400px, (min-width: 640px) 50vw, 100vw" className="object-cover" /> : <div className="w-full h-full flex items-center justify-center text-stone-300"><FileText className="w-8 h-8" strokeWidth={1} /></div>}
                   <span className={`absolute top-3 left-3 px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLE[p.status]}`}>{STATUS_LABEL[p.status]}</span>
                 </div>
                 <div className="p-4">
