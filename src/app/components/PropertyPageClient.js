@@ -240,15 +240,17 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
           const { min, max } = computePriceOpinionRange(data);
           setMinPrice(min);
           setMaxPrice(max);
-          
-          // Fetch previous offer to set initial slider value
-          await fetchPreviousOffer(propertyId, min, max);
 
-          // Increment the view count (skip if owner/admin is viewing)
+          // The property is all the page needs to render: show it now. The visitor's previous opinion and the view
+          // count are not needed to read the page, so they run in the background, at the same time, and never hold
+          // it behind the full-screen loader.
+          setLoading(false);
           const currentUser = auth.currentUser;
-          if (!currentUser || currentUser.uid !== data.userId) {
-            await incrementPropertyViews(propertyId);
-          }
+          Promise.allSettled([
+            fetchPreviousOffer(propertyId, min, max),
+            // Skip the view count when the owner is viewing their own listing
+            !currentUser || currentUser.uid !== data.userId ? incrementPropertyViews(propertyId) : null,
+          ]);
         }
       } catch (err) {
         console.error('Error fetching property:', err);
@@ -273,30 +275,36 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
 
     const fetchAgentData = async () => {
       try {
-        const profiles = await fetchAgentProfiles([property.userId]);
+        // The owner's profile, the assigned roster agent and the assigned agent's directory profile depend only on the
+        // property, so they are requested together (previously one after another). Each extra lookup still fails soft.
+        const loadRosterAgent = async () => {
+          if (!property.agentId) return null;
+          try {
+            const agentDoc = await getDoc(doc(db, 'agents', property.agentId));
+            return agentDoc.exists() ? agentDoc.data() : null;
+          } catch (err) {
+            console.error('Error fetching assigned agent:', err);
+            return null;
+          }
+        };
+        const loadDirectoryAgent = async () => {
+          if (!property.agentId) return null;
+          try {
+            const res = await fetch(`/api/public/listing-agent?propertyId=${encodeURIComponent(propertyId)}`);
+            return res.ok ? (await res.json()).agent || null : null;
+          } catch (err) {
+            console.error('Error resolving assigned agent profile (non-fatal):', err);
+            return null;
+          }
+        };
+        const [profiles, rosterAgent, directoryAgent] = await Promise.all([
+          fetchAgentProfiles([property.userId]), loadRosterAgent(), loadDirectoryAgent(),
+        ]);
         const userData = profiles[property.userId];
         if (userData) {
           // The listing's presented agent is the ASSIGNED agent, never the owner/creator account
           // (see utils/listingAgent.js). The owner's agency identity (company, office brand) still
           // applies; their personal name, photo and phone never do when an agent is assigned.
-          let rosterAgent = null;
-          if (property.agentId) {
-            try {
-              const agentDoc = await getDoc(doc(db, 'agents', property.agentId));
-              if (agentDoc.exists()) rosterAgent = agentDoc.data();
-            } catch (err) {
-              console.error('Error fetching assigned agent:', err);
-            }
-          }
-          let directoryAgent = null;
-          if (property.agentId) {
-            try {
-              const res = await fetch(`/api/public/listing-agent?propertyId=${encodeURIComponent(propertyId)}`);
-              if (res.ok) directoryAgent = (await res.json()).agent || null;
-            } catch (err) {
-              console.error('Error resolving assigned agent profile (non-fatal):', err);
-            }
-          }
           const listingAgent = resolveListingAgent({ property, ownerProfile: userData, rosterAgent, directoryAgent });
           const data = {
             firstName: listingAgent.firstName,
@@ -409,8 +417,14 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
       });
       const data = res.ok ? await res.json() : { offerId: null, offerAmount: null };
 
+      // This lookup now finishes after the page is already usable, so it never overwrites a value the visitor has
+      // started dragging (firstInteractionTracked). The saved offer id is always kept, so a re-save still updates
+      // the visitor's existing opinion instead of adding a second one.
+      const visitorHasTouchedSlider = firstInteractionTracked.current;
+
       if (data.offerId && data.offerAmount) {
         setSavedOfferId(data.offerId);
+        if (visitorHasTouchedSlider) return;
         const roundedOffer = roundToStep(data.offerAmount);
         setPriceOpinion(roundedOffer);
         // Restoring a genuine prior answer is not the same as an
@@ -424,10 +438,12 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
       // position for the thumb to render at, so it's seeded at the
       // midpoint — but hasInteracted stays false, so this number is
       // never shown or submittable until the visitor actually drags.
+      if (visitorHasTouchedSlider) return;
       const mid = roundToStep((min + max) / 2);
       setPriceOpinion(mid);
     } catch (error) {
       console.error('Error fetching previous offer:', error);
+      if (firstInteractionTracked.current) return;
       const mid = roundToStep((min + max) / 2);
       setPriceOpinion(mid);
     }

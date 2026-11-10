@@ -2,6 +2,7 @@
 
 import { useRef } from 'react';
 import Image from 'next/image';
+import { isOptimizableImageUrl } from '../../utils/imageHost';
 
 /**
  * Horizontally-scrollable photo strip beneath the price-opinion/info
@@ -62,7 +63,11 @@ export default function PropertyGallery({ imageUrls = [], title, onOpenImage }) 
               src={url}
               alt={`${title || 'Property'} photo ${i + 2}`}
               fill
-              unoptimized
+              // Tiles are at most 340 px wide (78% of a phone screen), so they get a resized copy (AVIF/WebP, via the
+              // same optimiser the main photo uses) instead of the 2000 px original: ~13 KB instead of ~200 KB each.
+              // Hosts the optimiser can't fetch fall back to the original. The lightbox still shows full size.
+              unoptimized={!isOptimizableImageUrl(url)}
+              sizes="(min-width: 640px) 340px, 78vw"
               // inset-0 (real top/right/bottom/left:0 rules) alongside
               // `fill`'s own injected inline height:100%/width:100% —
               // belt-and-braces so the image's box is pinned directly to

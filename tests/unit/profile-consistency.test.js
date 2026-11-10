@@ -79,7 +79,9 @@ describe('compatibility boundaries (source guards)', () => {
   });
   it('campaign page still lets a chosen listing agent override the account holder (existing behaviour kept)', () => {
     const page = read('src/app/components/PropertyPageClient.js');
-    expect(page).toContain('if (property.agentId)');
+    expect(page).toMatch(/if \(!?property\.agentId\)/); // the assigned agent is still looked up (roster + directory)
+    expect(page).toContain("doc(db, 'agents', property.agentId)");
+    expect(page).toContain('/api/public/listing-agent?propertyId=');
     // The assigned agent is resolved by the single resolver (name/photo/phone never fall back to the owner).
     expect(page).toContain('resolveListingAgent({ property, ownerProfile: userData, rosterAgent, directoryAgent })');
   });
