@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
@@ -15,12 +14,10 @@ import {
   TrendingUp,
   TrendingDown,
   Activity,
-  X,
   ChevronUp,
   ChevronDown,
   RefreshCw,
   Clock,
-  Sparkles,
   MapPin,
 } from 'lucide-react';
 
@@ -28,7 +25,6 @@ import PHITicker from './components/PHITicker';
 import HeatmapControls from './components/HeatmapControls';
 import LocationSearch from './components/LocationSearch';
 import LocationReport from './components/LocationReport';
-import ChatPanel from './components/ChatPanel';
 import { loginUrlForCurrentPage } from '../../utils/loginRedirect';
 
 // Load mapbox component with SSR disabled (mapbox-gl requires window/document)
@@ -228,15 +224,6 @@ export default function PlaygroundPage() {
   const router = useRouter();
   const [apiAccess, setApiAccess] = useState(null);
 
-  // Chat state
-  const [messages, setMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
-  const mobileInputRef = useRef(null);
-
   // Dashboard state
   const [nationalData, setNationalData] = useState(null);
   const [nationalLoading, setNationalLoading] = useState(true);
@@ -275,10 +262,6 @@ export default function PlaygroundPage() {
     });
     return () => unsub();
   }, [user]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
 
   const apiKey = apiAccess?.apiKey;
 
@@ -408,39 +391,6 @@ export default function PlaygroundPage() {
     setReportLoading({});
     setSelectedMarker(null);
   }, []);
-
-  // Send chat message
-  const sendMessage = useCallback(async (text) => {
-    const trimmed = (text || chatInput).trim();
-    if (!trimmed || sending) return;
-
-    const userMessage = { role: 'user', content: trimmed };
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
-    setChatInput('');
-    setSending(true);
-
-    try {
-      const apiMessages = updatedMessages.map((m) => ({ role: m.role, content: m.content }));
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-        body: JSON.stringify({ messages: apiMessages }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Request failed');
-      }
-      const data = await res.json();
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
-    } catch (err) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${err.message}` }]);
-    } finally {
-      setSending(false);
-    }
-  }, [chatInput, messages, sending, apiKey]);
-
-  const clearChat = () => setMessages([]);
 
   // Manual sync
   const handleSync = useCallback(async () => {
@@ -644,80 +594,7 @@ export default function PlaygroundPage() {
             <UpcomingToMarket data={upcomingData} loading={upcomingLoading} />
           </div>
         </div>
-
-        {/* Right sidebar: Chat (100%) */}
-        <div className="hidden lg:flex w-[300px] flex-col border-l border-slate-800 flex-shrink-0 min-h-0">
-          <ChatPanel
-            messages={messages}
-            input={chatInput}
-            setInput={setChatInput}
-            onSend={sendMessage}
-            sending={sending}
-            onClear={clearChat}
-            inputRef={inputRef}
-            messagesEndRef={messagesEndRef}
-            className="flex-1"
-          />
-        </div>
       </div>
-
-      {/* Mobile Floating Chat Button */}
-      <div className="lg:hidden fixed bottom-4 right-4 z-40">
-        <AnimatePresence>
-          {!chatOpen && (
-            <motion.button
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0, opacity: 0 }}
-              onClick={() => setChatOpen(true)}
-              className="w-12 h-12 rounded-full bg-orange-600 text-white flex items-center justify-center shadow-lg shadow-orange-900/40"
-            >
-              <MessageSquare className="w-5 h-5" />
-              {messages.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-slate-900 text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-slate-700">
-                  {messages.filter((m) => m.role === 'assistant').length}
-                </span>
-              )}
-            </motion.button>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Mobile Chat Overlay */}
-      <AnimatePresence>
-        {chatOpen && (
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="lg:hidden fixed inset-0 z-50 bg-slate-950 flex flex-col"
-          >
-            <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 bg-gradient-to-br from-orange-500 to-orange-700 rounded flex items-center justify-center">
-                  <Sparkles className="w-2.5 h-2.5 text-white" />
-                </div>
-                <span className="text-xs font-semibold text-slate-300">AI Assistant</span>
-              </div>
-              <button onClick={() => setChatOpen(false)} className="p-1.5 hover:bg-slate-800 rounded transition-colors">
-                <X className="w-4 h-4 text-slate-500" />
-              </button>
-            </div>
-            <ChatPanel
-              messages={messages}
-              input={chatInput}
-              setInput={setChatInput}
-              onSend={sendMessage}
-              sending={sending}
-              onClear={clearChat}
-              inputRef={mobileInputRef}
-              messagesEndRef={messagesEndRef}
-              className="flex-1"
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
