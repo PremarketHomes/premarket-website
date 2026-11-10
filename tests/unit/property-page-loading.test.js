@@ -28,4 +28,8 @@ describe('buyer property page loading', () => {
     expect(gallery).toContain('sizes="(min-width: 640px) 340px, 78vw"');
     expect(readFileSync('src/app/components/property-page/PropertyHero.js', 'utf8')).toMatch(/priority\s+sizes="100vw"/);
   });
+  it('the agent photo (64 px) is a resized copy, not the original upload', () => {
+    const signOff = readFileSync('src/app/components/property-page/AgentSignOff.js', 'utf8');
+    expect(signOff).toContain('unoptimized={!isOptimizableImageUrl(agentData.avatar)}');
+  });
 });
