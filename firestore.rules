@@ -140,11 +140,27 @@ service cloud.firestore {
     // Public read: anyone can browse listings.
     // Write: authenticated owner only (userId field must match).
     // ═══════════════════════════════════════════════════════════
+    // Listings that were deleted while buyer offers still referenced them
+    // (census 2026-11-11). Whoever re-created one of these ids would become
+    // the "owner" those orphaned offers point at (isOwnerOfProperty) and could
+    // read the buyers' details. The app only ever creates listings with
+    // random ids (addDoc), so blocking these ids affects no real flow.
+    // Stop-gap until orphaned offers are handled server-side.
+    function isRetiredPropertyId(id) {
+      return id in [
+        '11YU7ChRxRELB0LFa8lb', '1XEC5cLbb3n86jf6phQ7', 'LIMMpRAu5V2rAL8X7NEf',
+        'Sz0R6YU0FUIM8kt4vJUK', 'pzd3dzZexvGuPCYCyk2o', 'EWkE1WK74ANPCfbCzSBP',
+        'RKHYSLNSJUJS4Mb8Whnu', '3cysx7Borvdn0SLp2azN', 'JLRR70gkWEPjpST4avsI',
+        'SjYhfaqYv6rkVxC4lFFL', 'C85BhLy6RT0qt7NiE8Ck'
+      ];
+    }
+
     match /properties/{propertyId} {
       allow read: if true;
 
       allow create: if isAuth()
-        && request.resource.data.userId == request.auth.uid;
+        && request.resource.data.userId == request.auth.uid
+        && !isRetiredPropertyId(propertyId);
 
       allow update: if isAuth()
         && resource.data.userId == request.auth.uid;
@@ -166,9 +182,87 @@ service cloud.firestore {
     //   (Admin SDK, returns only the amount — never PII) instead of a
     //   direct client read, since that pattern can't be safely expressed
     //   as a security rule (see docs/security-finding-offers-public-read-pii.md).
-    // Update: propertyId cannot change; if userId is being set
-    //   the authenticated user must match.
+    // Create / update (hardened 2026-11-11, security incident). The app's
+    //   anonymous flows update an existing offer without signing in (re-saving
+    //   an opinion, registering interest after an opinion, the iPad kiosk queue,
+    //   the TV display), so the rules cannot tell the original visitor apart
+    //   from anyone else who learns an offer id. Offer ids are NOT secret
+    //   (e.g. agents see them, /api/buyer/feed returned them). These rules
+    //   therefore make sure that knowing an id is never enough to:
+    //     - read anything (only the linked buyer, the listing's agent or a
+    //       superAdmin can read),
+    //     - attach an offer to an account other than your own, or attach an
+    //       offer that already holds contact details (which would expose them),
+    //     - change or remove a buyer's name, email or phone, or downgrade a
+    //       registration,
+    //     - touch an offer linked to someone else's account,
+    //     - change propertyId / type / sessionId / createdAt, or the
+    //       interest-notification bookkeeping (server-only).
+    //   Stopping an anonymous visitor from editing the price or answers of
+    //   an unlinked offer needs a server-side edit token (planned follow-up).
     // ═══════════════════════════════════════════════════════════
+
+    // Every field a client writes when creating an offer: the property page
+    // (opinion and registration), the iPad kiosk queue and the TV display.
+    function offerCreateKeys() {
+      return ['type', 'propertyId', 'sessionId', 'visitorId', 'offerAmount',
+              'createdAt', 'updatedAt', 'fromWeb', 'fromIpadMode', 'fromTvDisplay', 'displayId',
+              'serious', 'isFirstHomeBuyer', 'isInvestor', 'buyerType', 'nextAction', 'timeframe',
+              'seriousnessLevel', 'buyerName', 'buyerEmail', 'buyerPhone', 'userId'];
+    }
+
+    // Every field those writers change on an existing offer.
+    function offerUpdateKeys() {
+      return ['offerAmount', 'updatedAt', 'visitorId', 'fromWeb',
+              'serious', 'isFirstHomeBuyer', 'isInvestor', 'buyerType', 'nextAction', 'timeframe',
+              'seriousnessLevel', 'buyerName', 'buyerEmail', 'buyerPhone', 'userId'];
+    }
+
+    function isBlankField(data, key) {
+      return data.get(key, null) == null || data.get(key, null) == '';
+    }
+
+    function offerIsLinked(data) {
+      return data.get('userId', null) != null;
+    }
+
+    // Safe to attach to the caller's account: no contact details, and nothing
+    // beyond the fields the current writers produce (older documents with
+    // other, possibly personal, fields are never attachable).
+    function offerIsLinkable(data) {
+      return data.keys().hasOnly(offerCreateKeys())
+        && isBlankField(data, 'buyerName')
+        && isBlankField(data, 'buyerEmail')
+        && isBlankField(data, 'buyerPhone');
+    }
+
+    function contactFieldWriteOnce(before, changed, key) {
+      return !changed.hasAny([key]) || isBlankField(before, key);
+    }
+
+    function offerUpdateAllowed(before, after, changed) {
+      return changed.hasOnly(offerUpdateKeys())
+        // An offer linked to an account can only be changed by that account.
+        && (!offerIsLinked(before) || isUser(before.userId))
+        // userId: the linked buyer may remove it; an unlinked offer with no
+        // contact details may be attached to the caller's own account.
+        && (
+          !changed.hasAny(['userId'])
+          || (offerIsLinked(before) && !('userId' in after))
+          || (!offerIsLinked(before) && isAuth()
+              && after.get('userId', null) == request.auth.uid
+              && offerIsLinkable(before))
+        )
+        // Contact details on an unlinked offer can be added, never replaced.
+        && (offerIsLinked(before) || (
+          contactFieldWriteOnce(before, changed, 'buyerName')
+          && contactFieldWriteOnce(before, changed, 'buyerEmail')
+          && contactFieldWriteOnce(before, changed, 'buyerPhone')
+        ))
+        // The app only ever sets serious to true; a registration can't be undone.
+        && (!changed.hasAny(['serious']) || after.serious == true);
+    }
+
     match /offers/{offerId} {
       allow read: if isAuth() && (
         resource.data.userId == request.auth.uid
@@ -176,13 +270,19 @@ service cloud.firestore {
         || isSuperAdmin()
       );
 
-      allow create: if request.resource.data.propertyId is string;
-
-      allow update: if request.resource.data.propertyId == resource.data.propertyId
+      allow create: if request.resource.data.keys().hasOnly(offerCreateKeys())
+        && request.resource.data.get('type', null) == 'opinion'
+        && request.resource.data.propertyId is string
         && (
-          !request.resource.data.keys().hasAll(['userId'])
+          !('userId' in request.resource.data)
           || (isAuth() && request.resource.data.userId == request.auth.uid)
         );
+
+      allow update: if offerUpdateAllowed(
+        resource.data,
+        request.resource.data,
+        request.resource.data.diff(resource.data).affectedKeys()
+      );
 
       allow delete: if false;
     }
@@ -469,13 +569,11 @@ service cloud.firestore {
     // Office-managed professional agent profiles (stable id; optional linkedUid to an existing Auth
     // uid). Server-only: all reads/writes go through /api/offices/{officeId}/agent-directory and
     // agent-profile, which enforce office-admin + office scoping. Includes the audit subcollection.
-    // PREPARED LOCALLY — not deployed. (Default-deny already blocks clients; this makes it explicit.)
+    // (Default-deny already blocks clients; this makes it explicit.)
     // Audit trail of office-admin team changes (create/update/add/remove/move). Server-only.
-    // PREPARED LOCALLY — not deployed.
     match /officeTeamAudit/{id} { allow read, write: if false; }
 
     // Audit trail of office/team-managed campaign actions (create/show/hide/archive). Server-only.
-    // PREPARED LOCALLY — not deployed.
     match /officeCampaignAudit/{id} { allow read, write: if false; }
 
     match /officeAgents/{profileId} {
