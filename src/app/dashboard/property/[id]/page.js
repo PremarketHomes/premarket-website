@@ -75,6 +75,7 @@ import {
   Download,
 } from 'lucide-react';
 import { formatPrice, formatDate } from '../../../utils/formatters';
+import { ReportSkeleton } from '../../components/PageSkeletons';
 
 function median(arr) {
   if (!arr.length) return 0;
@@ -1489,13 +1490,7 @@ export default function PropertyReportPage() {
     }
   };
 
-  if (authLoading || loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" />
-      </div>
-    );
-  }
+  if (authLoading || loading) return <ReportSkeleton />;
 
   if (!user) return null;
 

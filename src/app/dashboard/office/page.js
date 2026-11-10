@@ -11,6 +11,7 @@ import PropertyPageClient from '../../components/PropertyPageClient';
 import { Upload, Loader2, UserPlus, RotateCcw, Trash2, Users, AlertCircle } from 'lucide-react';
 import BackToDashboard from '../../components/BackToDashboard';
 import { startOfficeRequest, officeResponse } from '../../utils/officePrefetch';
+import { OfficePageSkeleton } from '../components/PageSkeletons';
 
 const STATUS_LABEL = {
   active: { text: 'Active', className: 'bg-emerald-100 text-emerald-700' },
@@ -128,13 +129,7 @@ export default function OfficeManagementPage() {
     loadAll();
   }, [authLoading, uid, loadAll]);
 
-  if (authLoading || loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" />
-      </div>
-    );
-  }
+  if (authLoading || loading) return <OfficePageSkeleton overview />;
 
   if (loadFailed) {
     return (

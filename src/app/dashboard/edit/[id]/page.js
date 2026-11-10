@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { loginUrlForCurrentPage } from '../../../utils/loginRedirect';
 import { readDashboardRoleHint } from '../../components/BsoCampaigns';
+import { EditSkeleton } from '../../components/PageSkeletons';
 
 const STEPS = {
   ADDRESS: 1,
@@ -545,13 +546,7 @@ export default function EditPropertyPage() {
     }
   };
 
-  if (authLoading || pageLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" />
-      </div>
-    );
-  }
+  if (authLoading || pageLoading) return <EditSkeleton />;
 
   if (!user) return null;
 

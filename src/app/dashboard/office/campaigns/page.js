@@ -10,6 +10,7 @@ import { authFetch } from '../../../utils/authFetch';
 import { startOfficeRequest, officeResponse } from '../../../utils/officePrefetch';
 import BackToDashboard from '../../../components/BackToDashboard';
 import PropertyThumb from '../../../components/PropertyThumb';
+import { OfficePageSkeleton } from '../../components/PageSkeletons';
 
 const date = (iso) => (iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 const FILTERS = [['all', 'All'], ['live', 'Link live'], ['hidden', 'Link hidden'], ['managed', 'Created by office'], ['needs-manager', 'Needs a manager'], ['archived', 'Archived']];
@@ -107,7 +108,7 @@ function CampaignsInner() {
     });
   }, [state.campaigns, query, filter, bsoFilter, agentFilter]);
 
-  if (state.status === 'loading') return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
+  if (state.status === 'loading') return <OfficePageSkeleton />;
   if (state.status !== 'ready') {
     const msg = state.status === 'off' ? 'Managed campaigns are not switched on yet.' : state.status === 'not-admin' ? 'Only office administrators can see office campaigns.' : state.status === 'no-office' ? 'You are not part of an office yet.' : 'We could not load the campaigns. Please try again.';
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 text-center"><div><p className="text-slate-600">{msg}</p><Link href="/dashboard" className="inline-block mt-4 text-sm font-semibold text-orange-600">Back to dashboard</Link></div></div>;
@@ -206,5 +207,5 @@ function CampaignsInner() {
 }
 
 export default function OfficeCampaignsPage() {
-  return <Suspense fallback={null}><CampaignsInner /></Suspense>;
+  return <Suspense fallback={<OfficePageSkeleton />}><CampaignsInner /></Suspense>;
 }

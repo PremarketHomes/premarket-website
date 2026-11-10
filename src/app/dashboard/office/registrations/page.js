@@ -7,6 +7,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
 import BackToDashboard from '../../../components/BackToDashboard';
+import { OfficePageSkeleton } from '../../components/PageSkeletons';
 
 const ACTIONS = { contact: 'Wants to be contacted', inspect: 'Wants an inspection', price: 'Wants the price guide', offer: 'Wants to make an offer' };
 const TIMEFRAMES = { now: 'Right away', '1-month': 'Within a month', '3-months': 'Within 3 months', '6-months': 'Within 6 months', later: 'Later' };
@@ -36,7 +37,7 @@ export default function RegistrationsPage() {
     return state.registrations.filter((r) => !q || `${r.buyerName || ''} ${r.address || ''} ${r.agentName || ''}`.toLowerCase().includes(q));
   }, [state.registrations, query]);
 
-  if (state.status === 'loading') return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
+  if (state.status === 'loading') return <OfficePageSkeleton />;
   if (state.status !== 'ready') {
     const msg = state.status === 'forbidden' ? 'The registrations overview is not switched on yet. Each campaign\'s own report still shows its registrations.' : 'We could not load the registrations. Please try again.';
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 text-center"><div><p className="text-slate-600">{msg}</p><Link href="/dashboard" className="inline-block mt-4 text-sm font-semibold text-orange-600">Back to dashboard</Link></div></div>;
