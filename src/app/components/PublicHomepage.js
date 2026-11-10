@@ -560,12 +560,13 @@ const { displayName, displayAvatar } = listingCardAgent({ property, accountAgent
                         <div className="flex items-center gap-2.5">
                           <div className="flex-shrink-0">
                             {displayAvatar ? (
-                              <PropertyThumb
+                              <Image
                                 src={displayAvatar}
                                 alt={displayName || 'Agent'}
                                 width={36}
                                 height={36}
                                 className="rounded-lg object-cover w-9 h-9"
+                                unoptimized
                               />
                             ) : (
                               <div className="w-9 h-9 bg-slate-200 rounded-lg flex items-center justify-center">
@@ -587,12 +588,13 @@ const { displayName, displayAvatar } = listingCardAgent({ property, accountAgent
                           </div>
                           {accountAgent.logoUrl && (
                             <div className="flex-shrink-0">
-                              <PropertyThumb
+                              <Image
                                 src={accountAgent.logoUrl}
                                 alt="Agency"
                                 width={32}
                                 height={32}
                                 className="w-8 h-8 rounded-lg object-contain bg-white border border-slate-100"
+                                unoptimized
                                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
                               />
                             </div>
