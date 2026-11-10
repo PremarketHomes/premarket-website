@@ -75,6 +75,17 @@ function ShimmerImage({ src, alt, ...props }) {
 }
 
 // --- Sidebar ---
+// The sidebar's feature flags and leadership check rarely change, so they are remembered for the rest of this page
+// session: going back to the Dashboard from another page does not ask again (a reload does). Display only: every page
+// and API still checks access on the server.
+const sidebarMemo = new Map();
+function rememberForSession(key, load) {
+  if (!sidebarMemo.has(key)) {
+    sidebarMemo.set(key, load().catch(() => null).then((v) => { if (v == null) sidebarMemo.delete(key); return v; }));
+  }
+  return sidebarMemo.get(key);
+}
+
 function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, userName, userData, isBso = false }) {
   // Office-linked agents show their office's agency title, resolved
   // live — a neutral placeholder while it loads and a retry if it
@@ -89,17 +100,17 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
   const [campaignsOn, setCampaignsOn] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/features').then((r) => (r.ok ? r.json() : null)).then((b) => { if (cancelled) return; if (b?.officeRegistrations === true) setRegistrationsOn(true); if (b?.managedCampaigns === true) setCampaignsOn(true); }).catch(() => {});
+    rememberForSession('features', () => fetch('/api/features').then((r) => (r.ok ? r.json() : null))).then((b) => { if (cancelled) return; if (b?.officeRegistrations === true) setRegistrationsOn(true); if (b?.managedCampaigns === true) setCampaignsOn(true); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
   useEffect(() => {
     let cancelled = false;
-    authFetch('/api/leadership/access')
-      .then((r) => (r.ok ? r.json() : null))
+    const loadLeader = () => authFetch('/api/leadership/access').then((r) => (r.ok ? r.json() : null));
+    (userData?.id ? rememberForSession(`leadership:${userData.id}`, loadLeader) : loadLeader())
       .then((b) => { if (!cancelled && b?.leader === true) setIsLeader(true); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, []);
+  }, [userData?.id]);
   // A BSO's Dashboard is their campaign workspace (the campaigns they manage), so they get no separate
   // "My Campaigns" link and no User Manual link. Everyone else's navigation is unchanged.
   const navItems = [
