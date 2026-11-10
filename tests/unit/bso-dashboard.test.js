@@ -40,10 +40,19 @@ describe('BSO sidebar and Dashboard (agents and office admins unchanged)', () =>
     for (const s of ["label: 'Office'", "label: 'Agents'", "label: 'Teams'", "label: 'Campaigns'", "label: 'Registrations'", "label: 'Leadership Hub'", "label: 'Admin'"]) expect(nav).toContain(s);
     expect(nav).toContain('userData?.isOfficeAdmin === true');
   });
-  it('a BSO is decided by the server (/api/bso/access), and the dashboard waits for that answer (no empty-state flash)', () => {
-    expect(dash).toContain("authFetch('/api/bso/access')");
-    expect(dash).toContain("const gridLoading = propertiesLoading || bsoStatus === 'unknown'");
-    expect(dash).toContain('isBso={isBso}');
+  it('one request decides BSO and loads campaigns; regular agents never wait for it (Phase 1 perf)', () => {
+    const hook = read('src/app/dashboard/components/BsoCampaigns.js');
+    expect(dash).not.toContain("/api/bso/access");
+    expect(dash).toContain('const bso = useBsoDashboard({ uid: user?.uid, officeId: userData?.officeId, authLoading: loading });');
+    expect(hook).toContain("const res = await authFetch('/api/bso/campaigns');");
+    expect(hook).toContain('if (res.status === 403) {'); // not a BSO: the server's answer, same check as before
+    // regular agents / office admins: the lightweight check; only a device-known BSO skips straight to the campaign list
+    expect(hook).toContain("if (hint !== 'bso') {");
+    expect(hook).toContain("const access = await authFetch('/api/bso/access');");
+    expect(hook).toContain("if (!officeId) { setState({ role: 'agent', status: 'ready', office: null, campaigns: [] }); return; }");
+    // wait only for a known BSO or an empty portfolio (no "No properties yet" flash for a BSO); agents with properties don't wait
+    expect(dash).toContain("|| (bso.role === 'unknown' && (bso.hint === 'bso' || properties.length === 0))");
+    expect(dash).toContain('isBso={showBsoLayout}');
   });
   it('BSO figures and list come from their managed campaigns; empty state only when they have none', () => {
     expect(dash).toContain('<StatCard label="Total Managed Campaigns" value={gridLoading ? \'...\' : bsoStats.campaigns} />');

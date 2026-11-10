@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useOfficeBrand } from '../utils/officeBrand';
 import { isPlaceholderAvatar } from '../utils/avatar';
 import AgentGreeting from './components/AgentGreeting';
-import { BsoCampaignList, useBsoCampaigns } from './components/BsoCampaigns';
+import { BsoCampaignList, useBsoDashboard } from './components/BsoCampaigns';
 import { bsoCampaignStats, BSO_TAB_FILTERS } from '../utils/bsoDashboard';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
@@ -1065,21 +1065,13 @@ function DashboardPage() {
   const [teamRows, setTeamRows] = useState([]);
   const [teamView, setTeamView] = useState('all'); // 'all' | 'mine' | 'team'
   // BSO: authorised server-side only (officeAdminInfo.bsoUids, re-checked on every request). For a BSO the Dashboard
-  // shows the campaigns they manage instead of only the properties they own. 'unknown' until the check returns, so an
-  // office agent never sees a flash of the wrong dashboard.
-  const [bsoStatus, setBsoStatus] = useState('unknown'); // 'unknown' | 'yes' | 'no'
-  useEffect(() => {
-    if (loading) return undefined;
-    if (!userData?.officeId) { setBsoStatus('no'); return undefined; }
-    let cancelled = false;
-    authFetch('/api/bso/access')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((b) => { if (!cancelled) setBsoStatus(b?.bso === true ? 'yes' : 'no'); })
-      .catch(() => { if (!cancelled) setBsoStatus('no'); });
-    return () => { cancelled = true; };
-  }, [loading, userData?.officeId]);
-  const isBso = bsoStatus === 'yes';
-  const bso = useBsoCampaigns(isBso);
+  // shows the campaigns they manage instead of only the properties they own. One request answers both "is this a BSO?"
+  // and "which campaigns?" (see useBsoDashboard). Regular agents never wait for it: their grid shows as soon as their
+  // own properties load. While it is pending, the role last seen on this device decides which layout to hold.
+  const bso = useBsoDashboard({ uid: user?.uid, officeId: userData?.officeId, authLoading: loading });
+  const isBso = bso.role === 'bso';
+  const expectBso = bso.role === 'unknown' && bso.hint === 'bso';
+  const showBsoLayout = isBso || expectBso;
 
   // Logo onboarding for agents without a logo
   useEffect(() => {
@@ -1367,11 +1359,15 @@ function DashboardPage() {
     : currentTabProperties;
   const displayProperties = agentFilteredProperties;
   // BSO dashboard: figures, counts and list come from the campaigns they manage (see components/BsoCampaigns.js).
-  const addHref = isBso ? '/dashboard/add?as=bso' : '/dashboard/add';
+  const addHref = showBsoLayout ? '/dashboard/add?as=bso' : '/dashboard/add';
   const bsoStats = bsoCampaignStats(bso.campaigns);
   const bsoSoldCount = bso.campaigns.filter(BSO_TAB_FILTERS.sold).length;
   const bsoArchivedCount = bso.campaigns.filter(BSO_TAB_FILTERS.archived).length;
-  const gridLoading = propertiesLoading || bsoStatus === 'unknown' || (isBso && (bso.status === 'idle' || bso.status === 'loading'));
+  // Only wait for the BSO answer when it matters: a known BSO (hint), or an empty agent portfolio that would otherwise
+  // flash "No properties yet" at a BSO on a new device. An agent with properties sees them immediately.
+  const gridLoading = propertiesLoading
+    || (bso.role === 'unknown' && (bso.hint === 'bso' || properties.length === 0))
+    || (isBso && (bso.status === 'idle' || bso.status === 'loading'));
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
   return (
@@ -1384,7 +1380,7 @@ function DashboardPage() {
         setSidebarOpen={setSidebarOpen}
         userName={userName}
         userData={userData}
-        isBso={isBso}
+        isBso={showBsoLayout}
       />
 
       {/* Main Content */}
@@ -1500,7 +1496,7 @@ function DashboardPage() {
 
           {/* Overview Stats */}
           {activeTab === 'overview' && (
-            isBso ? (
+            showBsoLayout ? (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200 border border-stone-200 rounded-md overflow-hidden" data-testid="bso-stats">
                 <StatCard label="Total Managed Campaigns" value={gridLoading ? '...' : bsoStats.campaigns} />
                 <StatCard label="Live Campaigns" value={gridLoading ? '...' : bsoStats.live} />
