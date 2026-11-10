@@ -54,6 +54,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
+import PropertyThumb from '../components/PropertyThumb';
 
 // --- Shimmer Image Wrapper ---
 function ShimmerImage({ src, alt, ...props }) {
@@ -63,7 +64,7 @@ function ShimmerImage({ src, alt, ...props }) {
       {!loaded && (
         <div className="absolute inset-0 bg-slate-200 animate-pulse" />
       )}
-      <Image
+      <PropertyThumb
         src={src}
         alt={alt}
         {...props}
@@ -332,7 +333,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
             alt={property.address || 'Property'}
             fill
             className="object-cover group-hover:scale-[1.015] transition-transform duration-500"
-            unoptimized
+            sizes="(min-width: 1280px) 400px, (min-width: 640px) 50vw, 100vw"
           />
         ) : property.imageUploadProgress?.inProgress ? (
           <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-stone-50">

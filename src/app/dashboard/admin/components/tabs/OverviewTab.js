@@ -23,6 +23,7 @@ import SignupsChart from '../charts/SignupsChart';
 import PropertyStatusChart from '../charts/PropertyStatusChart';
 import { formatDate, getPropertyImage } from '../../utils/formatters';
 import { authFetch } from '../../../../utils/authFetch';
+import PropertyThumb from '../../../../components/PropertyThumb';
 
 export default function OverviewTab({ user }) {
   const [data, setData] = useState(null);
@@ -211,7 +212,7 @@ export default function OverviewTab({ user }) {
               <Link key={p.id} href={`/dashboard/property/${p.id}`} className="px-6 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors">
                 <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                   {getPropertyImage(p) ? (
-                    <img src={getPropertyImage(p)} alt="" className="w-full h-full object-cover" />
+                    <PropertyThumb src={getPropertyImage(p)} width={40} height={40} className="w-full h-full object-cover" />
                   ) : (
                     <Building2 className="w-4 h-4 text-slate-400" />
                   )}

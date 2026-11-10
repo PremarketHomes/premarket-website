@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useRequireAgent } from '../../hooks/useRequireAgent';
 import { authFetch } from '../../utils/authFetch';
 import { db } from '../../firebase/clientApp';
+import PropertyThumb from '../../components/PropertyThumb';
 
 const PROPERTY_STATUS = {
   live: { label: 'Live', className: 'bg-slate-900 text-white' },
@@ -371,7 +372,7 @@ export default function MyTeamPage() {
                 {rows.map((p) => (
                   <li key={p.id} className="flex gap-3 border border-slate-100 rounded-xl p-3">
                     {p.thumbnail ? (
-                      <img src={p.thumbnail} alt="" className="w-20 h-16 rounded-lg object-cover shrink-0 bg-slate-100" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                      <PropertyThumb src={p.thumbnail} width={80} height={64} className="w-20 h-16 rounded-lg object-cover shrink-0 bg-slate-100" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                     ) : <div className="w-20 h-16 rounded-lg bg-slate-100 shrink-0" />}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">

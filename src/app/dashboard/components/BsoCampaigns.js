@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ExternalLink, Eye, EyeOff, Archive, Send, Copy, Pencil, BarChart3, CheckCircle } from 'lucide-react';
 import { authFetch } from '../../utils/authFetch';
 import { BSO_TAB_FILTERS } from '../../utils/bsoDashboard';
+import PropertyThumb from '../../components/PropertyThumb';
 
 /**
  * The BSO's campaigns, shown on their Dashboard (formerly the separate "My Campaigns" page). Everything comes from
@@ -160,8 +161,7 @@ export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
             <li key={c.id} data-testid="bso-campaign" className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 {c.imageUrl
-                  // eslint-disable-next-line @next/next/no-img-element
-                  ? <img src={c.imageUrl} alt="" className="w-16 h-12 rounded-lg object-cover bg-slate-100 shrink-0" />
+                  ? <PropertyThumb src={c.imageUrl} width={64} height={48} className="w-16 h-12 rounded-lg object-cover bg-slate-100 shrink-0" />
                   : <div className="w-16 h-12 rounded-lg bg-slate-100 shrink-0" />}
                 <div className="min-w-0">
                   <p className="font-semibold text-slate-900 truncate">

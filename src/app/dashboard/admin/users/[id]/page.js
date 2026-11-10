@@ -32,6 +32,7 @@ import Toggle from '../../components/Toggle';
 import AdminModal from '../../components/AdminModal';
 import { formatDate, formatDateWithTime, getPropertyImage } from '../../utils/formatters';
 import { authFetch } from '../../../../utils/authFetch';
+import PropertyThumb from '../../../../components/PropertyThumb';
 
 export default function AdminUserPage() {
   const { user, userData, loading } = useAuth();
@@ -506,7 +507,7 @@ export default function AdminUserPage() {
                 >
                   <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                     {getPropertyImage(p) ? (
-                      <img src={getPropertyImage(p)} alt="" className="w-full h-full object-cover" />
+                      <PropertyThumb src={getPropertyImage(p)} width={40} height={40} className="w-full h-full object-cover" />
                     ) : (
                       <Building2 className="w-4 h-4 text-slate-400" />
                     )}

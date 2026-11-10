@@ -14,6 +14,7 @@ import {
   PulseBadge,
   GlowButton,
 } from './marketing/WowFactor';
+import PropertyThumb from './PropertyThumb';
 
 function ShimmerImage({ src, alt, ...props }) {
   const [loaded, setLoaded] = useState(false);
@@ -22,7 +23,7 @@ function ShimmerImage({ src, alt, ...props }) {
       {!loaded && (
         <div className="absolute inset-0 bg-slate-200 animate-pulse" />
       )}
-      <Image
+      <PropertyThumb
         src={src}
         alt={alt}
         {...props}
@@ -498,7 +499,7 @@ function FeaturedProperties() {
                       alt={property.title || 'Property'}
                       fill
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
-                      unoptimized
+                      sizes="(min-width: 1024px) 400px, (min-width: 640px) 50vw, 100vw"
                     />
                   ) : (
                     <div className="w-full h-full bg-slate-200 flex items-center justify-center">
