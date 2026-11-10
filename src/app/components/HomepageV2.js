@@ -865,92 +865,6 @@ function IPadOpenHomes() {
 }
 
 // ══════════════════════════════════════════════
-// SECTION 8: AI IMAGE EDITING (DESIRE)
-// ══════════════════════════════════════════════
-
-function AIImageEditing() {
-  const [activeFeature, setActiveFeature] = useState(0);
-  const features = [
-    { title: 'Clear the Clutter', description: 'Remove clutter, clean surfaces, open curtains — all with a text prompt.', beforeImage: 'https://premarketvideos.b-cdn.net/assets/clutter1.jpg', afterImage: 'https://premarketvideos.b-cdn.net/assets/clutter2.png' },
-    { title: 'Day to Dusk', description: 'Transform daytime exterior shots into stunning dusk photography.', beforeImage: 'https://premarketvideos.b-cdn.net/assets/day1.jpg', afterImage: 'https://premarketvideos.b-cdn.net/assets/day2.png' },
-    { title: 'Perfect the Lawn', description: 'Green up patchy lawns while keeping gardens natural.', beforeImage: 'https://premarketvideos.b-cdn.net/assets/lawn1.jpg', afterImage: 'https://premarketvideos.b-cdn.net/assets/lawn2.png' },
-    { title: 'Sky Replacement', description: 'Swap overcast skies for golden hour perfection.', beforeImage: 'https://premarketvideos.b-cdn.net/assets/sky1.jpg', afterImage: 'https://premarketvideos.b-cdn.net/assets/sky2.png' },
-  ];
-
-  return (
-    <section className="py-24 lg:py-36 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 overflow-hidden">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} className="text-center mb-16">
-          <motion.div variants={fadeUp} custom={0}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-500/20 to-orange-500/20 rounded-full mb-6 border border-violet-500/30">
-            <svg className="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            <span className="text-violet-300 text-sm font-medium">AI-Powered</span>
-          </motion.div>
-          <motion.h2 variants={fadeUp} custom={0.1} className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-6">
-            Phone Photos.{' '}
-            <span className="bg-gradient-to-r from-orange-400 to-orange-500 bg-clip-text text-transparent">Professional Results.</span>
-          </motion.h2>
-          <motion.p variants={fadeUp} custom={0.2} className="text-xl text-slate-300 max-w-3xl mx-auto">
-            No professional photographer needed. Snap photos on your phone —
-            our AI transforms them instantly.
-          </motion.p>
-        </motion.div>
-
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-          {/* Feature tabs */}
-          <div className="space-y-4">
-            {features.map((feature, i) => (
-              <motion.div key={i}
-                initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }} transition={{ duration: 0.5, delay: i * 0.1 }}
-                onClick={() => setActiveFeature(i)}
-                className={`p-5 rounded-2xl cursor-pointer transition-all duration-300 ${
-                  activeFeature === i
-                    ? 'bg-gradient-to-r from-orange-500/20 to-orange-600/10 border border-orange-500/40'
-                    : 'bg-slate-800/50 border border-slate-700/50 hover:border-slate-600'
-                }`}
-              >
-                <h3 className={`font-semibold mb-1 ${activeFeature === i ? 'text-white' : 'text-slate-300'}`}>{feature.title}</h3>
-                <p className={`text-sm ${activeFeature === i ? 'text-slate-300' : 'text-slate-500'}`}>{feature.description}</p>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Before / After */}
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }}
-            viewport={{ once: true }} transition={{ duration: 0.6, delay: 0.2 }} className="relative">
-            <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-slate-800 border border-slate-700">
-              <AnimatePresence mode="wait">
-                <motion.div key={activeFeature} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }} className="absolute inset-0 flex">
-                  <div className="w-1/2 relative overflow-hidden">
-                    <img src={features[activeFeature].beforeImage} alt="Before" className="absolute inset-0 w-full h-full object-cover" />
-                    <div className="absolute top-3 left-3 px-3 py-1.5 bg-slate-900/80 backdrop-blur-sm rounded-lg text-xs text-slate-300 font-medium">Before</div>
-                  </div>
-                  <div className="w-1/2 relative overflow-hidden">
-                    <img src={features[activeFeature].afterImage} alt="After" className="absolute inset-0 w-full h-full object-cover" />
-                    <div className="absolute top-3 right-3 px-3 py-1.5 bg-gradient-to-r from-orange-500 to-orange-600 rounded-lg text-xs text-white font-medium">After</div>
-                  </div>
-                </motion.div>
-              </AnimatePresence>
-              <div className="absolute left-1/2 top-0 bottom-0 w-1 bg-gradient-to-b from-orange-400 via-orange-500 to-orange-400 -translate-x-1/2 z-10">
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white shadow-lg flex items-center justify-center">
-                  <svg className="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ══════════════════════════════════════════════
 // SECTION 9: DATA vs OPINION (DESIRE)
 // ══════════════════════════════════════════════
 
@@ -1301,7 +1215,6 @@ export default function HomepageV2() {
       <LiveDemo />
       <HowItWorks />
       <IPadOpenHomes />
-      <AIImageEditing />
       <DataAdvantage />
       <VendorOffer />
       <Testimonials />

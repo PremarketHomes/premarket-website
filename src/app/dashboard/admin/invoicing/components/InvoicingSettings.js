@@ -351,7 +351,7 @@ export default function InvoicingSettings({ user, xeroConnected, xeroError, onXe
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h3 className="text-sm font-semibold text-slate-700 mb-2">Daily Market Health Report</h3>
         <p className="text-xs text-slate-400 mb-3">
-          Email addresses that receive the AI-generated daily market health report card (comma-separated)
+          Email addresses that receive the daily market health report card (comma-separated)
         </p>
         <textarea
           value={(settings.marketReportRecipients || []).join(', ')}

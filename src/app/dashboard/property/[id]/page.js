@@ -27,8 +27,6 @@ import {
   query,
   where,
   getDocs,
-  onSnapshot,
-  orderBy,
   serverTimestamp,
   deleteField,
 } from 'firebase/firestore';
@@ -66,7 +64,6 @@ import {
   MoreVertical,
   Tablet,
   Copy,
-  Wand2,
   Loader2,
   AlertCircle,
   CheckCircle2,
@@ -110,7 +107,7 @@ function MedianCard({ label, value }) {
 }
 
 // --- Media Gallery (Video + Images) ---
-function MediaGallery({ images, videoUrl, onEditImage }) {
+function MediaGallery({ images, videoUrl }) {
   const [current, setCurrent] = useState(0);
   const hasVideo = !!videoUrl;
   const imageList = images || [];
@@ -157,17 +154,6 @@ function MediaGallery({ images, videoUrl, onEditImage }) {
         <div className="w-full h-64 sm:h-80 flex items-center justify-center">
           <Home className="w-16 h-16 text-slate-300" />
         </div>
-      )}
-
-      {/* AI Edit button — only on image slides */}
-      {!isVideoSlide && imageList.length > 0 && onEditImage && (
-        <button
-          onClick={() => onEditImage(imageList[imageIndex], imageIndex)}
-          className="absolute top-3 left-3 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold shadow-lg transition-colors flex items-center gap-1.5 z-10"
-        >
-          <Wand2 className="w-3.5 h-3.5" />
-          AI Edit
-        </button>
       )}
 
       {/* Navigation arrows */}
@@ -753,327 +739,6 @@ function OpinionsTable({ opinions, highlightId }) {
   );
 }
 
-// --- Image Edit Modal ---
-function ImageEditModal({ imageUrl, imageIndex, propertyId, userId, allImages, onClose, onApplied }) {
-  const [prompt, setPrompt] = useState('');
-  const [editHistory, setEditHistory] = useState([]);
-  const [selectedEdit, setSelectedEdit] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(null);
-  const pollingRef = useRef({});
-  const historyEndRef = useRef(null);
-
-  // Track whether user has explicitly picked a thumbnail (null = original selected)
-  const [hasExplicitSelection, setHasExplicitSelection] = useState(false);
-
-  // The image shown in preview and sent to the AI
-  const activeImageUrl = useMemo(() => {
-    if (selectedEdit?.editedImageUrl) return selectedEdit.editedImageUrl;
-    // If user explicitly clicked "Original", use original even if completed edits exist
-    if (hasExplicitSelection && !selectedEdit) return imageUrl;
-    const completed = [...editHistory].reverse().find(e => e.status === 'completed' && e.editedImageUrl);
-    return completed?.editedImageUrl || imageUrl;
-  }, [selectedEdit, hasExplicitSelection, editHistory, imageUrl]);
-
-  // Load edit history from Firestore (realtime)
-  useEffect(() => {
-    if (!userId || !propertyId) return;
-    const q = query(
-      collection(db, 'image_edits'),
-      where('userId', '==', userId),
-      where('listingId', '==', propertyId),
-      orderBy('createdAt', 'asc'),
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      const edits = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Build the chain: start with edits of the original image, then include any chained edits
-      const editedUrls = new Set([imageUrl]);
-      let found = true;
-      while (found) {
-        found = false;
-        for (const e of edits) {
-          if (editedUrls.has(e.originalImageUrl) && e.editedImageUrl && !editedUrls.has(e.editedImageUrl)) {
-            editedUrls.add(e.editedImageUrl);
-            found = true;
-          }
-        }
-      }
-      const relevant = edits.filter(e => editedUrls.has(e.originalImageUrl));
-      setEditHistory(relevant);
-    });
-    return () => unsub();
-  }, [userId, propertyId, imageUrl, allImages]);
-
-  // Poll processing edits
-  useEffect(() => {
-    const processing = editHistory.filter(e => e.status === 'processing' || e.status === 'pending');
-    // Start polling for any processing edits not already being polled
-    processing.forEach((edit) => {
-      if (pollingRef.current[edit.id]) return;
-      pollingRef.current[edit.id] = true;
-      const poll = async () => {
-        while (pollingRef.current[edit.id]) {
-          try {
-            const res = await authFetch(`/api/ai/image-edit?editId=${edit.id}`);
-            const data = await res.json();
-            if (data.status === 'completed' || data.status === 'failed') {
-              delete pollingRef.current[edit.id];
-              return;
-            }
-          } catch {
-            // continue polling
-          }
-          await new Promise(r => setTimeout(r, 5000));
-        }
-      };
-      poll();
-    });
-
-    // Cleanup — stop polling for edits no longer processing
-    const processingIds = new Set(processing.map(e => e.id));
-    Object.keys(pollingRef.current).forEach(id => {
-      if (!processingIds.has(id)) delete pollingRef.current[id];
-    });
-  }, [editHistory]);
-
-  // Cleanup all polling on unmount
-  useEffect(() => {
-    return () => { pollingRef.current = {}; };
-  }, []);
-
-  // Auto-scroll history
-  useEffect(() => {
-    historyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [editHistory.length]);
-
-  const handleSubmit = async () => {
-    if (!prompt.trim() || submitting) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const sourceUrl = activeImageUrl;
-      const parentEditId = selectedEdit?.id || null;
-
-      const res = await authFetch('/api/ai/image-edit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uid: userId,
-          propertyId,
-          imageUrl: sourceUrl,
-          prompt: prompt.trim(),
-          parentEditId,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Failed to start edit');
-        return;
-      }
-      setPrompt('');
-      // The Firestore listener will pick up the new edit
-    } catch (err) {
-      setError('Network error — please try again');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleApply = async (edit) => {
-    if (!edit.editedImageUrl) return;
-    try {
-      const res = await authFetch('/api/ai/image-edit/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uid: userId,
-          editId: edit.id,
-          propertyId,
-          originalImageUrl: imageUrl,
-          editedImageUrl: edit.editedImageUrl,
-        }),
-      });
-      const data = await res.json();
-      if (data.success && onApplied) {
-        onApplied(data.imageUrls);
-      }
-    } catch {
-      setError('Failed to apply edit');
-    }
-  };
-
-  const previewUrl = activeImageUrl;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-          <div className="flex items-center gap-2">
-            <Wand2 className="w-5 h-5 text-purple-600" />
-            <h3 className="text-lg font-bold text-slate-900">AI Image Editor</h3>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
-            <X className="w-5 h-5 text-slate-400" />
-          </button>
-        </div>
-
-        {/* Preview Image */}
-        <div className="relative w-full h-56 sm:h-64 bg-slate-900 flex-shrink-0">
-          <Image
-            src={previewUrl}
-            alt="Edit preview"
-            fill
-            className="object-contain"
-            unoptimized
-          />
-          {/* Processing overlay */}
-          {editHistory.some(e => e.status === 'processing' || e.status === 'pending') && (
-            <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center z-10">
-              <Loader2 className="w-8 h-8 text-white animate-spin mb-2" />
-              <p className="text-white text-sm font-medium">Generating edit...</p>
-            </div>
-          )}
-          {selectedEdit && selectedEdit.status === 'completed' && (
-            <div className="absolute bottom-3 right-3 flex gap-2">
-              <button
-                onClick={() => handleApply(selectedEdit)}
-                className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-lg shadow-lg transition-colors flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Apply to Listing
-              </button>
-            </div>
-          )}
-          {selectedEdit?.appliedToListing && (
-            <div className="absolute top-3 left-3 px-2.5 py-1 bg-green-600 text-white text-xs font-semibold rounded-lg">
-              Applied
-            </div>
-          )}
-        </div>
-
-        {/* Edit History Timeline */}
-        {editHistory.length > 0 && (
-          <div className="border-b border-slate-200 px-5 py-3">
-            <p className="text-xs font-semibold text-slate-500 mb-2">Edit History</p>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {/* Original image thumbnail */}
-              <button
-                onClick={() => { setSelectedEdit(null); setHasExplicitSelection(true); }}
-                className={`flex-shrink-0 relative w-16 h-16 rounded-lg overflow-hidden border-2 transition-colors ${
-                  hasExplicitSelection && !selectedEdit ? 'border-purple-500' : 'border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <Image src={imageUrl} alt="Original" fill className="object-cover" unoptimized />
-                <div className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[9px] font-medium text-center py-0.5">
-                  Original
-                </div>
-              </button>
-
-              {editHistory.map((edit) => (
-                <div key={edit.id} className="flex-shrink-0 relative group">
-                  <button
-                    onClick={() => { if (edit.status === 'completed') { setSelectedEdit(edit); setHasExplicitSelection(true); } }}
-                    className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 transition-colors ${
-                      selectedEdit?.id === edit.id ? 'border-purple-500' : 'border-slate-200 hover:border-slate-300'
-                    } ${edit.status !== 'completed' ? 'opacity-70' : ''}`}
-                  >
-                    {edit.status === 'completed' && edit.editedImageUrl ? (
-                      <Image src={edit.editedImageUrl} alt={edit.prompt} fill className="object-cover" unoptimized />
-                    ) : (
-                      <div className="w-full h-full bg-slate-100 flex items-center justify-center">
-                        {(edit.status === 'processing' || edit.status === 'pending') && (
-                          <Loader2 className="w-5 h-5 text-purple-500 animate-spin" />
-                        )}
-                        {edit.status === 'failed' && (
-                          <AlertCircle className="w-5 h-5 text-red-400" />
-                        )}
-                      </div>
-                    )}
-                    <div className={`absolute bottom-0 inset-x-0 text-white text-[9px] font-medium text-center py-0.5 ${
-                      edit.status === 'completed' ? 'bg-green-600/80' :
-                      edit.status === 'failed' ? 'bg-red-500/80' : 'bg-purple-600/80'
-                    }`}>
-                      {edit.status === 'completed' ? 'Done' : edit.status === 'failed' ? 'Failed' : 'Processing'}
-                    </div>
-                    {edit.appliedToListing && (
-                      <div className="absolute top-0.5 right-0.5 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                        <Check className="w-2.5 h-2.5 text-white" />
-                      </div>
-                    )}
-                  </button>
-                  {/* Delete button */}
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (selectedEdit?.id === edit.id) setSelectedEdit(null);
-                      await deleteDoc(doc(db, 'image_edits', edit.id));
-                    }}
-                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full items-center justify-center text-white shadow-md transition-colors hidden group-hover:flex z-10"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-              <div ref={historyEndRef} />
-            </div>
-          </div>
-        )}
-
-        {/* Error message */}
-        {error && (
-          <div className="mx-5 mt-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-sm text-red-700">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            {error}
-          </div>
-        )}
-
-        {/* Prompt Input */}
-        <div className="p-5 mt-auto">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-              placeholder="Describe your edit... e.g. &quot;Remove clutter from bench&quot;"
-              className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              disabled={submitting}
-            />
-            <button
-              onClick={handleSubmit}
-              disabled={!prompt.trim() || submitting}
-              className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2"
-            >
-              {submitting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4" />
-              )}
-              {submitting ? 'Sending...' : 'Edit'}
-            </button>
-          </div>
-          <p className="text-xs text-slate-400 mt-2">
-            Editing the {selectedEdit ? 'selected edit' : 'original image'}. Click a thumbnail above to change source.
-          </p>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
-
 // --- Shown instead of a silent redirect when this account can't open the report ---
 function AccessPanel({ kind, email, onSwitchAccount }) {
   const content = {
@@ -1172,9 +837,6 @@ export default function PropertyReportPage() {
   useEffect(() => {
     setRegistrationId(getRegistrationIdFromSearch(window.location.search));
   }, []);
-  const [showImageEdit, setShowImageEdit] = useState(false);
-  const [editingImageUrl, setEditingImageUrl] = useState(null);
-  const [editingImageIndex, setEditingImageIndex] = useState(0);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -2181,25 +1843,6 @@ export default function PropertyReportPage() {
         )}
       </AnimatePresence>
 
-      {/* AI Image Edit Modal */}
-      <AnimatePresence>
-        {showImageEdit && editingImageUrl && (
-          <ImageEditModal
-            imageUrl={editingImageUrl}
-            imageIndex={editingImageIndex}
-            propertyId={propertyId}
-            userId={user?.uid}
-            allImages={property?.imageUrls}
-            onClose={() => {
-              setShowImageEdit(false);
-              setEditingImageUrl(null);
-            }}
-            onApplied={(newImageUrls) => {
-              setProperty(prev => ({ ...prev, imageUrls: newImageUrls }));
-            }}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }

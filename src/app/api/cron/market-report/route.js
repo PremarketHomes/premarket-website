@@ -5,7 +5,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { computeAllPHI, computeConfidence, getWeights, segmentProperties } from '../../v1/phiScoring';
 import { sendEmail } from '../../services/resendService';
 import { wrapEmail } from '../../services/emailTemplates';
-import OpenAI from 'openai';
+import { buildMarketSummary } from '../../services/marketReportSummary';
 
 export const maxDuration = 300;
 
@@ -60,7 +60,7 @@ function buildScoreBar(label, score, hint) {
 }
 
 /**
- * Daily cron: generates an AI market health report card from PHI metrics
+ * Daily cron: generates a market health report card from PHI metrics
  * and sends it to configured recipients.
  */
 export async function GET(request) {
@@ -132,45 +132,20 @@ export async function GET(request) {
       return ts && ts >= yesterday && ts < today;
     }).length;
 
-    // Generate AI summary
-    let aiSummary = '';
-    try {
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      const prompt = `You are a real estate market analyst for Premarket, an Australian pre-market property platform.
-
-Based on these PHI (Premarket Health Indicators) scores, write a brief 3-4 sentence market health summary. Be direct, insightful, and actionable. Reference specific metrics only if notable (very high or very low). Use Australian English.
-
-Scores (0-100 scale):
-- Buyer Demand Index (BDI): ${Math.round(phi.bdi)} — buyer interest level
-- Seller Motivation Index (SMI): ${Math.round(phi.smi)} — seller eagerness to list
-- Price Validation Index (PVI): ${Math.round(phi.pvi)} — price alignment between buyers and sellers
-- Market Health Index (MHI): ${Math.round(phi.mhi)} — overall market health
-- Engagement Velocity Score (EVS): ${Math.round(phi.evs)} — speed of buyer engagement
-- Buyer Quality Index (BQI): ${Math.round(phi.bqi)} — quality/seriousness of buyers
-- Future Pipeline Index (FPI): ${Math.round(phi.fpi)} — upcoming supply pipeline
-- Supply-Demand Balance (SDB): ${Math.round(phi.sdb)} — supply vs demand ratio
-
-Platform stats (last 30 days):
-- ${totalProperties} active properties (${publicProperties} public)
-- ${totalOffers} buyer opinions (${seriousOffers} serious)
-- ${totalLikes} likes
-- ${newPropsYesterday} new properties yesterday
-- ${newOffersYesterday} new opinions yesterday
-- Data confidence: ${confidence.level} (${confidence.score}/100)
-
-Write 3-4 sentences only. No headings, no bullet points.`;
-
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 300,
-        temperature: 0.7,
-      });
-      aiSummary = completion.choices[0]?.message?.content?.trim() || '';
-    } catch (aiErr) {
-      console.error('AI summary generation error:', aiErr);
-      aiSummary = 'AI summary unavailable today.';
-    }
+    // Plain-language summary calculated from the scores above
+    const marketSummary = buildMarketSummary({
+      phi,
+      stats: {
+        totalProperties,
+        publicProperties,
+        totalOffers,
+        seriousOffers,
+        totalLikes,
+        newPropsYesterday,
+        newOffersYesterday,
+      },
+      confidence,
+    });
 
     // Build email HTML
     const dateStr = new Date().toLocaleDateString('en-AU', {
@@ -194,11 +169,11 @@ Write 3-4 sentences only. No headings, no bullet points.`;
         <p style="margin:8px 0 0 0; font-size:11px; color:#64748b;">Data confidence: ${confidence.level} (${confidence.score}/100)</p>
       </div>
 
-      <!-- AI Summary -->
-      ${aiSummary ? `
+      <!-- Market Summary -->
+      ${marketSummary ? `
       <div style="background:#f0f9ff; border-left:4px solid #3b82f6; border-radius:0 10px 10px 0; padding:16px 20px; margin-bottom:24px;">
-        <p style="margin:0 0 6px 0; font-size:11px; font-weight:600; color:#3b82f6; text-transform:uppercase; letter-spacing:0.5px;">AI Market Summary</p>
-        <p style="margin:0; font-size:14px; color:#334155; line-height:1.6;">${aiSummary}</p>
+        <p style="margin:0 0 6px 0; font-size:11px; font-weight:600; color:#3b82f6; text-transform:uppercase; letter-spacing:0.5px;">Market Summary</p>
+        <p style="margin:0; font-size:14px; color:#334155; line-height:1.6;">${marketSummary}</p>
       </div>` : ''}
 
       <!-- Quick Stats -->

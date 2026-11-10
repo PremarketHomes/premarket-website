@@ -517,7 +517,6 @@ export default function UserManualPage() {
                 { title: 'Add a video walkthrough', desc: 'Properties with video get significantly more engagement and higher quality leads.' },
                 { title: 'Select all relevant features', desc: 'Buyers filter by amenities like pool, solar, and air conditioning. Don\'t miss out.' },
                 { title: 'Monitor your dashboard regularly', desc: 'Serious buyers emerge quickly. Stay on top of engagement to act fast.' },
-                { title: 'Use the AI description generator', desc: 'Short on time? Our AI creates compelling listings in seconds.' },
               ].map((tip, i) => (
                 <div key={i} className="flex gap-4">
                   <div className="flex-shrink-0 w-7 h-7 rounded-full bg-green-100 flex items-center justify-center mt-0.5">
