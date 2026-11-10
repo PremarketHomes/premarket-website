@@ -55,6 +55,7 @@ import {
 } from 'lucide-react';
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 import PropertyThumb from '../components/PropertyThumb';
+import { DashboardSkeleton, PropertyCardsSkeleton, CampaignRowsSkeleton } from './components/PageSkeletons';
 
 // --- Shimmer Image Wrapper ---
 function ShimmerImage({ src, alt, ...props }) {
@@ -1045,11 +1046,7 @@ function MobileNumberPrompt({ userData, uid, onConfirmed }) {
 // --- Main Dashboard ---
 export default function DashboardPageWrapper() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" />
-      </div>
-    }>
+    <Suspense fallback={<DashboardSkeleton />}>
       <DashboardPage />
     </Suspense>
   );
@@ -1327,13 +1324,7 @@ function DashboardPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#faf9f7] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#c64500] border-t-transparent" />
-      </div>
-    );
-  }
+  if (loading) return <DashboardSkeleton />;
 
   if (!user) return null;
 
@@ -1574,8 +1565,10 @@ function DashboardPage() {
 
           {/* Properties Grid (for a BSO: the campaigns they manage) */}
           {gridLoading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#c64500] border-t-transparent" />
+            // Placeholder shapes only: no counts or "no properties yet" until the list has actually loaded.
+            <div role="status" aria-busy="true" data-testid="grid-skeleton">
+              <span className="sr-only">Loading…</span>
+              {showBsoLayout ? <CampaignRowsSkeleton /> : <PropertyCardsSkeleton />}
             </div>
           ) : isBso ? (
             bso.status === 'error' ? (

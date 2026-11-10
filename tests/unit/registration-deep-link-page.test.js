@@ -82,12 +82,12 @@ describe('emailed registration link: owner (desktop or mobile browser)', () => {
     expect(push).not.toHaveBeenCalledWith('/dashboard');
   });
 
-  it('works when the data is slow to load: spinner first, no flash of a wrong state, then highlight once the list exists', async () => {
+  it('works when the data is slow to load: loading placeholder first, no flash of a wrong state, then highlight once the list exists', async () => {
     let release;
     dataGate = new Promise((r) => { release = r; });
     await mount();
-    // still loading: spinner only — no access panel, no report, no scrolling yet
-    expect(document.querySelector('.animate-spin')).toBeTruthy();
+    // still loading: placeholder layout only (no data) — no access panel, no report, no scrolling yet
+    expect(screen.getByTestId('page-skeleton')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(document.getElementById('registration-REG_TARGET1')).toBeNull();
     expect(scrollIntoView).not.toHaveBeenCalled();

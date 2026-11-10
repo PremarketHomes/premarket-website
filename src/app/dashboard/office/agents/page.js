@@ -10,6 +10,7 @@ import ImagePositioner from '../../../components/ImagePositioner';
 import { getCroppedImageBlob, blobToFile } from '../../../utils/imageCrop';
 import BackToDashboard from '../../../components/BackToDashboard';
 import { startOfficeRequest, officeResponse } from '../../../utils/officePrefetch';
+import { OfficePageSkeleton } from '../../components/PageSkeletons';
 
 const LOGIN = {
   active: { label: 'Active', className: 'bg-emerald-100 text-emerald-700' },
@@ -353,7 +354,7 @@ export default function OfficeAgentsPage() {
   };
 
   if (state.status === 'loading') {
-    return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
+    return <OfficePageSkeleton />;
   }
   if (state.status !== 'ready') {
     const msg = state.status === 'not-admin' ? 'Only office administrators can manage the agent directory.'

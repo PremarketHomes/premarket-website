@@ -7,6 +7,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
 import BackToDashboard from '../../../components/BackToDashboard';
+import { OfficePageSkeleton } from '../../components/PageSkeletons';
 
 function Avatar({ m, size = 'w-9 h-9' }) {
   const initials = (m.name || m.email || '?').split(/\s+/).map((s) => s[0]).slice(0, 2).join('').toUpperCase();
@@ -110,7 +111,7 @@ export default function OfficeTeamsPage() {
     setNotice(okMsg); await load(); return null;
   };
 
-  if (state.status === 'loading') return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
+  if (state.status === 'loading') return <OfficePageSkeleton />;
   if (state.status !== 'ready') {
     const msg = state.status === 'not-admin' ? 'Only office administrators can manage teams here.' : state.status === 'no-office' ? 'You are not part of an office yet.' : 'We could not load the teams. Please try again.';
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 text-center"><div><p className="text-slate-600">{msg}</p><Link href="/dashboard" className="inline-block mt-4 text-sm font-semibold text-orange-600">Back to dashboard</Link></div></div>;

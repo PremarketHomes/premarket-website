@@ -8,6 +8,7 @@ import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
 import BackToDashboard from '../../../components/BackToDashboard';
 import PropertyThumb from '../../../components/PropertyThumb';
+import { OfficePageSkeleton } from '../../components/PageSkeletons';
 
 const MEMBER_STATUS = {
   active: { label: 'Active', className: 'bg-emerald-100 text-emerald-700' },
@@ -100,7 +101,7 @@ export default function OfficeTeamPage() {
   }, [state.agents, query]);
 
   if (authLoading || state.status === 'loading') {
-    return <Centered><div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" /></Centered>;
+    return <OfficePageSkeleton />;
   }
   if (state.status === 'error') {
     return (
