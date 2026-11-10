@@ -155,7 +155,6 @@ export default function DevDocsContent({ sectionKey }) {
               <tr><td className={td}>Database</td><td className={td}>Firestore</td><td className={td}>NoSQL with real-time sync</td></tr>
               <tr><td className={td}>Auth</td><td className={td}>Firebase Auth</td><td className={td}>Email/password and social</td></tr>
               <tr><td className={td}>Maps</td><td className={td}>Mapbox GL</td><td className={td}>Maps and geocoding</td></tr>
-              <tr><td className={td}>AI</td><td className={td}>Anthropic Claude</td><td className={td}>Property descriptions</td></tr>
               <tr><td className={td}>Email</td><td className={td}>Resend</td><td className={td}>Transactional emails</td></tr>
               <tr><td className={td}>Payments</td><td className={td}>Stripe</td><td className={td}>Subscription billing</td></tr>
               <tr><td className={td}>Hosting</td><td className={td}>Vercel</td><td className={td}>Edge deployment</td></tr>
