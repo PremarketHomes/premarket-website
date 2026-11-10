@@ -22,9 +22,38 @@ import {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<LoginFormPlaceholder />}>
       <LoginPageContent />
     </Suspense>
+  );
+}
+
+// What the server sends before any JavaScript runs: the same sign-in form, visible at once but disabled, so nothing can
+// be typed (and lost) or submitted natively before the real form takes over a moment later.
+function LoginFormPlaceholder() {
+  return (
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to your Premarket account"
+      footer={(
+        <>
+          <p className="text-sm text-slate-500">Real estate agent? <Link href="/join" className={AUTH_LINK_CLASS}>Get started</Link></p>
+          <p className="text-xs text-slate-400">Buyer? <Link href="/signup" className={AUTH_LINK_CLASS}>Create a buyer account</Link></p>
+        </>
+      )}
+    >
+      <form className="space-y-5" aria-busy="true" onSubmit={(e) => e.preventDefault()}>
+        <div>
+          <label className={AUTH_LABEL_CLASS}>Email Address</label>
+          <input type="email" disabled className={AUTH_INPUT_CLASS} placeholder="john@agency.com.au" autoComplete="email" />
+        </div>
+        <div>
+          <label className={AUTH_LABEL_CLASS}>Password</label>
+          <input type="password" disabled className={AUTH_INPUT_CLASS} placeholder="Your password" autoComplete="current-password" />
+        </div>
+        <button type="submit" disabled className={AUTH_SUBMIT_CLASS}>Sign In</button>
+      </form>
+    </AuthShell>
   );
 }
 
@@ -143,15 +172,17 @@ function LoginPageContent() {
     setError('');
   };
 
-  if (authLoading) {
+  // The form no longer waits for Firebase to start: it is usable straight away. If a session turns out to exist (or
+  // sign-in succeeds), the effect above redirects; until it does, say so instead of showing a blank page.
+  if (user) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-[#e48900]" />
-      </div>
+      <AuthShell title="Welcome back" subtitle="Signing you in…">
+        <div className="flex justify-center py-6" role="status" aria-live="polite">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-4 border-[#e48900]" />
+        </div>
+      </AuthShell>
     );
   }
-
-  if (user) return null;
 
   return (
     <AuthShell
@@ -182,7 +213,8 @@ function LoginPageContent() {
         ) : null
       }
     >
-      <AnimatePresence mode="wait">
+      {/* initial={false}: the form appears in place of the server copy without a fade; view switches still animate */}
+      <AnimatePresence mode="wait" initial={false}>
         {view === 'login' ? (
           <motion.div
             key="login"

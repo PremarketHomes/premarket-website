@@ -41,6 +41,7 @@ import {
   GripVertical,
 } from 'lucide-react';
 import { loginUrlForCurrentPage } from '../../../utils/loginRedirect';
+import { readDashboardRoleHint } from '../../components/BsoCampaigns';
 
 const STEPS = {
   ADDRESS: 1,
@@ -141,6 +142,17 @@ export default function EditPropertyPage() {
 
     const loadProperty = async () => {
       setPageLoading(true);
+      // The server's role check for a campaign the user manages but doesn't own. For users the app already knows manage
+      // campaigns (office admin, or a BSO on this device), it starts alongside the property read instead of after it.
+      const checkRole = async () => {
+        try {
+          const res = await authFetch(`/api/properties/${propertyId}/managed`);
+          if (res.ok) { const r = await res.json(); return r.canEdit ? r.role || null : null; }
+        } catch { /* not allowed */ }
+        return null;
+      };
+      const likelyManager = userData?.isOfficeAdmin === true || readDashboardRoleHint(user.uid) === 'bso';
+      const earlyRole = likelyManager ? checkRole() : null;
       try {
         const snap = await getDoc(doc(db, 'properties', propertyId));
         if (!snap.exists()) {
@@ -151,11 +163,7 @@ export default function EditPropertyPage() {
 
         // Verify ownership, or that the server lets this user manage the campaign (managing BSO / office admin).
         if (p.userId !== user.uid) {
-          let role = null;
-          try {
-            const res = await authFetch(`/api/properties/${propertyId}/managed`);
-            if (res.ok) { const r = await res.json(); role = r.canEdit ? r.role || null : null; }
-          } catch { /* not allowed */ }
+          const role = await (earlyRole || checkRole());
           if (role !== 'bso' && role !== 'officeAdmin') {
             router.push('/dashboard');
             return;

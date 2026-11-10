@@ -10,6 +10,7 @@ import { collection, doc, getDoc, query, where, orderBy, limit, getDocs } from '
 import PropertyPageClient from '../../components/PropertyPageClient';
 import { Upload, Loader2, UserPlus, RotateCcw, Trash2, Users, AlertCircle } from 'lucide-react';
 import BackToDashboard from '../../components/BackToDashboard';
+import { startOfficeRequest, officeResponse } from '../../utils/officePrefetch';
 
 const STATUS_LABEL = {
   active: { text: 'Active', className: 'bg-emerald-100 text-emerald-700' },
@@ -53,7 +54,10 @@ function messageClassName(type) {
  */
 export default function OfficeManagementPage() {
   useRequireAgent();
-  const { user, loading: authLoading } = useAuth();
+  const { user, userData, loading: authLoading } = useAuth();
+  // Read through a ref so the loaders keep their identity (and run exactly when they did before).
+  const knownOfficeIdRef = useRef(null);
+  knownOfficeIdRef.current = userData?.officeId || null;
 
   const [loading, setLoading] = useState(true);
   const [office, setOffice] = useState(null);
@@ -73,6 +77,8 @@ export default function OfficeManagementPage() {
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError('');
+    const known = knownOfficeIdRef.current; // the same id for the early request and the check below
+    const earlyAgents = startOfficeRequest(known, '/agents'); // in parallel with /mine (see utils/officePrefetch)
     try {
       // Only a successful response whose body says `office: null` means
       // "no office". Any failure (auth not ready, 401/500, network) is
@@ -93,7 +99,7 @@ export default function OfficeManagementPage() {
       setOffice(officeBody.office);
 
       if (officeBody.office?.isOfficeAdmin) {
-        const agentsRes = await authFetch(`/api/offices/${officeBody.office.id}/agents`);
+        const agentsRes = await officeResponse(earlyAgents, known, officeBody.office.id, '/agents');
         if (agentsRes.ok) {
           const agentsBody = await agentsRes.json();
           setAgents(agentsBody.agents);

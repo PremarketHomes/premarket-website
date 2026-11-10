@@ -9,6 +9,7 @@ import { authFetch } from '../../../utils/authFetch';
 import ImagePositioner from '../../../components/ImagePositioner';
 import { getCroppedImageBlob, blobToFile } from '../../../utils/imageCrop';
 import BackToDashboard from '../../../components/BackToDashboard';
+import { startOfficeRequest, officeResponse } from '../../../utils/officePrefetch';
 
 const LOGIN = {
   active: { label: 'Active', className: 'bg-emerald-100 text-emerald-700' },
@@ -229,7 +230,10 @@ function EditModal({ officeId, agent, onClose, onSaved }) {
 
 export default function OfficeAgentsPage() {
   useRequireAgent();
-  const { user, loading: authLoading } = useAuth();
+  const { user, userData, loading: authLoading } = useAuth();
+  // Read through a ref so the loaders keep their identity (and run exactly when they did before).
+  const knownOfficeIdRef = useRef(null);
+  knownOfficeIdRef.current = userData?.officeId || null;
   const uid = user?.uid;
 
   const [state, setState] = useState({ status: 'loading', office: null, agents: [], stats: null });
@@ -240,6 +244,10 @@ export default function OfficeAgentsPage() {
   const [notice, setNotice] = useState('');
 
   const load = useCallback(async () => {
+    const known = knownOfficeIdRef.current; // the same id for the early request and the check below
+    // The directory and BSO list start in parallel with /mine (see utils/officePrefetch); previously three calls in a row.
+    const earlyDirectory = startOfficeRequest(known, '/agent-directory');
+    const earlyBsos = startOfficeRequest(known, '/bsos');
     try {
       let mine = null;
       for (let attempt = 0; attempt < 2 && !mine; attempt++) {
@@ -251,14 +259,15 @@ export default function OfficeAgentsPage() {
       if (!mine) throw new Error('office');
       if (!mine.office) return setState({ status: 'no-office', office: null, agents: [], stats: null });
       if (!mine.office.isOfficeAdmin) return setState({ status: 'not-admin', office: mine.office, agents: [], stats: null });
-      const res = await authFetch(`/api/offices/${mine.office.id}/agent-directory`);
+      const bsoRequest = officeResponse(earlyBsos, known, mine.office.id, '/bsos').catch(() => null);
+      const res = await officeResponse(earlyDirectory, known, mine.office.id, '/agent-directory');
       if (!res.ok) throw new Error('directory');
       const body = await res.json();
       // BSO roles (null while managed campaigns are switched off: no BSO controls are shown then).
       let bsoUids = null;
       try {
-        const b = await authFetch(`/api/offices/${mine.office.id}/bsos`);
-        if (b.ok) bsoUids = ((await b.json()).bsos || []).map((x) => x.uid);
+        const b = await bsoRequest;
+        if (b && b.ok) bsoUids = ((await b.json()).bsos || []).map((x) => x.uid);
       } catch { /* BSO controls hidden */ }
       setState({ status: 'ready', office: mine.office, agents: body.agents, stats: body.stats, bsoUids });
     } catch {

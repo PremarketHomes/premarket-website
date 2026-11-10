@@ -15,6 +15,7 @@ import { BSO_TAB_FILTERS } from '../../utils/bsoDashboard';
 // Last role the server confirmed for this user on this device: a display hint only (which layout to hold while the
 // answer is on its way). The server decides every time; nothing is granted from this value.
 const roleHintKey = (uid) => `premarket_dash_role:${uid}`;
+export function readDashboardRoleHint(uid) { return readRoleHint(uid); }
 function readRoleHint(uid) {
   if (!uid || typeof window === 'undefined') return null;
   try { const v = window.localStorage.getItem(roleHintKey(uid)); return v === 'bso' || v === 'agent' ? v : null; } catch { return null; }

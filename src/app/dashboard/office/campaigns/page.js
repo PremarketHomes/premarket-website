@@ -1,12 +1,13 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, Plus, Search, ExternalLink, Eye, EyeOff, Archive, Send, Pencil, BarChart3 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
+import { startOfficeRequest, officeResponse } from '../../../utils/officePrefetch';
 import BackToDashboard from '../../../components/BackToDashboard';
 
 const date = (iso) => (iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
@@ -17,7 +18,10 @@ const select = 'px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-s
 
 function CampaignsInner() {
   useRequireAgent();
-  const { user, loading: authLoading } = useAuth();
+  const { user, userData, loading: authLoading } = useAuth();
+  // Read through a ref so the loaders keep their identity (and run exactly when they did before).
+  const knownOfficeIdRef = useRef(null);
+  knownOfficeIdRef.current = userData?.officeId || null;
   const uid = user?.uid;
   const created = useSearchParams().get('created') === '1';
   const [state, setState] = useState({ status: 'loading', office: null, campaigns: [], managers: [] });
@@ -28,6 +32,8 @@ function CampaignsInner() {
   const [notice, setNotice] = useState(created ? 'Campaign created and assigned.' : '');
 
   const load = useCallback(async () => {
+    const known = knownOfficeIdRef.current; // the same id for the early request and the check below
+    const early = startOfficeRequest(known, '/campaigns'); // in parallel with /mine (see utils/officePrefetch)
     try {
       let mine = null;
       for (let i = 0; i < 2 && !mine; i++) {
@@ -36,7 +42,7 @@ function CampaignsInner() {
       if (!mine) throw new Error('office');
       if (!mine.office) return setState({ status: 'no-office', office: null, campaigns: [] });
       if (!mine.office.isOfficeAdmin) return setState({ status: 'not-admin', office: mine.office, campaigns: [] });
-      const res = await authFetch(`/api/offices/${mine.office.id}/campaigns`);
+      const res = await officeResponse(early, known, mine.office.id, '/campaigns');
       if (res.status === 403) return setState({ status: 'off', office: mine.office, campaigns: [] });
       if (!res.ok) throw new Error('campaigns');
       const body = await res.json();

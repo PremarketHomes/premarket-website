@@ -9,6 +9,26 @@ import { fetchUserData } from './fetchUserData';
 
 const AuthContext = createContext();
 
+// The signed-in user's own profile, kept for this browser session (sessionStorage: gone when the browser session
+// ends, cleared on sign-out, keyed by uid). It lets a reload or a new tab render straight away once Firebase has
+// confirmed who is signed in, instead of waiting for the profile read; the profile is then re-read and replaced.
+// Authentication is never skipped (nothing is shown until Firebase restores the session), and every permission is
+// still enforced by the server and Firestore rules, never by this copy.
+const PROFILE_CACHE_KEY = 'premarket_profile_v1';
+function readCachedProfile(uid) {
+  try {
+    const raw = typeof window !== 'undefined' ? window.sessionStorage.getItem(PROFILE_CACHE_KEY) : null;
+    const v = raw ? JSON.parse(raw) : null;
+    return v && v.uid === uid && v.data && typeof v.data === 'object' ? v.data : null;
+  } catch { return null; }
+}
+function writeCachedProfile(uid, data) {
+  try { if (typeof window !== 'undefined') window.sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify({ uid, data })); } catch { /* storage full/unavailable: no cache */ }
+}
+function clearCachedProfile() {
+  try { if (typeof window !== 'undefined') window.sessionStorage.removeItem(PROFILE_CACHE_KEY); } catch { /* ignore */ }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
@@ -19,15 +39,25 @@ export function AuthProvider({ children }) {
       if (firebaseUser) {
         setUser(firebaseUser);
         Sentry.setUser({ id: firebaseUser.uid, email: firebaseUser.email });
+        const cached = readCachedProfile(firebaseUser.uid);
+        if (cached) {
+          // Signed in (Firebase confirmed): render now with this session's copy, refresh it below.
+          setUserData(cached);
+          setLoading(false);
+        }
         try {
           const data = await fetchUserData(firebaseUser.uid);
-          if (data) setUserData(data);
+          if (data) {
+            setUserData(data);
+            writeCachedProfile(firebaseUser.uid, data);
+          }
         } catch (err) {
           console.error('Error fetching user data:', err);
         }
       } else {
         setUser(null);
         setUserData(null);
+        clearCachedProfile();
         Sentry.setUser(null);
       }
       setLoading(false);
@@ -40,6 +70,7 @@ export function AuthProvider({ children }) {
 
   const signOut = useCallback(async () => {
     try {
+      clearCachedProfile();
       await firebaseSignOut(auth);
       setUser(null);
       setUserData(null);
@@ -64,6 +95,7 @@ export function AuthProvider({ children }) {
         const data = await fetchUserData(uid);
         if (data) {
           setUserData(data);
+          writeCachedProfile(uid, data);
           return true;
         }
       } catch (err) {
