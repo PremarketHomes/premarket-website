@@ -1,4 +1,4 @@
-import { Poppins, Inter, Anton } from "next/font/google";
+import localFont from "next/font/local";
 import { ModalProvider } from './context/ModalContext';
 import { AuthProvider } from './context/AuthContext';
 import Script from 'next/script';
@@ -6,28 +6,38 @@ import UploadStatusPanel from './components/UploadStatusPanel';
 
 import "./globals.css";
 
-const poppins = Poppins({
-  weight: ['400', '500', '600', '700', '800'],
-  subsets: ['latin'],
+// Fonts are self-hosted (src/app/fonts/, see README there) instead of next/font/google, which
+// downloaded them from Google Fonts during every build: production builds failed whenever Google
+// answered Vercel's build servers with a font URL format next/font cannot parse (Nov 2026).
+// Same files (Google's latin subsets), weights, CSS variables and fallback sizing as before.
+const poppins = localFont({
+  src: [
+    { path: './fonts/poppins-latin-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/poppins-latin-500.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/poppins-latin-600.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/poppins-latin-700.woff2', weight: '700', style: 'normal' },
+    { path: './fonts/poppins-latin-800.woff2', weight: '800', style: 'normal' },
+  ],
   variable: '--font-poppins',
   display: 'swap',
   preload: true,
+  adjustFontFallback: 'Arial',
 });
 
-const inter = Inter({
-  weight: ['400', '500', '600', '700', '800'],
-  subsets: ['latin'],
+const inter = localFont({
+  src: [{ path: './fonts/inter-latin-variable.woff2', weight: '400 800', style: 'normal' }],
   variable: '--font-inter',
   display: 'swap',
   preload: true,
+  adjustFontFallback: 'Arial',
 });
 
-const antons = Anton({
-  weight: ['400'],
-  subsets: ['latin'],
+const antons = localFont({
+  src: [{ path: './fonts/anton-latin-400.woff2', weight: '400', style: 'normal' }],
   variable: '--font-anton',
   display: 'swap',
   preload: true,
+  adjustFontFallback: 'Arial',
 });
 
 export const metadata = {

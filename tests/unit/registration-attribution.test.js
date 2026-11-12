@@ -126,7 +126,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 vi.mock('../../src/app/utils/previewEnvironment', () => ({ isPreviewDeployment: () => false }));
 vi.mock('../../src/app/utils/fetchAgentProfiles', () => ({ fetchAgentProfiles: async () => ({ agent1: { firstName: 'Phil', lastName: 'Chillemi', phone: '0400 123 456' } }) }));
-vi.mock('next/font/google', () => { const f = () => ({ className: 'font', variable: 'font-var', style: {} }); return { Playfair_Display: f }; });
+vi.mock('next/font/local', () => ({ default: () => ({ className: 'font', variable: 'font-var', style: {} }) }));
 vi.mock('next/image', () => ({ default: ({ alt }) => React.createElement('img', { alt }) }));
 vi.mock('next/link', () => ({ default: ({ href, children, ...r }) => React.createElement('a', { href, ...r }, children) }));
 vi.mock('framer-motion', () => {
