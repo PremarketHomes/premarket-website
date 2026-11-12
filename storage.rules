@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// Firebase Storage rules for premarket-homes.firebasestorage.app.
+//
+// Browser uploads only go to the signed-in user's own folder:
+//   propertyImages/{uid}/...  (photos, from the add/edit campaign pages and Form.js)
+//   propertyVideos/{uid}/...  (campaign videos)
+// Server code (API routes, Cloud Functions) uses the Admin SDK, which these rules don't apply to.
+// Existing files stay readable one at a time, as before; listing the bucket and all other
+// browser writes or deletes are denied.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Some browsers send no type for photos (e.g. HEIC), so the file arrives as octet-stream.
+    function typeIs(prefix) {
+      return request.resource.contentType.matches(prefix + '/.*')
+        || request.resource.contentType == 'application/octet-stream';
+    }
+
+    match /propertyImages/{uid}/{fileName} {
+      // Create, or overwrite your own file when an upload is retried.
+      allow create, update: if isOwner(uid)
+        && request.resource.size <= 50 * 1024 * 1024
+        && typeIs('image');
+    }
+
+    match /propertyVideos/{uid}/{fileName} {
+      allow create, update: if isOwner(uid)
+        && request.resource.size <= 2 * 1024 * 1024 * 1024
+        && typeIs('video');
+    }
+
+    // Public download of individual files (listing photos, videos, avatars). No listing.
+    match /{allPaths=**} {
+      allow get: if true;
+    }
+  }
+}
