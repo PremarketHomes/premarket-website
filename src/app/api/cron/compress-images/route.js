@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
 import { verifyCron } from '../../middleware/auth';
+import { imageCompressionEnabled, PAUSED_MESSAGE } from '../../services/imageCompression';
 import sharp from 'sharp';
 
 export const maxDuration = 300;
@@ -10,6 +11,11 @@ export async function GET(request) {
   const auth = verifyCron(request);
   if (!auth.authenticated) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  // Paused by default: reads and writes nothing (see services/imageCompression.js).
+  if (!imageCompressionEnabled()) {
+    return NextResponse.json({ message: PAUSED_MESSAGE, paused: true, processed: 0 });
   }
 
   try {

@@ -1,8 +1,20 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
+import { verifyAuth } from '../../middleware/auth';
+import { resolveCampaignRole } from '../../services/managedCampaignService';
+import { imageCompressionEnabled, PAUSED_MESSAGE } from '../../services/imageCompression';
 import sharp from 'sharp';
 
 export const maxDuration = 300;
+
+// Owner, office admin, managing BSO (resolveCampaignRole) or superAdmin. A missing listing is refused the same way.
+async function mayCompress(uid, propertyId) {
+  const snap = await adminDb.collection('properties').doc(propertyId).get();
+  if (!snap.exists) return false;
+  if (await resolveCampaignRole(adminDb, { actorUid: uid, property: snap.data() })) return true;
+  const actor = await adminDb.collection('users').doc(uid).get();
+  return actor.exists && actor.data().superAdmin === true;
+}
 
 async function compressPropertyImages(propertyId) {
   const propertyRef = adminDb.collection('properties').doc(propertyId);
@@ -98,12 +110,31 @@ async function compressPropertyImages(propertyId) {
   return { compressed: compressedUrls.length };
 }
 
+/**
+ * POST /api/images/compress — body { propertyId }. Called after an upload finishes.
+ * Security (incident, Nov 2026): this used to need no sign-in, so anyone could make the server rewrite any listing's photo
+ * URLs. It now requires a signed-in user who can manage the listing (owner, its office admin or managing BSO, or a
+ * superAdmin), and does nothing at all while compression is paused (services/imageCompression.js).
+ */
 export async function POST(request) {
   try {
-    const { propertyId } = await request.json();
+    const auth = await verifyAuth(request);
+    if (!auth.authenticated) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
-    if (!propertyId) {
+    if (!imageCompressionEnabled()) {
+      return NextResponse.json({ paused: true, message: PAUSED_MESSAGE }, { status: 202 });
+    }
+
+    const { propertyId } = await request.json().catch(() => ({}));
+
+    if (!propertyId || typeof propertyId !== 'string') {
       return NextResponse.json({ error: 'propertyId is required' }, { status: 400 });
+    }
+
+    if (!(await mayCompress(auth.uid, propertyId))) {
+      return NextResponse.json({ error: 'You cannot compress the photos of this listing.' }, { status: 403 });
     }
 
     const result = await compressPropertyImages(propertyId);

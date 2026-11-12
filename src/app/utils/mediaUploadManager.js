@@ -73,7 +73,8 @@ async function defaultDeps() {
       if (!res.ok) { const e = new Error(out.error || 'The video could not be added to the campaign.'); e.status = res.status; throw e; }
       return out;
     },
-    triggerCompress: (propertyId) => fetch('/api/images/compress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ propertyId }) }).catch(() => {}),
+    // Signed in: the endpoint refuses anonymous callers (and does nothing while compression is paused).
+    triggerCompress: (propertyId) => authFetch('/api/images/compress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ propertyId }) }).catch(() => {}),
     convertHeic: async (file) => {
       const n = (file.name || '').toLowerCase();
       if (!(n.endsWith('.heic') || n.endsWith('.heif') || file.type === 'image/heic' || file.type === 'image/heif')) return file;
