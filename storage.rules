@@ -1,0 +1,52 @@
+rules_version = '2';
+
+// Firebase Storage rules for premarket-homes.firebasestorage.app.
+//
+// Browser uploads only go to the signed-in user's own folder:
+//   propertyImages/{uid}/...  (photos, from the add/edit campaign pages and Form.js)
+//   propertyVideos/{uid}/...  (campaign videos)
+// Server code (API routes, Cloud Functions) uses the Admin SDK, which these rules don't apply to.
+// Files in the listing-media folders below stay readable one at a time; everything else, listing the
+// bucket, and all other browser writes or deletes are denied.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Some browsers send no type for photos (e.g. HEIC), so the file arrives as octet-stream.
+    function typeIs(prefix) {
+      return request.resource.contentType.matches(prefix + '/.*')
+        || request.resource.contentType == 'application/octet-stream';
+    }
+
+    match /propertyImages/{uid}/{fileName} {
+      // Create, or overwrite your own file when an upload is retried.
+      allow create, update: if isOwner(uid)
+        && request.resource.size <= 50 * 1024 * 1024
+        && typeIs('image');
+    }
+
+    match /propertyVideos/{uid}/{fileName} {
+      allow create, update: if isOwner(uid)
+        && request.resource.size <= 2 * 1024 * 1024 * 1024
+        && typeIs('video');
+    }
+
+    // Public download of individual files ONLY in the folders the website and its listing data use
+    // (checked against every Firestore reference, Nov 2026): listing photos and videos, agent avatars,
+    // AI listing videos and story images. Every other path is denied because nothing matches it: old chat
+    // attachments, documents, temp files, app assets, etc. No listing anywhere.
+    // NOTE: a Firebase download URL carrying ?token= bypasses these rules; revoking tokens is a separate step.
+    match /propertyImages/{allPaths=**} { allow get: if true; }
+    match /property_images/{allPaths=**} { allow get: if true; }
+    match /propertyVideos/{allPaths=**} { allow get: if true; }
+    match /avatars/{allPaths=**} { allow get: if true; }
+    match /avatarActors/{allPaths=**} { allow get: if true; }
+    match /aiVideos/{allPaths=**} { allow get: if true; }
+    match /videos/{allPaths=**} { allow get: if true; }
+    match /storyImages/{allPaths=**} { allow get: if true; }
+  }
+}

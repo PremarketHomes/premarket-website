@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:rules": "firebase emulators:exec --only firestore 'npx vitest run tests/rules/'",
+    "test:rules": "firebase emulators:exec --only firestore,storage 'npx vitest run tests/rules/'",
     "emulators": "firebase emulators:start --only firestore",
     "migrate:integration-credentials": "node scripts/migrate-integration-credentials.js",
     "test:e2e": "firebase emulators:exec --only firestore,auth --project demo-premarket-e2e 'npx vitest run tests/e2e/'",
