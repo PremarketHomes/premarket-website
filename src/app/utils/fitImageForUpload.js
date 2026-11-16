@@ -9,7 +9,8 @@
  *  - A photo at or under the limit is returned UNCHANGED, so it is uploaded byte-for-byte (no recompression).
  *  - A larger photo is re-encoded once as a high-quality JPEG, stepping the long edge down from 4096 px until it fits.
  *    The camera's rotation is applied first (EXIF orientation), so the result is upright.
- *  - If nothing fits, it throws a clear, final (413) error rather than sending a file the server would refuse.
+ *  - If it can't be read as a photo, or nothing fits, it throws a clear error with code 'PHOTO_UNUSABLE' (the upload
+ *    manager then skips just that photo and reports it) rather than sending a file the server would refuse.
  */
 
 // 4.5 MB is Vercel's request-body limit; keep headroom for the multipart envelope.
@@ -64,7 +65,11 @@ async function defaultEncode(bitmap, width, height, quality) {
 /** `decode` / `encode` exist only so unit tests can run without a browser. */
 export async function fitImageForUpload(file, { limit = UPLOAD_LIMIT_BYTES, decode = defaultDecode, encode = defaultEncode } = {}) {
   if (!file || typeof file.size !== 'number' || file.size <= limit) return file;
-  const bitmap = await decode(file);
+  const label = `"${file.name || 'A photo'}"`;
+  let bitmap;
+  try { bitmap = await decode(file); } catch {
+    throw Object.assign(new Error(`${label} could not be read as a photo.`), { status: 415, code: 'PHOTO_UNUSABLE' });
+  }
   try {
     for (const edge of MAX_EDGES) {
       const { width, height } = targetSize(bitmap.width, bitmap.height, edge);
@@ -78,7 +83,5 @@ export async function fitImageForUpload(file, { limit = UPLOAD_LIMIT_BYTES, deco
   } finally {
     bitmap.close?.();
   }
-  const err = new Error(`"${file.name || 'A photo'}" is too large to upload. Please choose a smaller photo.`);
-  err.status = 413;
-  throw err;
+  throw Object.assign(new Error(`${label} is too large to upload. Please choose a smaller photo.`), { status: 413, code: 'PHOTO_UNUSABLE' });
 }

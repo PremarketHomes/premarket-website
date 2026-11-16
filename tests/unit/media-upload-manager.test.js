@@ -84,13 +84,43 @@ describe('property media uploads', () => {
     expect(calls.upload).toEqual(['a.jpg', 'big-fitted.jpg']);
   });
 
-  it('a photo that cannot be made small enough pauses the job with a clear message naming it', async () => {
-    d.fitForUpload = async (f) => { if (f.name === 'huge.jpg') throw Object.assign(new Error('"huge.jpg" is too large to upload. Please choose a smaller photo.'), { status: 413 }); return f; };
-    const id = await M.enqueuePropertyUpload({ propertyId: 'propA', userId: 'u1', files: [file('a.jpg'), file('huge.jpg')] });
+  const unusable = (name) => Object.assign(new Error(`"${name}" is too large to upload. Please choose a smaller photo.`), { status: 413, code: 'PHOTO_UNUSABLE' });
+
+  it('a photo that can never upload is skipped and named; the rest of the campaign completes', async () => {
+    d.fitForUpload = async (f) => { if (f.name === 'huge.jpg') throw unusable('huge.jpg'); return f; };
+    const id = await M.enqueuePropertyUpload({ propertyId: 'propA', userId: 'u1', files: [file('a.jpg'), file('huge.jpg'), file('c.jpg')] });
     const j = await idle(id);
-    expect(j.status).toBe('interrupted');
-    expect(j.message).toContain('"huge.jpg" is too large to upload');
-    expect(completeWrites()).toHaveLength(0);
+    expect(j.status).toBe('complete');
+    expect(j.remaining).toBe(0);
+    expect(j.message).toContain('1 photo was skipped: "huge.jpg" is too large to upload');
+    expect(calls.upload).toEqual(['a.jpg', 'c.jpg']);
+    const done = completeWrites();
+    expect(done).toHaveLength(1);
+    expect(done[0].patch['imageUploadProgress.total']).toBe(2); // counts only the photos that are on the campaign
+  });
+
+  it('a file the server refuses (400/413) is skipped too, not retried', async () => {
+    let n = 0;
+    d.apiUpload = async (f) => { n++; if (f.name === 'bad.tif') throw Object.assign(new Error('"bad.tif" is not a supported photo or is too large.'), { status: 400, code: 'PHOTO_UNUSABLE' }); return `https://bunny/${f.name}`; };
+    const id = await M.enqueuePropertyUpload({ propertyId: 'propA', userId: 'u1', files: [file('bad.tif'), file('a.jpg')] });
+    const j = await idle(id);
+    expect(j.status).toBe('complete');
+    expect(n).toBe(2);
+    expect(calls.patches.filter((p) => p.patch['imageUrls+']).map((p) => p.patch['imageUrls+'])).toEqual(['https://bunny/a.jpg']);
+  });
+
+  it('a HEIC the converter cannot read is skipped with a clear message', async () => {
+    d.convertHeic = async (f) => { if (f.name === 'x.heic') throw new Error('heic2any failed'); return f; };
+    const id = await M.enqueuePropertyUpload({ propertyId: 'propA', userId: 'u1', files: [file('x.heic'), file('a.jpg')] });
+    const j = await idle(id);
+    expect(j.status).toBe('complete');
+    expect(j.message).toContain('"x.heic" could not be converted from HEIC.');
+  });
+
+  it('a network failure still pauses for Resume (only unusable files are skipped)', async () => {
+    failOn.add('a.jpg');
+    const id = await M.enqueuePropertyUpload({ propertyId: 'propA', userId: 'u1', files: [file('a.jpg')] });
+    expect((await idle(id)).status).toBe('interrupted');
   });
 
   it('a file that cannot be attached to the property is not counted as done', async () => {
@@ -126,6 +156,22 @@ describe('property media uploads', () => {
 });
 
 describe('photos for managed campaigns are fitted too (Vercel 4.5 MB limit)', () => {
+  it('a managed create skips an unusable photo but still creates the campaign with the rest', async () => {
+    d.fitForUpload = async (f) => { if (f.name === 'huge.jpg') throw Object.assign(new Error('"huge.jpg" is too large to upload.'), { status: 413, code: 'PHOTO_UNUSABLE' }); return f; };
+    const j = await M.enqueueManagedCreate({ userId: 'u1', requestId: 'req-1234567890abcdef', payload: { property: {} }, images: [file('a.jpg'), file('huge.jpg')] });
+    expect(j.status).toBe('complete');
+    expect(calls.created[0].property.imageUrls).toEqual(['https://bunny/a.jpg']);
+    expect(j.message).toContain('1 photo was skipped');
+  });
+
+  it('if NO photo is usable, a managed create stops with a clear error and creates nothing', async () => {
+    d.fitForUpload = async (f) => { throw Object.assign(new Error(`"${f.name}" could not be read as a photo.`), { status: 415, code: 'PHOTO_UNUSABLE' }); };
+    const j = await M.enqueueManagedCreate({ userId: 'u1', requestId: 'req-1234567890abcdef', payload: { property: {} }, images: [file('x.raw')] });
+    expect(j.status).toBe('error');
+    expect(j.message).toContain('None of the photos could be used, so the campaign was not created.');
+    expect(calls.created).toHaveLength(0);
+  });
+
   it('a managed create uploads the fitted file', async () => {
     d.fitForUpload = async (f) => (f.name === 'big.jpg' ? { name: 'big-fitted.jpg', type: 'image/jpeg', size: 5 } : f);
     const j = await M.enqueueManagedCreate({ userId: 'u1', requestId: 'req-1234567890abcdef', payload: { property: {} }, images: [file('big.jpg')] });

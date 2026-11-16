@@ -57,6 +57,9 @@ async function defaultDeps() {
     apiUpload: async (file) => {
       const fd = new FormData(); fd.append('file', file);
       const res = await authFetch('/api/upload-image', { method: 'POST', body: fd });
+      if (res.status === 400 || res.status === 413) { // the file itself was refused (type or size): skip it, don't retry
+        throw Object.assign(new Error(`"${file.name || 'A photo'}" is not a supported photo or is too large.`), { status: res.status, code: 'PHOTO_UNUSABLE' });
+      }
       if (!res.ok) { const e = new Error('A photo could not be uploaded.'); e.status = res.status; throw e; }
       return (await res.json()).url;
     },
@@ -129,12 +132,14 @@ function emit() {
   snapshot = [...jobs.values()].map(view);
   listeners.forEach((l) => l());
 }
+// 'skipped' = a photo that can never be uploaded (unreadable, or too large even after resizing): it is reported, not retried.
+const finished = (i) => i.status === 'done' || i.status === 'skipped';
 const view = (j) => ({
   id: j.id, kind: j.kind, userId: j.userId, label: j.label, status: j.status, message: j.message || '',
   propertyId: j.propertyId || null, redirectTo: j.redirectTo || null,
   total: j.items.length, done: j.items.filter((i) => i.status === 'done').length,
-  progress: j.items.length ? j.items.reduce((a, i) => a + (i.status === 'done' ? 1 : (i.progress || 0)), 0) / j.items.length : 1,
-  remaining: j.items.filter((i) => i.status !== 'done').length,
+  progress: j.items.length ? j.items.reduce((a, i) => a + (finished(i) ? 1 : (i.progress || 0)), 0) / j.items.length : 1,
+  remaining: j.items.filter((i) => !finished(i)).length,
 });
 export const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 export const getJobs = () => snapshot;
@@ -165,7 +170,10 @@ const videoUnavailable = () => Object.assign(new Error(VIDEO_UNAVAILABLE_MESSAGE
 async function uploadItem(d, job, item) {
   if (item.kind !== 'image') throw videoUnavailable(); // run() drops video items first; defensive
   if (!item.converted) {
-    const f = await d.convertHeic(item.blob);
+    let f;
+    try { f = await d.convertHeic(item.blob); } catch {
+      throw Object.assign(new Error(`"${item.name}" could not be converted from HEIC.`), { status: 415, code: 'PHOTO_UNUSABLE' });
+    }
     if (f !== item.blob) { item.blob = f; item.name = f.name; item.type = f.type; }
     item.converted = true;
   }
@@ -200,10 +208,14 @@ async function run(job) {
       setStatus(job, 'error', VIDEO_UNAVAILABLE_MESSAGE); await persist(job); return;
     }
     for (const item of job.items) {
-      if (item.status === 'done') continue;
+      if (finished(item)) continue;
       let url;
       try { url = await uploadItem(d, job, item); } catch (e) {
-        setStatus(job, 'interrupted', e?.status === 413 ? `${e.message} The others that finished are saved; remove it and press Resume.` : 'Some files did not upload. The ones that finished are saved. Press Resume to send the rest.');
+        if (e?.code === 'PHOTO_UNUSABLE') { // this photo can never upload: skip it, carry on with the rest, report it at the end
+          item.status = 'skipped'; item.blob = null; item.progress = 1; item.error = e.message;
+          emit(); await persist(job); continue;
+        }
+        setStatus(job, 'interrupted', 'Some files did not upload. The ones that finished are saved. Press Resume to send the rest.');
         await persist(job);
         if (job.kind === 'property') await d.updateProperty(job.propertyId, { 'imageUploadProgress.interrupted': true }).catch(() => {});
         return;
@@ -212,7 +224,7 @@ async function run(job) {
       if (job.kind === 'property') {
         const doneImages = job.items.filter((i) => i.kind === 'image' && i.status === 'done').length;
         const patch = item.kind === 'video' ? { videoUrl: url }
-          : { 'imageUrls+': url, 'imageUploadProgress.uploaded': doneImages, 'imageUploadProgress.total': job.items.filter((i) => i.kind === 'image').length, 'imageUploadProgress.inProgress': true, 'imageUploadProgress.interrupted': false };
+          : { 'imageUrls+': url, 'imageUploadProgress.uploaded': doneImages, 'imageUploadProgress.total': job.items.filter((i) => i.kind === 'image' && i.status !== 'skipped').length, 'imageUploadProgress.inProgress': true, 'imageUploadProgress.interrupted': false };
         try { await d.updateProperty(job.propertyId, patch); } catch (e) {
           item.status = 'pending'; item.url = null; // could not attach it: do not count it as done
           setStatus(job, 'interrupted', 'Could not save a photo to the campaign. Press Resume to try again.'); await persist(job); return;
@@ -221,20 +233,26 @@ async function run(job) {
       emit(); await persist(job);
     }
 
+    const skipped = job.items.filter((i) => i.status === 'skipped');
+    const doneUrls = job.items.filter((i) => i.status === 'done').map((i) => i.url);
+    if (job.kind === 'managed' && skipped.length && !doneUrls.length) {
+      setStatus(job, 'error', `None of the photos could be used, so the campaign was not created. ${skipped.map((i) => i.error).join(' ')}`);
+      await persist(job); return;
+    }
     if (job.kind === 'managed') {
-      const urls = job.items.map((i) => i.url);
+      const urls = doneUrls;
       const out = await withRetry(d, () => d.apiCreateManaged({ ...job.payload, requestId: job.requestId, property: { ...job.payload.property, imageUrls: urls } }));
       job.propertyId = out.propertyId || out.id || null;
     } else if (job.kind === 'managedMedia') {
-      const urls = job.items.map((i) => i.url);
+      const urls = doneUrls;
       await withRetry(d, () => d.apiAttachManagedMedia(job.propertyId, urls));
       d.triggerCompress(job.propertyId);
     } else if (job.kind === 'managedVideo') {
       // Uploaded to Storage above exactly like an agent's own video; attached through the server (the uploader is not the owner).
       await withRetry(d, () => d.apiSetManagedVideo(job.propertyId, job.items[0].url));
     } else {
-      const hasImages = job.items.some((i) => i.kind === 'image');
-      const total = job.items.filter((i) => i.kind === 'image').length;
+      const total = job.items.filter((i) => i.kind === 'image' && i.status === 'done').length;
+      const hasImages = total > 0;
       await d.updateProperty(job.propertyId, {
         'imageUploadProgress.uploaded': total, 'imageUploadProgress.total': total,
         'imageUploadProgress.inProgress': false, 'imageUploadProgress.interrupted': false,
@@ -243,7 +261,11 @@ async function run(job) {
       if (hasImages) d.triggerCompress(job.propertyId);
     }
     const done = job.kind === 'managed' ? 'Campaign created.' : job.kind === 'managedMedia' ? 'Photos added.' : job.kind === 'managedVideo' ? 'Video added.' : 'All media uploaded.';
-    setStatus(job, 'complete', job.videoDropped ? `${done} The video was not added: video upload is temporarily unavailable.` : done);
+    const notes = [
+      ...(skipped.length ? [`${skipped.length} photo${skipped.length === 1 ? ' was' : 's were'} skipped: ${skipped.map((i) => i.error).join(' ')}`] : []),
+      ...(job.videoDropped ? ['The video was not added: video upload is temporarily unavailable.'] : []),
+    ];
+    setStatus(job, 'complete', [done, ...notes].join(' '));
     await unpersist(job.id);
   } catch (e) {
     const permanent = e && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429;

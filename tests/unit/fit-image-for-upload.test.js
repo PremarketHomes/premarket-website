@@ -53,6 +53,12 @@ describe('fitImageForUpload', () => {
     await expect(fitImageForUpload(fakeFile('huge.tif', 90 * MB), {
       decode: async () => ({ width: 8000, height: 6000 }),
       encode: async () => ({ size: 10 * MB }),
-    })).rejects.toMatchObject({ status: 413, message: expect.stringContaining('"huge.tif" is too large') });
+    })).rejects.toMatchObject({ status: 413, code: 'PHOTO_UNUSABLE', message: expect.stringContaining('"huge.tif" is too large') });
+  });
+
+  it('a large file the browser cannot decode is reported as unusable (skipped), not a crash', async () => {
+    await expect(fitImageForUpload(fakeFile('scan.tiff', 9 * MB, 'image/tiff'), {
+      decode: async () => { throw new Error('decode failed'); },
+    })).rejects.toMatchObject({ code: 'PHOTO_UNUSABLE', message: '"scan.tiff" could not be read as a photo.' });
   });
 });
