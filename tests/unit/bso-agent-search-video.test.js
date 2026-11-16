@@ -58,30 +58,29 @@ describe('the server accepts only the BSO\'s own uploaded video for this campaig
   });
 });
 
-describe('managed video upload job (background, resumable)', () => {
+describe('managed video upload job while video uploads are off (no Firebase Storage; no Bunny video path yet)', () => {
   let calls;
   beforeEach(() => {
     M.__resetForTests();
     calls = { upload: [], patches: [], setVideo: [] };
     M.__setDepsForTests({
       currentUid: () => 'bso1',
-      uploadFile: async (path) => { calls.upload.push(path); return `https://firebasestorage.googleapis.com/v0/b/b/o/${encodeURIComponent(path)}?alt=media`; },
       updateProperty: async (id, patch) => { calls.patches.push({ id, patch }); },
-      apiUpload: async () => { throw new Error('photos path must not be used for video'); },
+      apiUpload: async (f) => { calls.upload.push(f.name); return 'https://bunny/x'; },
       apiSetManagedVideo: async (propertyId, url) => { calls.setVideo.push({ propertyId, url }); return { changed: true }; },
       apiAttachManagedMedia: async () => ({}), apiCreateManaged: async () => ({}),
-      triggerCompress: () => {}, convertHeic: async (f) => f, sleep: async () => {},
+      triggerCompress: () => {}, convertHeic: async (f) => f, fitForUpload: async (f) => f, sleep: async () => {},
     });
   });
   const idle = async (id) => { for (let i = 0; i < 200; i++) { const j = M.getJobs().find((x) => x.id === id); if (j && !['uploading', 'queued'].includes(j.status)) return j; await new Promise((r) => setTimeout(r, 0)); } throw new Error('never settled'); };
-  it('uploads to Storage like an agent\'s video, then attaches through the server — never writes the property directly', async () => {
+  it('ends with the clear "temporarily unavailable" message; uploads nothing and never touches the campaign', async () => {
+    expect(M.VIDEO_UPLOADS_AVAILABLE).toBe(false);
     const id = await M.enqueueManagedVideoUpload({ propertyId: 'p1', userId: 'bso1', video: { name: 'walk through.mp4', type: 'video/mp4', size: 100 } });
     const j = await idle(id);
-    expect(j.status).toBe('complete');
-    expect(j.message).toBe('Video added.');
-    expect(calls.upload).toHaveLength(1);
-    expect(calls.upload[0]).toMatch(/^propertyVideos\/bso1\/p1-[A-Za-z0-9-]+-walk_through\.mp4$/);
-    expect(calls.setVideo).toEqual([{ propertyId: 'p1', url: expect.stringContaining(encodeURIComponent('propertyVideos/bso1/p1-')) }]);
+    expect(j.status).toBe('error');
+    expect(j.message).toBe(M.VIDEO_UNAVAILABLE_MESSAGE);
+    expect(calls.upload).toHaveLength(0);
+    expect(calls.setVideo).toHaveLength(0);
     expect(calls.patches).toHaveLength(0);
   });
 });
@@ -110,5 +109,11 @@ describe('page wiring (BSO only; office admin and agent flows unchanged)', () =>
     expect(edit).toContain('enqueueManagedVideoUpload({ propertyId, userId: user.uid');
     expect(edit).toContain('} else if (savedVideoUrl && !existingVideoUrl) {');
     expect(read('src/app/api/properties/[id]/managed/video/route.js')).toContain('setManagedVideo(db, { actorUid, propertyId');
+  });
+  it('while video uploads are off, both pages refuse video files with the clear message and stop offering them in the picker', () => {
+    for (const page of [add, edit]) {
+      expect(page).toContain('if (!VIDEO_UPLOADS_AVAILABLE) {\n          setMediaError(VIDEO_UNAVAILABLE_MESSAGE);\n          continue;');
+      expect(page).toContain(": 'image/*,.heic,.heif'}");
+    }
   });
 });

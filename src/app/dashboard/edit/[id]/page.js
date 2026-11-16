@@ -24,7 +24,7 @@ import AgentSelector from '../../../components/AgentSelector';
 import AgentModal from '../../../components/AgentModal';
 import ImagePositioner from '../../../components/ImagePositioner';
 import { cropAreaToObjectPosition } from '../../../utils/imageCrop';
-import { enqueuePropertyUpload, enqueueManagedMediaUpload, enqueueManagedVideoUpload } from '../../../utils/mediaUploadManager';
+import { enqueuePropertyUpload, enqueueManagedMediaUpload, enqueueManagedVideoUpload, VIDEO_UPLOADS_AVAILABLE, VIDEO_UNAVAILABLE_MESSAGE } from '../../../utils/mediaUploadManager';
 import {
   MapPin,
   DollarSign,
@@ -321,6 +321,10 @@ export default function EditPropertyPage() {
       const isImage = f.type.startsWith('image/') || ext === '.heic' || ext === '.heif';
 
       if (isVideo) {
+        if (!VIDEO_UPLOADS_AVAILABLE) {
+          setMediaError(VIDEO_UNAVAILABLE_MESSAGE);
+          continue;
+        }
         // The managing BSO handles video too (uploaded like an agent's own, attached through the server). Office admins: photos only.
         if (managerMode && manageRole !== 'bso') {
           setMediaError('Photos only here: the selling agent can add a video to their own campaign.');
@@ -819,7 +823,7 @@ export default function EditPropertyPage() {
             {step === STEPS.IMAGES && (
               <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
                 <h2 className="text-2xl font-bold text-slate-900 mb-1">Add media</h2>
-                <p className="text-slate-500 mb-6">Photos and an optional walkthrough video to showcase your property.</p>
+                <p className="text-slate-500 mb-6">{VIDEO_UPLOADS_AVAILABLE ? 'Photos and an optional walkthrough video to showcase your property.' : 'Photos to showcase your property.'}</p>
 
                 {/* Unified drop zone */}
                 <div
@@ -837,13 +841,13 @@ export default function EditPropertyPage() {
                       <p className="text-base font-semibold text-slate-900">
                         {mediaDragging ? 'Drop files here' : 'Click or drag files to upload'}
                       </p>
-                      <p className="text-sm text-slate-400 mt-1">Images (JPG, PNG, HEIC) and video (MP4, MOV, WebM)</p>
+                      <p className="text-sm text-slate-400 mt-1">{VIDEO_UPLOADS_AVAILABLE ? 'Images (JPG, PNG, HEIC) and video (MP4, MOV, WebM)' : 'Images (JPG, PNG, HEIC)'}</p>
                     </div>
                   </div>
                   <input
                     type="file"
                     id="media-upload"
-                    accept="image/*,.heic,.heif,video/mp4,video/quicktime,video/webm,video/x-m4v,.mp4,.mov,.webm,.m4v"
+                    accept={VIDEO_UPLOADS_AVAILABLE ? 'image/*,.heic,.heif,video/mp4,video/quicktime,video/webm,video/x-m4v,.mp4,.mov,.webm,.m4v' : 'image/*,.heic,.heif'}
                     multiple
                     onChange={handleMediaUpload}
                     className="hidden"

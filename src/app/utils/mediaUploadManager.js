@@ -9,14 +9,23 @@
  *  - Every file is saved to IndexedDB before uploading. Completed files are recorded on the property; unfinished ones are kept
  *    so they can be resumed after a reload, sleep or closed browser (the browser cannot upload while closed or asleep).
  *  - Retries: each file is retried automatically; if it still fails the job is "interrupted" and waits for Resume.
- *  - No duplicates: a deterministic storage path per file (overwrite on retry), completed files are never re-uploaded, and
+ *  - No duplicates on the campaign: completed files are never re-uploaded (a retried upload may leave one unused copy in storage), and
  *    URLs are attached with arrayUnion. Managed campaigns reuse their idempotent requestId; photos added by a campaign's
  *    manager (who cannot write the property directly) are attached through the server, which ignores URLs already there.
  *  - Media is only marked complete (imageUploadProgress.inProgress=false) after EVERY file has uploaded.
  *
- * Firebase Storage's resumable session cannot be restored by the browser SDK after a reload, so "resume" means: skip the files
- * that finished, re-send the ones that did not.
+ * "Resume" means: skip the files that finished, re-send the ones that did not.
+ *
+ * Where files go (2026-11): every photo, for every job type, uploads through /api/upload-image to Bunny, the route the
+ * office-admin flow already used. Firebase Storage is no longer used for uploads (it is suspended and its rules deny all).
+ * Photos over Vercel's 4.5 MB request limit are downsized first (fitImageForUpload); smaller ones are sent byte-for-byte.
+ * Video has no Bunny upload path yet, so new video uploads are switched off (VIDEO_UPLOADS_AVAILABLE) with a clear message;
+ * existing campaign videos are untouched.
  */
+
+/** Off until a Bunny video upload path exists. The Add/Edit pages refuse video files while this is false. */
+export const VIDEO_UPLOADS_AVAILABLE = false;
+export const VIDEO_UNAVAILABLE_MESSAGE = 'Video upload is temporarily unavailable. Add your photos now; a video can be added later.';
 
 const DB_NAME = 'premarket-uploads';
 const STORE = 'jobs';
@@ -34,16 +43,12 @@ let snapshot = [];
 /* ───────────── dependencies (overridable in tests) ───────────── */
 
 async function defaultDeps() {
-  const [{ db, storage, auth }, fsMod, stMod, { authFetch }] = await Promise.all([
-    import('../firebase/clientApp'), import('firebase/firestore'), import('firebase/storage'), import('./authFetch'),
+  const [{ db, auth }, fsMod, { authFetch }, { fitImageForUpload }] = await Promise.all([
+    import('../firebase/clientApp'), import('firebase/firestore'), import('./authFetch'), import('./fitImageForUpload'),
   ]);
   return {
     currentUid: () => auth.currentUser?.uid || null,
-    uploadFile: (path, blob, contentType, onProgress) => new Promise((resolve, reject) => {
-      const task = stMod.uploadBytesResumable(stMod.ref(storage, path), blob, { contentType });
-      task.on('state_changed', (s) => onProgress?.(s.bytesTransferred / (s.totalBytes || 1)), reject,
-        () => stMod.getDownloadURL(task.snapshot.ref).then(resolve, reject));
-    }),
+    fitForUpload: (file) => fitImageForUpload(file),
     updateProperty: (propertyId, patch) => {
       const out = {};
       for (const [k, v] of Object.entries(patch)) out[k === 'imageUrls+' ? 'imageUrls' : k] = k === 'imageUrls+' ? fsMod.arrayUnion(v) : v;
@@ -52,6 +57,9 @@ async function defaultDeps() {
     apiUpload: async (file) => {
       const fd = new FormData(); fd.append('file', file);
       const res = await authFetch('/api/upload-image', { method: 'POST', body: fd });
+      if (res.status === 400 || res.status === 413) { // the file itself was refused (type or size): skip it, don't retry
+        throw Object.assign(new Error(`"${file.name || 'A photo'}" is not a supported photo or is too large.`), { status: res.status, code: 'PHOTO_UNUSABLE' });
+      }
       if (!res.ok) { const e = new Error('A photo could not be uploaded.'); e.status = res.status; throw e; }
       return (await res.json()).url;
     },
@@ -124,12 +132,14 @@ function emit() {
   snapshot = [...jobs.values()].map(view);
   listeners.forEach((l) => l());
 }
+// 'skipped' = a photo that can never be uploaded (unreadable, or too large even after resizing): it is reported, not retried.
+const finished = (i) => i.status === 'done' || i.status === 'skipped';
 const view = (j) => ({
   id: j.id, kind: j.kind, userId: j.userId, label: j.label, status: j.status, message: j.message || '',
   propertyId: j.propertyId || null, redirectTo: j.redirectTo || null,
   total: j.items.length, done: j.items.filter((i) => i.status === 'done').length,
-  progress: j.items.length ? j.items.reduce((a, i) => a + (i.status === 'done' ? 1 : (i.progress || 0)), 0) / j.items.length : 1,
-  remaining: j.items.filter((i) => i.status !== 'done').length,
+  progress: j.items.length ? j.items.reduce((a, i) => a + (finished(i) ? 1 : (i.progress || 0)), 0) / j.items.length : 1,
+  remaining: j.items.filter((i) => !finished(i)).length,
 });
 export const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 export const getJobs = () => snapshot;
@@ -137,7 +147,6 @@ export const hasActiveUploads = () => [...jobs.values()].some((j) => j.status ==
 const setStatus = (j, status, message = '') => { j.status = status; j.message = message; emit(); };
 
 const newId = () => (globalThis.crypto?.randomUUID?.() || `${Date.now()}${Math.random().toString(16).slice(2)}`).replace(/[^A-Za-z0-9-]/g, '');
-const safeName = (n) => String(n || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
 const mkItem = (kind, file) => (typeof file === 'string'
   ? { id: newId(), kind: 'image', status: 'done', url: file, name: 'existing' }
   : { id: newId(), kind, status: 'pending', name: file.name || 'file', type: file.type || '', size: file.size || 0, blob: file, progress: 0 });
@@ -156,19 +165,36 @@ async function withRetry(d, fn) {
   throw lastErr;
 }
 
+const videoUnavailable = () => Object.assign(new Error(VIDEO_UNAVAILABLE_MESSAGE), { status: 503 });
+
 async function uploadItem(d, job, item) {
-  if (item.kind === 'image' && !item.converted) {
-    const f = await d.convertHeic(item.blob);
+  if (item.kind !== 'image') throw videoUnavailable(); // run() drops video items first; defensive
+  if (!item.converted) {
+    let f;
+    try { f = await d.convertHeic(item.blob); } catch {
+      throw Object.assign(new Error(`"${item.name}" could not be converted from HEIC.`), { status: 415, code: 'PHOTO_UNUSABLE' });
+    }
     if (f !== item.blob) { item.blob = f; item.name = f.name; item.type = f.type; }
     item.converted = true;
   }
-  const onProgress = (p) => { item.progress = p; emit(); };
-  if (job.kind === 'managed' || job.kind === 'managedMedia') return withRetry(d, () => d.apiUpload(item.blob));
-  const folder = item.kind === 'video' ? 'propertyVideos' : 'propertyImages';
-  // Deterministic path: a retry overwrites the same object instead of creating a second one.
-  // Same folder depth as before (propertyImages/{uid}/{file}) so existing storage rules keep matching.
-  const path = `${folder}/${job.userId}/${job.propertyId}-${item.id}-${safeName(item.name)}`;
-  return withRetry(d, () => d.uploadFile(path, item.blob, item.type || undefined, onProgress));
+  if (!item.fitted) {
+    const f = await d.fitForUpload(item.blob);
+    if (f !== item.blob) { item.blob = f; item.name = f.name; item.type = f.type; item.size = f.size; }
+    item.fitted = true;
+  }
+  // Every job type (agent's own, managed create, manager-added photos): the same server upload to Bunny.
+  return withRetry(d, () => d.apiUpload(item.blob));
+}
+
+/**
+ * While video uploads are off, a job saved before the switch may still hold a video: drop it (photos carry on) and
+ * remember it so the final message says so. A video-only job (managing BSO) ends with the clear message instead.
+ */
+function dropUnavailableVideo(job) {
+  if (VIDEO_UPLOADS_AVAILABLE || !job.items.some((i) => i.kind === 'video' && i.status !== 'done')) return false;
+  job.items = job.items.filter((i) => i.kind !== 'video' || i.status === 'done');
+  job.videoDropped = true;
+  return true;
 }
 
 async function run(job) {
@@ -178,10 +204,17 @@ async function run(job) {
   try {
     const d = await getDeps();
     if (d.currentUid() !== job.userId) { setStatus(job, 'interrupted', 'Sign in as the same user to resume this upload.'); return; }
+    if (dropUnavailableVideo(job) && job.kind === 'managedVideo') {
+      setStatus(job, 'error', VIDEO_UNAVAILABLE_MESSAGE); await persist(job); return;
+    }
     for (const item of job.items) {
-      if (item.status === 'done') continue;
+      if (finished(item)) continue;
       let url;
       try { url = await uploadItem(d, job, item); } catch (e) {
+        if (e?.code === 'PHOTO_UNUSABLE') { // this photo can never upload: skip it, carry on with the rest, report it at the end
+          item.status = 'skipped'; item.blob = null; item.progress = 1; item.error = e.message;
+          emit(); await persist(job); continue;
+        }
         setStatus(job, 'interrupted', 'Some files did not upload. The ones that finished are saved. Press Resume to send the rest.');
         await persist(job);
         if (job.kind === 'property') await d.updateProperty(job.propertyId, { 'imageUploadProgress.interrupted': true }).catch(() => {});
@@ -191,7 +224,7 @@ async function run(job) {
       if (job.kind === 'property') {
         const doneImages = job.items.filter((i) => i.kind === 'image' && i.status === 'done').length;
         const patch = item.kind === 'video' ? { videoUrl: url }
-          : { 'imageUrls+': url, 'imageUploadProgress.uploaded': doneImages, 'imageUploadProgress.total': job.items.filter((i) => i.kind === 'image').length, 'imageUploadProgress.inProgress': true, 'imageUploadProgress.interrupted': false };
+          : { 'imageUrls+': url, 'imageUploadProgress.uploaded': doneImages, 'imageUploadProgress.total': job.items.filter((i) => i.kind === 'image' && i.status !== 'skipped').length, 'imageUploadProgress.inProgress': true, 'imageUploadProgress.interrupted': false };
         try { await d.updateProperty(job.propertyId, patch); } catch (e) {
           item.status = 'pending'; item.url = null; // could not attach it: do not count it as done
           setStatus(job, 'interrupted', 'Could not save a photo to the campaign. Press Resume to try again.'); await persist(job); return;
@@ -200,20 +233,26 @@ async function run(job) {
       emit(); await persist(job);
     }
 
+    const skipped = job.items.filter((i) => i.status === 'skipped');
+    const doneUrls = job.items.filter((i) => i.status === 'done').map((i) => i.url);
+    if (job.kind === 'managed' && skipped.length && !doneUrls.length) {
+      setStatus(job, 'error', `None of the photos could be used, so the campaign was not created. ${skipped.map((i) => i.error).join(' ')}`);
+      await persist(job); return;
+    }
     if (job.kind === 'managed') {
-      const urls = job.items.map((i) => i.url);
+      const urls = doneUrls;
       const out = await withRetry(d, () => d.apiCreateManaged({ ...job.payload, requestId: job.requestId, property: { ...job.payload.property, imageUrls: urls } }));
       job.propertyId = out.propertyId || out.id || null;
     } else if (job.kind === 'managedMedia') {
-      const urls = job.items.map((i) => i.url);
+      const urls = doneUrls;
       await withRetry(d, () => d.apiAttachManagedMedia(job.propertyId, urls));
       d.triggerCompress(job.propertyId);
     } else if (job.kind === 'managedVideo') {
       // Uploaded to Storage above exactly like an agent's own video; attached through the server (the uploader is not the owner).
       await withRetry(d, () => d.apiSetManagedVideo(job.propertyId, job.items[0].url));
     } else {
-      const hasImages = job.items.some((i) => i.kind === 'image');
-      const total = job.items.filter((i) => i.kind === 'image').length;
+      const total = job.items.filter((i) => i.kind === 'image' && i.status === 'done').length;
+      const hasImages = total > 0;
       await d.updateProperty(job.propertyId, {
         'imageUploadProgress.uploaded': total, 'imageUploadProgress.total': total,
         'imageUploadProgress.inProgress': false, 'imageUploadProgress.interrupted': false,
@@ -221,7 +260,12 @@ async function run(job) {
       });
       if (hasImages) d.triggerCompress(job.propertyId);
     }
-    setStatus(job, 'complete', job.kind === 'managed' ? 'Campaign created.' : job.kind === 'managedMedia' ? 'Photos added.' : job.kind === 'managedVideo' ? 'Video added.' : 'All media uploaded.');
+    const done = job.kind === 'managed' ? 'Campaign created.' : job.kind === 'managedMedia' ? 'Photos added.' : job.kind === 'managedVideo' ? 'Video added.' : 'All media uploaded.';
+    const notes = [
+      ...(skipped.length ? [`${skipped.length} photo${skipped.length === 1 ? ' was' : 's were'} skipped: ${skipped.map((i) => i.error).join(' ')}`] : []),
+      ...(job.videoDropped ? ['The video was not added: video upload is temporarily unavailable.'] : []),
+    ];
+    setStatus(job, 'complete', [done, ...notes].join(' '));
     await unpersist(job.id);
   } catch (e) {
     const permanent = e && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429;
