@@ -14,6 +14,8 @@ import { useAuth } from '../context/AuthContext';
 import { authFetch } from '../utils/authFetch';
 import { isBuyerOnly } from '../utils/roles';
 import { teamPropertiesFrom, listForView, computeStats } from '../utils/teamPortfolio';
+import { knownTeamTheme, teamAccentStyle, campaignAccentStyle } from '../utils/teamTheme';
+import { fetchCampaignThemes } from '../utils/fetchCampaignThemes';
 import { db } from '../firebase/clientApp';
 import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, orderBy, deleteField, serverTimestamp } from 'firebase/firestore';
 import { formatPrice, formatDate } from '../utils/formatters';
@@ -216,11 +218,11 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
                 href={item.href}
                 className={`relative flex items-center gap-3 px-4 py-2.5 rounded-md text-[13px] font-medium tracking-wide transition-colors ${
                   isActive
-                    ? 'text-stone-900 bg-stone-100/80 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:rounded-full before:bg-[#c64500]'
+                    ? 'text-stone-900 bg-stone-100/80 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:rounded-full before:bg-[var(--team-accent,#c64500)]'
                     : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100/60'
                 }`}
               >
-                <Icon className="w-4 h-4" strokeWidth={1.5} />
+                <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--team-accent,currentColor)]' : ''}`} strokeWidth={1.5} />
                 {item.label}
               </Link>
             );
@@ -234,11 +236,11 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
               }}
               className={`w-full relative flex items-center gap-3 px-4 py-2.5 rounded-md text-[13px] font-medium tracking-wide transition-colors ${
                 isActive
-                  ? 'text-stone-900 bg-stone-100/80 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:rounded-full before:bg-[#c64500]'
+                  ? 'text-stone-900 bg-stone-100/80 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:rounded-full before:bg-[var(--team-accent,#c64500)]'
                   : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100/60'
               }`}
             >
-              <Icon className="w-4 h-4" strokeWidth={1.5} />
+              <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--team-accent,currentColor)]' : ''}`} strokeWidth={1.5} />
               {item.label}
             </button>
           );
@@ -311,7 +313,7 @@ function StatCard({ label, value }) {
 }
 
 // --- Property Card ---
-function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archiving, isArchived, isSold, onHide, teamAgents, showListedBy }) {
+function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archiving, isArchived, isSold, onHide, teamAgents, showListedBy, campaignTheme }) {
   // A teammate's listing is a read-only copy: it can be previewed and its (redacted)
   // report opened, but never edited, archived or hidden from here.
   const isTeamListing = property.isTeamListing === true;
@@ -320,6 +322,9 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="bg-white border border-stone-200 rounded-md overflow-hidden hover:border-stone-300 transition-colors flex flex-col"
+      // This campaign's own team accent (undefined while unknown: inherits the dashboard's), so a card is never
+      // tinted by the viewer's team when the campaign belongs to a different one.
+      style={campaignAccentStyle(campaignTheme)}
     >
       {/* Image — clickable to preview listing */}
       <a
@@ -328,6 +333,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
         rel="noopener noreferrer"
         className="block relative aspect-[4/3] bg-stone-100 cursor-pointer group"
       >
+        {campaignTheme && <span className="absolute inset-x-0 top-0 z-10 h-[3px] bg-[var(--team-accent)]" aria-hidden="true" />}
         {property.imageUrls?.[0] ? (
           <ShimmerImage
             src={property.imageUrls[0]}
@@ -338,7 +344,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           />
         ) : property.imageUploadProgress?.inProgress ? (
           <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-stone-50">
-            <div className="w-8 h-8 border-2 border-[#c64500] border-t-transparent rounded-full animate-spin" />
+            <div className="w-8 h-8 border-2 border-[var(--team-accent,#c64500)] border-t-transparent rounded-full animate-spin" />
             <p className="text-xs text-stone-500 text-center px-3">
               {property.imageUploadProgress?.interrupted ? 'Upload paused. Press Resume in the upload box, on the computer you started from.' : 'Uploading media...'}
             </p>
@@ -372,7 +378,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           <span className={`px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] rounded-sm ${
             property.listingStatus === 'on-market'
               ? 'bg-white/90 text-stone-800'
-              : 'bg-white/90 text-[#c64500]'
+              : 'bg-white/90 text-[var(--team-accent,#c64500)]'
           }`}>
             {property.listingStatus === 'on-market' ? 'On Market' : 'Pre-Market'}
           </span>
@@ -387,7 +393,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           <div className="absolute bottom-0 left-0 right-0">
             <div className="h-0.5 bg-stone-200">
               <div
-                className="h-full bg-[#c64500] transition-all duration-500"
+                className="h-full bg-[var(--team-accent,#c64500)] transition-all duration-500"
                 style={{ width: `${property.imageUploadProgress.total > 0 ? (property.imageUploadProgress.uploaded / property.imageUploadProgress.total) * 100 : 0}%` }}
               />
             </div>
@@ -406,7 +412,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           href={`/find-property?propertyId=${property.id}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="font-medium text-stone-900 text-sm truncate mb-1 block hover:text-[#c64500] transition-colors"
+          className="font-medium text-stone-900 text-sm truncate mb-1 block hover:text-[var(--team-accent,#c64500)] transition-colors"
         >
           {property.formattedAddress || property.address || 'No address'}
         </a>
@@ -682,14 +688,14 @@ function EmptyState({
       animate={{ opacity: 1, y: 0 }}
       className="bg-white rounded-md border border-stone-200 px-6 py-16 sm:py-20 text-center"
     >
-      <div className="mx-auto mb-7 h-px w-10 bg-[#c64500]" aria-hidden="true" />
+      <div className="mx-auto mb-7 h-px w-10 bg-[var(--team-accent,#c64500)]" aria-hidden="true" />
       <h3 className="font-serif text-2xl text-stone-900 mb-3">{title}</h3>
       <p className="text-sm text-stone-500 leading-relaxed mb-8 max-w-sm mx-auto">
         {text}
       </p>
       <Link
         href={href}
-        className="add-property-pulse inline-flex items-center gap-2 px-6 py-3 bg-[#e38100] hover:bg-[#cc7400] text-white text-sm font-semibold tracking-wide rounded-md transition-colors"
+        className="add-property-pulse inline-flex items-center gap-2 px-6 py-3 bg-[var(--team-accent,#e38100)] hover:bg-[var(--team-accent-strong,#cc7400)] text-white text-sm font-semibold tracking-wide rounded-md transition-colors"
       >
         <Plus className="w-4 h-4" strokeWidth={1.75} />
         {cta}
@@ -920,7 +926,7 @@ function ProfilePhotoPrompt({ onDismiss }) {
         </button>
         <Link
           href="/dashboard/settings"
-          className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#e48900] to-[#c64500] text-white font-semibold text-sm hover:shadow-lg transition-all whitespace-nowrap"
+          className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[var(--team-accent,#e48900)] to-[var(--team-accent-strong,#c64500)] text-white font-semibold text-sm hover:shadow-lg transition-all whitespace-nowrap"
         >
           Upload Photo
         </Link>
@@ -1072,6 +1078,10 @@ function DashboardPage() {
   const [filterAgentId, setFilterAgentId] = useState('');
   // Shared team portfolio: teammates' read-only listings (server-authorised) and the chosen view.
   const [teamRows, setTeamRows] = useState([]);
+  // Team accent (display only). Dashboard chrome: the palette of the signed-in agent's VERIFIED team, from
+  // /api/teams/properties. Cards: each campaign's own team, from its selling agent (see api/services/teamThemes.js).
+  const [teamTheme, setTeamTheme] = useState(null);
+  const [campaignThemes, setCampaignThemes] = useState(null); // { [propertyId]: theme|null } once known
   const [teamView, setTeamView] = useState('all'); // 'all' | 'mine' | 'team'
   // BSO: authorised server-side only (officeAdminInfo.bsoUids, re-checked on every request). For a BSO the Dashboard
   // shows the campaigns they manage instead of only the properties they own. One request answers both "is this a BSO?"
@@ -1221,6 +1231,7 @@ function DashboardPage() {
   useEffect(() => {
     if (!user || !inOffice) {
       setTeamRows([]);
+      setTeamTheme(null);
       return undefined;
     }
     let cancelled = false;
@@ -1229,10 +1240,16 @@ function DashboardPage() {
         const res = await authFetch('/api/teams/properties');
         if (!res.ok) throw new Error(`team properties ${res.status}`);
         const data = await res.json();
-        if (!cancelled) setTeamRows(Array.isArray(data.properties) ? data.properties : []);
+        if (!cancelled) {
+          setTeamRows(Array.isArray(data.properties) ? data.properties : []);
+          setTeamTheme(knownTeamTheme(data.theme));
+        }
       } catch (err) {
         // Not in a team (403) or a transient error: never blocks the dashboard.
-        if (!cancelled) setTeamRows([]);
+        if (!cancelled) {
+          setTeamRows([]);
+          setTeamTheme(null);
+        }
       }
     };
     load();
@@ -1324,6 +1341,16 @@ function DashboardPage() {
     }
   };
 
+  // Each campaign card's own team accent, decided server-side from the campaign's selling agent. Display only: any
+  // failure leaves a card's normal colours. Cached per campaign for the page's lifetime.
+  const themeIdsKey = [...properties.map((p) => p.id), ...teamRows.map((r) => r.id)].filter(Boolean).sort().join(',');
+  useEffect(() => {
+    if (!themeIdsKey) return undefined;
+    let cancelled = false;
+    fetchCampaignThemes(themeIdsKey.split(',')).then((themes) => { if (!cancelled) setCampaignThemes(themes); });
+    return () => { cancelled = true; };
+  }, [themeIdsKey]);
+
   if (loading) return <DashboardSkeleton />;
 
   if (!user) return null;
@@ -1374,7 +1401,7 @@ function DashboardPage() {
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
   return (
-    <div className="min-h-screen bg-[#faf9f7] text-stone-900">
+    <div className="min-h-screen bg-[#faf9f7] text-stone-900" style={teamAccentStyle(teamTheme)}>
       <Sidebar
         active={activeTab}
         onNavigate={setActiveTab}
@@ -1396,7 +1423,7 @@ function DashboardPage() {
             </button>
             <span className="font-serif text-lg text-stone-900">Dashboard</span>
             <Link href={addHref} className="p-2 hover:bg-stone-100 rounded-md" aria-label="Add property">
-              <Plus className="w-5 h-5 text-[#e38100]" strokeWidth={2} />
+              <Plus className="w-5 h-5 text-[var(--team-accent,#e38100)]" strokeWidth={2} />
             </Link>
           </div>
         </div>
@@ -1438,7 +1465,7 @@ function DashboardPage() {
             </div>
             <Link
               href={addHref}
-              className="add-property-pulse hidden sm:inline-flex shrink-0 items-center gap-2 px-6 py-3 bg-[#e38100] hover:bg-[#cc7400] text-white text-sm font-semibold tracking-wide rounded-md transition-colors"
+              className="add-property-pulse hidden sm:inline-flex shrink-0 items-center gap-2 px-6 py-3 bg-[var(--team-accent,#e38100)] hover:bg-[var(--team-accent-strong,#cc7400)] text-white text-sm font-semibold tracking-wide rounded-md transition-colors"
             >
               <Plus className="w-4 h-4" strokeWidth={1.75} />
               Add Property
@@ -1554,7 +1581,7 @@ function DashboardPage() {
               href={addHref}
               className="sm:hidden bg-white rounded-md border border-stone-200 px-5 py-4 flex items-center gap-4 hover:border-stone-300 transition-colors group"
             >
-              <Plus className="w-5 h-5 text-[#e38100]" strokeWidth={1.5} />
+              <Plus className="w-5 h-5 text-[var(--team-accent,#e38100)]" strokeWidth={1.5} />
               <div className="flex-1">
                 <p className="text-sm font-medium text-stone-900">Add Property</p>
                 <p className="text-xs text-stone-500">List a new property for your client</p>
@@ -1619,6 +1646,7 @@ function DashboardPage() {
                   onHide={handleHideProperty}
                   teamAgents={teamAgents}
                   showListedBy={hasTeamListings}
+                  campaignTheme={campaignThemes && property.id in campaignThemes ? campaignThemes[property.id] : undefined}
                 />
               ))}
             </div>
@@ -1665,8 +1693,8 @@ function DashboardPage() {
               className="bg-[#faf9f7] rounded-md border border-stone-200 shadow-xl max-w-md w-full overflow-hidden"
             >
               <div className="px-8 pt-9 pb-2 text-center">
-                <div className="mx-auto mb-5 h-px w-10 bg-[#e38100]" aria-hidden="true" />
-                <CheckCircle className="w-7 h-7 text-[#e38100] mx-auto mb-3" />
+                <div className="mx-auto mb-5 h-px w-10 bg-[var(--team-accent,#e38100)]" aria-hidden="true" />
+                <CheckCircle className="w-7 h-7 text-[var(--team-accent,#e38100)] mx-auto mb-3" />
                 <h2 className="font-serif text-2xl text-stone-900">
                   {successModal === 'created' ? 'Property created' : 'Changes saved'}
                 </h2>
@@ -1697,7 +1725,7 @@ function DashboardPage() {
 
                 <button
                   onClick={() => setSuccessModal(null)}
-                  className="w-full mt-2 py-3 bg-[#e38100] hover:bg-[#cc7400] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
+                  className="w-full mt-2 py-3 bg-[var(--team-accent,#e38100)] hover:bg-[var(--team-accent-strong,#cc7400)] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
                 >
                   Got it
                 </button>

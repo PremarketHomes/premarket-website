@@ -9,6 +9,8 @@ import { useRequireAgent } from '../../hooks/useRequireAgent';
 import { authFetch } from '../../utils/authFetch';
 import { db } from '../../firebase/clientApp';
 import PropertyThumb from '../../components/PropertyThumb';
+import { knownTeamTheme, teamAccentStyle, campaignAccentStyle } from '../../utils/teamTheme';
+import { fetchCampaignThemes } from '../../utils/fetchCampaignThemes';
 
 const PROPERTY_STATUS = {
   live: { label: 'Live', className: 'bg-slate-900 text-white' },
@@ -62,6 +64,7 @@ export default function MyTeamPage() {
   const [teamProps, setTeamProps] = useState({ status: 'idle', data: null });
   const [myProps, setMyProps] = useState({ status: 'idle', data: null });
   const [ownerFilter, setOwnerFilter] = useState('all');
+  const [rowThemes, setRowThemes] = useState(null); // { [propertyId]: theme|null }: each campaign's own team accent
 
   const load = useCallback(async () => {
     try {
@@ -164,6 +167,14 @@ export default function MyTeamPage() {
   const respond = (id, action, success) =>
     act(`${action}:${id}`, () => authFetch(`/api/teams/invites/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) }), { success });
 
+  const rowIdsKey = [...(teamProps.data?.properties || []), ...(myProps.data?.properties || [])].map((p) => p.id).filter(Boolean).sort().join(',');
+  useEffect(() => {
+    if (!rowIdsKey) return undefined;
+    let cancelled = false;
+    fetchCampaignThemes(rowIdsKey.split(',')).then((themes) => { if (!cancelled) setRowThemes(themes); });
+    return () => { cancelled = true; };
+  }, [rowIdsKey]);
+
   const visibleProps = useMemo(() => {
     const data = teamProps.data;
     if (!data) return [];
@@ -202,9 +213,11 @@ export default function MyTeamPage() {
   const listing = tab === 'team' ? teamProps : myProps;
   const rows = tab === 'team' ? visibleProps : myProps.data?.properties || [];
   const mates = team ? team.members.filter((m) => !m.isYou) : [];
+  // Display-only accent for this verified team (server-decided from the team id; null for every other team).
+  const accentStyle = teamAccentStyle(knownTeamTheme(team?.theme));
 
   return (
-    <div className="min-h-screen bg-slate-50 py-8 px-4">
+    <div className="min-h-screen bg-slate-50 py-8 px-4" style={accentStyle}>
       <div className="max-w-6xl mx-auto space-y-6">
         <div>
           <Link href="/dashboard" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 mb-2">
@@ -224,8 +237,8 @@ export default function MyTeamPage() {
 
         {/* Invitations received */}
         {incoming.length > 0 && (
-          <section className="bg-white rounded-xl border border-orange-200 p-5">
-            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2"><Mail className="w-4 h-4 text-orange-500" /> Invitations for you</h2>
+          <section className="bg-white rounded-xl border border-[var(--team-accent-border,var(--color-orange-200))] p-5">
+            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2"><Mail className="w-4 h-4 text-[var(--team-accent,var(--color-orange-500))]" /> Invitations for you</h2>
             <ul className="mt-3 divide-y divide-slate-100">
               {incoming.map((i) => (
                 <li key={i.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
@@ -238,7 +251,7 @@ export default function MyTeamPage() {
                     <button
                       onClick={() => respond(i.id, 'accept', 'You’ve joined the team.')}
                       disabled={i.blocked || busy !== null}
-                      className="inline-flex items-center gap-1 px-3.5 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="inline-flex items-center gap-1 px-3.5 py-2 rounded-lg bg-[var(--team-accent,var(--color-orange-500))] text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
                     ><Check className="w-4 h-4" /> Accept</button>
                     <button
                       onClick={() => respond(i.id, 'decline', 'Invitation declined.')}
@@ -298,9 +311,9 @@ export default function MyTeamPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="colleague@youragency.com"
                   autoComplete="off"
-                  className="min-w-0 flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                  className="min-w-0 flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_oklab,var(--team-accent,var(--color-orange-500))_20%,transparent)]"
                 />
-                <button type="submit" disabled={busy !== null || !email.trim()} className="px-4 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold disabled:opacity-40">
+                <button type="submit" disabled={busy !== null || !email.trim()} className="px-4 py-2 rounded-lg bg-[var(--team-accent,var(--color-orange-500))] text-white text-sm font-semibold disabled:opacity-40">
                   {busy === 'invite' ? 'Sending…' : 'Invite'}
                 </button>
               </form>
@@ -335,7 +348,7 @@ export default function MyTeamPage() {
                     role="tab"
                     aria-selected={tab === id}
                     onClick={() => setTab(id)}
-                    className={`px-3.5 py-1.5 rounded-md ${tab === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                    className={`px-3.5 py-1.5 rounded-md ${tab === id ? 'bg-white text-[var(--team-accent,var(--color-slate-900))] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                   >{label}</button>
                 ))}
               </div>
@@ -359,18 +372,21 @@ export default function MyTeamPage() {
                 <p className="text-sm">Join or start a team to see your teammates&apos; properties here.</p>
               </div>
             ) : listing.status === 'loading' ? (
-              <div className="py-10 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-4 border-orange-500" /></div>
+              <div className="py-10 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-4 border-[var(--team-accent,var(--color-orange-500))]" /></div>
             ) : listing.status === 'error' ? (
               <div>
                 <p className="text-sm text-slate-600 mb-3">We couldn&apos;t load these properties.</p>
-                <button onClick={tab === 'team' ? loadTeamProps : loadMyProps} className="px-4 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold">Retry</button>
+                <button onClick={tab === 'team' ? loadTeamProps : loadMyProps} className="px-4 py-2 rounded-lg bg-[var(--team-accent,var(--color-orange-500))] text-white text-sm font-semibold">Retry</button>
               </div>
             ) : rows.length === 0 ? (
               <p className="text-sm text-slate-500">{tab === 'team' ? 'Your teammates have no properties to show yet.' : 'You have no properties yet.'}</p>
             ) : (
               <ul className="space-y-3">
-                {rows.map((p) => (
-                  <li key={p.id} className="flex gap-3 border border-slate-100 rounded-xl p-3">
+                {rows.map((p) => {
+                  const rowTheme = rowThemes && p.id in rowThemes ? rowThemes[p.id] : undefined;
+                  return (
+                  <li key={p.id} className="relative overflow-hidden flex gap-3 border border-slate-100 rounded-xl p-3" style={campaignAccentStyle(rowTheme)}>
+                    {rowTheme && <span className="absolute inset-y-0 left-0 w-[3px] bg-[var(--team-accent)]" aria-hidden="true" />}
                     {p.thumbnail ? (
                       <PropertyThumb src={p.thumbnail} width={80} height={64} className="w-20 h-16 rounded-lg object-cover shrink-0 bg-slate-100" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                     ) : <div className="w-20 h-16 rounded-lg bg-slate-100 shrink-0" />}
@@ -393,14 +409,15 @@ export default function MyTeamPage() {
                           <Link href={`/dashboard/property/${p.id}`} className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-semibold">
                             {tab === 'team' ? 'View report (read-only)' : 'View report'} <BarChart3 className="w-3 h-3" />
                           </Link>
-                          <Link href={`/find-property?propertyId=${p.id}`} target="_blank" className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-700 font-semibold">
+                          <Link href={`/find-property?propertyId=${p.id}`} target="_blank" className="inline-flex items-center gap-1 text-[var(--team-accent,var(--color-orange-600))] hover:text-[var(--team-accent-strong,var(--color-orange-700))] font-semibold">
                             View page <ExternalLink className="w-3 h-3" />
                           </Link>
                         </span>
                       </div>
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </section>

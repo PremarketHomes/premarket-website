@@ -128,6 +128,15 @@ body {
   12% { transform: translateX(2px) rotate(0.8deg); }
   15% { transform: translateX(-1px) rotate(0); }
 }
+/* Same ring in a team accent colour where one applies (utils/teamTheme.js); with no team accent the fallback is
+   the exact orange above, and browsers without color-mix keep the original keyframes. */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  @keyframes addPropertyPulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--team-accent, rgb(227 129 0)) 60%, transparent); }
+    55% { box-shadow: 0 0 0 16px color-mix(in srgb, var(--team-accent, rgb(227 129 0)) 0%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--team-accent, rgb(227 129 0)) 0%, transparent); }
+  }
+}
 .add-property-pulse {
   animation: addPropertyPulse 3s ease-out infinite, addPropertyShake 3s ease-in-out infinite;
 }

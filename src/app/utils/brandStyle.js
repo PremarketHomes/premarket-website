@@ -34,6 +34,10 @@ export function computeBrandStyle(colors) {
   if (colors.secondary) {
     style['--brand-secondary'] = colors.secondary;
   }
+  // Optional photo-tint override (team accents only, see utils/teamTheme.js). Absent for every agency brand, whose
+  // kiosk overlay keeps using its primary colours exactly as before.
+  if (colors.tint) style['--brand-tint'] = colors.tint;
+  if (colors.tintDark) style['--brand-tint-dark'] = colors.tintDark;
   return style;
 }
 
@@ -43,8 +47,11 @@ export function computeBrandStyle(colors) {
  * exactly what the dashboard branding-setup page is about to save —
  * it takes absolute precedence so the live preview there always shows
  * the proposed state, never a mix with whatever is already saved. */
-export function computeEffectiveColors({ brand, agentData, previewBrand }) {
+export function computeEffectiveColors({ brand, agentData, previewBrand, teamColors }) {
   if (previewBrand) return previewBrand.colors || null;
+  // A campaign of a themed team (utils/teamTheme.js, resolved server-side from the campaign's selling agent) uses
+  // the team's accent colours. Colours only: the office logo and agency title are unchanged.
+  if (teamColors?.primary) return teamColors;
   return agentData?.brandColors || brand?.colors || null;
 }
 

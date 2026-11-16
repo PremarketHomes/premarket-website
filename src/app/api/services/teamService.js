@@ -35,6 +35,7 @@ import { sendTeamInviteEmail } from './resendService';
 import { toOfficeTeamProperty } from './officeTeamService';
 import { isEligibleTeamAgent } from './teamAccess';
 import { loadTestCampaignIds } from './testCampaigns';
+import { themeForTeamId } from './teamThemes';
 
 export const TEAM_INVITE_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
 export const MAX_INVITES_PER_DAY = 10;
@@ -450,6 +451,8 @@ export async function getTeamOverview(uid) {
     team = {
       id: me.team.id,
       createdBy: me.team.createdBy,
+      // Display-only accent palette for this (verified, current-office) team, or null — see teamThemes.js.
+      theme: themeForTeamId(me.team.id),
       members: members
         .map((m) => ({
           uid: m.uid,
@@ -538,5 +541,5 @@ export async function listTeamProperties(uid) {
   const opinionCounts = properties.length ? await countOpinionsByProperty(properties.map((p) => p.id)) : {};
   for (const p of properties) p.opinions = opinionCounts[p.id] || 0;
   const counts = properties.reduce((acc, p) => { acc[p.status] = (acc[p.status] || 0) + 1; return acc; }, {});
-  return { properties, counts, total: properties.length };
+  return { properties, counts, total: properties.length, theme: themeForTeamId(me.team.id) };
 }

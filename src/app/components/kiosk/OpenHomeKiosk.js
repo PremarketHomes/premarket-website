@@ -316,7 +316,7 @@ export default function OpenHomeKiosk({
         {imageUrl ? (
           <Image src={imageUrl} alt="" fill priority unoptimized sizes="100vw" className="object-cover" draggable={false} />
         ) : (
-          <div className="h-full w-full" style={{ background: 'linear-gradient(135deg, var(--brand-primary-dark, #0f172a), var(--brand-primary, #334155))' }} />
+          <div className="h-full w-full" style={{ background: 'linear-gradient(135deg, var(--brand-tint-dark, var(--brand-primary-dark, #0f172a)), var(--brand-tint, var(--brand-primary, #334155)))' }} />
         )}
         <div className="absolute inset-0 pm-kiosk-overlay" />
       </div>
@@ -539,7 +539,7 @@ export default function OpenHomeKiosk({
         @supports (background: color-mix(in srgb, red 50%, blue)) {
           .pm-kiosk-overlay {
             background:
-              linear-gradient(180deg, color-mix(in srgb, var(--brand-primary, #334155) 42%, rgba(2,6,23,.55)) 0%, rgba(2,6,23,.5) 40%, color-mix(in srgb, var(--brand-primary-dark, #0f172a) 40%, rgba(2,6,23,.82)) 100%);
+              linear-gradient(180deg, color-mix(in srgb, var(--brand-tint, var(--brand-primary, #334155)) 42%, rgba(2,6,23,.55)) 0%, rgba(2,6,23,.5) 40%, color-mix(in srgb, var(--brand-tint-dark, var(--brand-primary-dark, #0f172a)) 40%, rgba(2,6,23,.82)) 100%);
           }
         }
       `}</style>
