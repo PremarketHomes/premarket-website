@@ -19,7 +19,7 @@ import {
   getDoc,
   getDocs,
 } from 'firebase/firestore';
-import { enqueuePropertyUpload, enqueueManagedCreate, enqueueManagedVideoUpload } from '../../utils/mediaUploadManager';
+import { enqueuePropertyUpload, enqueueManagedCreate, enqueueManagedVideoUpload, VIDEO_UPLOADS_AVAILABLE, VIDEO_UNAVAILABLE_MESSAGE } from '../../utils/mediaUploadManager';
 import ImagePositioner from '../../components/ImagePositioner';
 import { cropAreaToObjectPosition } from '../../utils/imageCrop';
 import {
@@ -509,6 +509,10 @@ function AddPropertyInner() {
       const isImage = f.type.startsWith('image/') || ext === '.heic' || ext === '.heif';
 
       if (isVideo) {
+        if (!VIDEO_UPLOADS_AVAILABLE) {
+          setMediaError(VIDEO_UNAVAILABLE_MESSAGE);
+          continue;
+        }
         if (f.size > 500 * 1024 * 1024) {
           setMediaError('Video file exceeds 500MB limit. Please choose a smaller file.');
           continue;
@@ -1281,7 +1285,7 @@ function AddPropertyInner() {
             {step === STEPS.IMAGES && (
               <div className="">
                 <h2 className="font-serif text-[28px] sm:text-3xl leading-tight text-stone-900 mb-2">Add media</h2>
-                <p className="text-[15px] text-stone-500 mb-8">Photos and an optional walkthrough video to showcase your property.</p>
+                <p className="text-[15px] text-stone-500 mb-8">{VIDEO_UPLOADS_AVAILABLE ? 'Photos and an optional walkthrough video to showcase your property.' : 'Photos to showcase your property.'}</p>
 
                 {/* Unified drop zone */}
                 <div
@@ -1299,13 +1303,13 @@ function AddPropertyInner() {
                       <p className="text-base font-semibold text-stone-900">
                         {mediaDragging ? 'Drop files here' : 'Click or drag files to upload'}
                       </p>
-                      <p className="text-sm text-stone-400 mt-1">Images (JPG, PNG, HEIC) and video (MP4, MOV, WebM)</p>
+                      <p className="text-sm text-stone-400 mt-1">{VIDEO_UPLOADS_AVAILABLE ? 'Images (JPG, PNG, HEIC) and video (MP4, MOV, WebM)' : 'Images (JPG, PNG, HEIC)'}</p>
                     </div>
                   </div>
                   <input
                     type="file"
                     id="media-upload"
-                    accept="image/*,.heic,.heif,video/mp4,video/quicktime,video/webm,video/x-m4v,.mp4,.mov,.webm,.m4v"
+                    accept={VIDEO_UPLOADS_AVAILABLE ? 'image/*,.heic,.heif,video/mp4,video/quicktime,video/webm,video/x-m4v,.mp4,.mov,.webm,.m4v' : 'image/*,.heic,.heif'}
                     multiple
                     onChange={handleMediaUpload}
                     className="hidden"

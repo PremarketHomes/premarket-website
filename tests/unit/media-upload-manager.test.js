@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import * as M from '../../src/app/utils/mediaUploadManager';
 
 const file = (name) => ({ name, type: 'image/jpeg', size: 10 });
@@ -9,7 +10,9 @@ beforeEach(() => {
   failOn = new Set();
   d = {
     currentUid: () => 'u1',
-    uploadFile: async (path) => { calls.upload.push(path); if ([...failOn].some((n) => path.endsWith(`-${n}`))) throw new Error('network'); return `https://cdn/${path}`; },
+    // Firebase Storage is no longer an upload target for any job; this would fail the test if anything still called it.
+    uploadFile: async () => { throw new Error('Firebase Storage must not be used for uploads'); },
+    fitForUpload: async (f) => f,
     updateProperty: async (id, patch) => { calls.patches.push({ id, patch }); },
     apiUpload: async (f) => { calls.upload.push(f.name); if (failOn.has(f.name)) throw new Error('network'); return `https://bunny/${f.name}`; },
     apiAttachManagedMedia: async (propertyId, urls) => { calls.attached = [...(calls.attached || []), { propertyId, urls }]; if (failOn.has('ATTACH')) throw new Error('network'); return { added: urls.length }; },
@@ -58,13 +61,36 @@ describe('property media uploads', () => {
     expect(new Set(attached).size).toBe(3); // each attached once
   });
 
-  it('retries a file automatically to the SAME storage path (no duplicate objects)', async () => {
-    let n = 0; const orig = d.uploadFile;
-    d.uploadFile = async (path, ...r) => { n++; if (n === 1) throw new Error('blip'); return orig(path, ...r); };
+  it("an agent's own photos upload through the server to Bunny (the office-admin route), never Firebase Storage", async () => {
+    const id = await M.enqueuePropertyUpload({ propertyId: 'propA', userId: 'u1', files: [file('a.jpg'), file('b.jpg')] });
+    expect((await idle(id)).status).toBe('complete');
+    const attached = calls.patches.filter((p) => p.patch['imageUrls+']).map((p) => p.patch['imageUrls+']);
+    expect(attached).toEqual(['https://bunny/a.jpg', 'https://bunny/b.jpg']); // order kept: the first photo stays the cover
+  });
+
+  it('retries a failed upload automatically and attaches the photo once', async () => {
+    let n = 0; const orig = d.apiUpload;
+    d.apiUpload = async (f) => { n++; if (n === 1) throw new Error('blip'); return orig(f); };
     const id = await M.enqueuePropertyUpload({ propertyId: 'propA', userId: 'u1', files: [file('a.jpg')] });
     expect((await idle(id)).status).toBe('complete');
-    expect(calls.upload).toHaveLength(1);
-    expect(calls.upload[0]).toMatch(/^propertyImages\/u1\/propA-[^/]+$/);
+    expect(n).toBe(2);
+    expect(calls.patches.filter((p) => p.patch['imageUrls+'])).toHaveLength(1);
+  });
+
+  it('every photo is passed through fitForUpload first and the fitted file is what gets uploaded', async () => {
+    d.fitForUpload = async (f) => (f.name === 'big.jpg' ? { name: 'big-fitted.jpg', type: 'image/jpeg', size: 5 } : f);
+    const id = await M.enqueuePropertyUpload({ propertyId: 'propA', userId: 'u1', files: [file('a.jpg'), file('big.jpg')] });
+    expect((await idle(id)).status).toBe('complete');
+    expect(calls.upload).toEqual(['a.jpg', 'big-fitted.jpg']);
+  });
+
+  it('a photo that cannot be made small enough pauses the job with a clear message naming it', async () => {
+    d.fitForUpload = async (f) => { if (f.name === 'huge.jpg') throw Object.assign(new Error('"huge.jpg" is too large to upload. Please choose a smaller photo.'), { status: 413 }); return f; };
+    const id = await M.enqueuePropertyUpload({ propertyId: 'propA', userId: 'u1', files: [file('a.jpg'), file('huge.jpg')] });
+    const j = await idle(id);
+    expect(j.status).toBe('interrupted');
+    expect(j.message).toContain('"huge.jpg" is too large to upload');
+    expect(completeWrites()).toHaveLength(0);
   });
 
   it('a file that cannot be attached to the property is not counted as done', async () => {
@@ -81,11 +107,30 @@ describe('property media uploads', () => {
     expect(calls.upload).toHaveLength(0);
   });
 
-  it('a video failure also keeps the media incomplete', async () => {
-    failOn.add('v.mp4');
+  it('while video uploads are off, a saved job holding a video still finishes its photos and says the video was not added', async () => {
+    expect(M.VIDEO_UPLOADS_AVAILABLE).toBe(false);
     const id = await M.enqueuePropertyUpload({ propertyId: 'propA', userId: 'u1', files: [file('a.jpg')], video: { name: 'v.mp4', type: 'video/mp4', size: 5 } });
-    expect((await idle(id)).status).toBe('interrupted');
-    expect(completeWrites()).toHaveLength(0);
+    const j = await idle(id);
+    expect(j.status).toBe('complete');
+    expect(j.message).toContain('The video was not added: video upload is temporarily unavailable.');
+    expect(calls.upload).toEqual(['a.jpg']);
+    expect(calls.patches.some((p) => 'videoUrl' in p.patch)).toBe(false);
+    expect(completeWrites()).toHaveLength(1);
+  });
+
+  it('the upload manager no longer loads the Firebase Storage SDK at all', () => {
+    const src = readFileSync('src/app/utils/mediaUploadManager.js', 'utf8');
+    expect(src).not.toContain("import('firebase/storage')");
+    expect(src).not.toMatch(/uploadBytes|getDownloadURL/);
+  });
+});
+
+describe('photos for managed campaigns are fitted too (Vercel 4.5 MB limit)', () => {
+  it('a managed create uploads the fitted file', async () => {
+    d.fitForUpload = async (f) => (f.name === 'big.jpg' ? { name: 'big-fitted.jpg', type: 'image/jpeg', size: 5 } : f);
+    const j = await M.enqueueManagedCreate({ userId: 'u1', requestId: 'req-1234567890abcdef', payload: { property: {} }, images: [file('big.jpg')] });
+    expect(j.status).toBe('complete');
+    expect(calls.created[0].property.imageUrls).toEqual(['https://bunny/big-fitted.jpg']);
   });
 });
 
