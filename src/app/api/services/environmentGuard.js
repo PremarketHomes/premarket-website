@@ -47,6 +47,7 @@ const PROTECTED_WRITE_PATHS = [
   /^\/api\/offices(\/|$)/,
   /^\/api\/teams(\/|$)/,
   /^\/api\/properties\/managed(\/|$)/,
+  /^\/api\/properties\/promo-create$/,
   /^\/api\/properties\/[^/]+\/(managed|campaign-link)(\/|$)/,
 ];
 

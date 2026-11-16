@@ -218,6 +218,33 @@ function AddPropertyInner() {
   const [testCampaign, setTestCampaign] = useState(false);
   const testCampaignOffered = assignable.testCampaignAllowed === true && !!ownerUid;
 
+  // Promo code (optional). Checked on Apply for the campaign's SELLING AGENT (the chosen agent when creating for someone,
+  // otherwise me) and checked again by the server when the campaign is created. Applying reserves nothing.
+  const PROMO_IDLE = { status: 'idle', code: '', message: '', agentName: null };
+  const [promoInput, setPromoInput] = useState('');
+  const [promo, setPromo] = useState(PROMO_IDLE);
+  const promoApplied = promo.status === 'applied';
+  const ownPromoRequestId = useRef(null);
+  const newRequestId = () => (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}-0000000000`).replace(/[^A-Za-z0-9-]/g, '');
+  const clearPromo = () => { setPromo(PROMO_IDLE); managedRequestId.current = null; ownPromoRequestId.current = null; };
+  const applyPromo = async () => {
+    const code = promoInput.trim();
+    if (!code || promo.status === 'checking') return;
+    managedRequestId.current = null; ownPromoRequestId.current = null;
+    setPromo({ ...PROMO_IDLE, status: 'checking' });
+    try {
+      const res = await authFetch('/api/promo/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, ownerUid: ownerUid || null }) });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && out.ok) setPromo({ status: 'applied', code: out.code, message: out.message, agentName: ownerUid ? (out.agentName || null) : null });
+      else setPromo({ ...PROMO_IDLE, status: 'error', message: out.message || out.error || 'The promo code could not be checked. Please try again.' });
+    } catch {
+      setPromo({ ...PROMO_IDLE, status: 'error', message: 'The promo code could not be checked. Please try again.' });
+    }
+  };
+  // A redemption belongs to one selling agent: choosing a different agent clears an applied code.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setPromo(PROMO_IDLE); ownPromoRequestId.current = null; }, [ownerUid]);
+
   // Agent assignment state
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [teamAgents, setTeamAgents] = useState([]);
@@ -677,6 +704,7 @@ function AddPropertyInner() {
           payload: {
             ownerUid, acceptTerms: termsAccepted, managerUid: assignable.role === 'officeAdmin' ? (managerUid || null) : null,
             ...(testCampaign && testCampaignOffered ? { testCampaign: true } : {}),
+            ...(promoApplied && !testCampaign ? { promoCode: promo.code } : {}),
             property: {
               address, formattedAddress, bathrooms, bedrooms, carSpaces, description,
               ...(heroFocalPoint ? { heroFocalPoint } : {}),
@@ -715,6 +743,39 @@ function AddPropertyInner() {
       const existingUrls = images.filter((img) => typeof img === 'string');
       const imageFiles = images.filter((img) => typeof img !== 'string');
       const needsUpload = imageFiles.length > 0;
+
+      // With a promo code the campaign is created by the server, together with its excluded billing record and the
+      // redemption (one transaction). The same requestId is reused on a retry, so a lost response or a second click can
+      // never create a second campaign or redemption. Photos then upload exactly as below.
+      if (promoApplied) {
+        if (!ownPromoRequestId.current) ownPromoRequestId.current = newRequestId();
+        const res = await authFetch('/api/properties/promo-create', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requestId: ownPromoRequestId.current, promoCode: promo.code, acceptTerms: termsAccepted,
+            agentId: selectedAgentId || null, pendingPhotos: imageFiles.length,
+            property: {
+              address, formattedAddress, bathrooms, bedrooms, carSpaces, description, imageUrls: existingUrls,
+              ...(heroFocalPoint ? { heroFocalPoint } : {}),
+              features: Object.keys(features).filter((f) => features[f]),
+              location, price: priceRaw, squareFootage, title, propertyType: type, listingStatus, showSuburbOnly,
+            },
+          }),
+        });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const message = out.error || 'The campaign could not be created. Please try again.';
+          if (res.status === 409 || res.status === 403 || (res.status === 400 && /promo|expired/i.test(message))) setPromo({ ...PROMO_IDLE, status: 'error', message });
+          setErrors({ step: message });
+          setIsSubmitting(false);
+          return;
+        }
+        if (needsUpload || video) {
+          enqueuePropertyUpload({ propertyId: out.propertyId, userId: user.uid, label: `Media for ${formattedAddress || address || 'new campaign'}`, files: [...imageFiles], video });
+        }
+        router.push('/dashboard?created=1');
+        return;
+      }
 
       // Save property metadata immediately (no media yet)
       const propertyData = {
@@ -1529,6 +1590,53 @@ function AddPropertyInner() {
                   <p className="mt-3 text-sm text-[#e38100] font-medium">You must accept the terms to continue.</p>
                 )}
 
+                {!testCampaign && (
+                  <div data-testid="promo-code" className="mt-5">
+                    <label htmlFor="promo-code-input" className="block text-sm font-medium text-stone-900 mb-2">
+                      Promo Code <span className="font-normal text-stone-500">(optional)</span>
+                    </label>
+                    {promoApplied ? (
+                      <div role="status" className="flex items-start justify-between gap-3 rounded-md border border-emerald-300 bg-emerald-50 p-4">
+                        <div className="text-sm text-emerald-900">
+                          <p className="font-medium">{promo.message}</p>
+                          {promo.agentName && (
+                            <p className="mt-1 text-emerald-800">Free campaign for <strong>{promo.agentName}</strong>, the selling agent.</p>
+                          )}
+                        </div>
+                        <button type="button" onClick={() => { clearPromo(); setPromoInput(''); }} className="text-sm font-medium text-emerald-900 underline whitespace-nowrap">
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex gap-2">
+                          <input
+                            id="promo-code-input"
+                            type="text"
+                            value={promoInput}
+                            onChange={(e) => { setPromoInput(e.target.value); if (promo.status === 'error') setPromo(PROMO_IDLE); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyPromo(); } }}
+                            autoComplete="off"
+                            autoCapitalize="characters"
+                            spellCheck={false}
+                            placeholder="Enter code"
+                            className="flex-1 min-w-0 rounded-md border border-stone-300 bg-white px-3 py-2.5 text-sm uppercase tracking-wide text-stone-900 placeholder:normal-case placeholder:tracking-normal focus:border-[#e38100] focus:outline-none focus:ring-2 focus:ring-[#e38100]/20"
+                          />
+                          <button
+                            type="button"
+                            onClick={applyPromo}
+                            disabled={!promoInput.trim() || promo.status === 'checking'}
+                            className="px-5 py-2.5 rounded-md border border-stone-300 bg-white text-sm font-medium text-stone-800 hover:bg-stone-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {promo.status === 'checking' ? 'Checking…' : 'Apply'}
+                          </button>
+                        </div>
+                        {promo.status === 'error' && <p role="alert" className="mt-2 text-sm text-red-700">{promo.message}</p>}
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {testCampaignOffered && (
                   <label
                     data-testid="test-campaign-option"
@@ -1539,7 +1647,7 @@ function AddPropertyInner() {
                     <input
                       type="checkbox"
                       checked={testCampaign}
-                      onChange={(e) => { setTestCampaign(e.target.checked); managedRequestId.current = null; }}
+                      onChange={(e) => { setTestCampaign(e.target.checked); managedRequestId.current = null; if (e.target.checked) clearPromo(); }}
                       className="mt-0.5 w-5 h-5 rounded border-stone-300 accent-amber-600"
                     />
                     <span className="text-sm text-stone-900">
@@ -1617,7 +1725,13 @@ function AddPropertyInner() {
               </button>
             </div>
           )}
-          {step === STEPS.TERMS && !retailFailed && retail.state === 'retail' && (
+          {step === STEPS.TERMS && promoApplied && (
+            <div data-testid="promo-fee" className="mb-3 bg-emerald-50 border border-emerald-200 rounded-md px-4 py-3">
+              <p className="text-sm font-medium text-emerald-900">Premarket campaign fee — FREE ({promo.code})</p>
+              <p className="text-xs text-emerald-800 mt-1 leading-relaxed">No Premarket campaign fee applies to this campaign.</p>
+            </div>
+          )}
+          {step === STEPS.TERMS && !promoApplied && !retailFailed && retail.state === 'retail' && (
             <div className="mb-3 bg-stone-100/60 border border-stone-200 rounded-md px-4 py-3">
               <p className="text-sm font-medium text-stone-900">
                 Premarket campaign fee — ${retail.price} AUD per campaign
@@ -1632,7 +1746,7 @@ function AddPropertyInner() {
               <p className="text-sm font-medium text-stone-900">Confirming current pricing…</p>
             </div>
           )}
-          {step === STEPS.TERMS && !pricingLoadFailed && retail.state === 'none' && (
+          {step === STEPS.TERMS && !promoApplied && !pricingLoadFailed && retail.state === 'none' && (
             <div className="mb-3 bg-stone-100/60 border border-stone-200 rounded-md px-4 py-3">
               <p className="text-sm font-medium text-stone-900">
                 {pricingLoaded

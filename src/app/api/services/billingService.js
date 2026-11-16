@@ -995,6 +995,27 @@ export async function buildTestCampaignExclusion({ propertyId, propertyAddress, 
 }
 
 /**
+ * The billing record for a campaign that redeemed a PROMOTION (see promotions.js): the same shape as the charge it would
+ * otherwise get, created already 'excluded' in the same transaction as the property and the redemption, so it is never
+ * pending, never swept, never put in an invoice run and never sent to Xero. Unlike a test campaign it is a real campaign:
+ * `testCampaign` is not set, so reporting counts it normally.
+ */
+export async function buildPromoExclusion({ propertyId, propertyAddress, agentUserId, promoCode, redemptionId, reason }) {
+  if (!propertyId || !agentUserId || !promoCode || !redemptionId) throw new Error('buildPromoExclusion: missing arguments');
+  const charge = await resolveChargeForAgent(
+    { propertyId, propertyAddress, agentUserId, propertyCreatedAt: new Date() },
+    { recordOnly: true },
+  );
+  return {
+    ...charge,
+    status: 'excluded',
+    promoCode,
+    promoRedemptionId: redemptionId,
+    adjustment: { action: 'excluded', reason, adminUid: null, by: 'promotion', at: FieldValue.serverTimestamp() },
+  };
+}
+
+/**
  * Safety net for the monthly run: given a batch of property docs,
  * ensures every one of them has a charge recorded. Always safe to call
  * on properties that already have one — recordPropertyCharge no-ops.
