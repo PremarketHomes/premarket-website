@@ -1,6 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { createHash } from 'node:crypto';
-import { recordPropertyCharge, buildTestCampaignExclusion } from './billingService';
+import { recordPropertyCharge, buildTestCampaignExclusion, buildPromoExclusion } from './billingService';
+import { PromoError, PROMO_MESSAGES, checkPromotionForAgent, buildRedemption, commitPromoCampaign, redemptionIdFor } from './promotions';
 import { canCreateTestCampaign, loadTestCampaignIds, TEST_CAMPAIGN_EXEMPTION_REASON } from './testCampaigns';
 import { pickNotificationUser } from '../../utils/notificationUser';
 import { sendCampaignLinkOnce } from './agentNotificationService';
@@ -47,12 +48,12 @@ export class ManagedCampaignError extends Error {
 export const MANAGED_VENDOR_UPLOADED = false;
 
 const displayName = (u) => `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || null;
-const isAgentUser = (u) => !!(u?.agent || u?.isAgent || u?.roles?.includes?.('agent'));
+export const isAgentUser = (u) => !!(u?.agent || u?.isAgent || u?.roles?.includes?.('agent'));
 const adminUidsOf = (office) => (Array.isArray(office?.officeAdminUids) ? office.officeAdminUids : []);
 const real = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const norm = (n) => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
-async function loadUser(db, uid) {
+export async function loadUser(db, uid) {
   if (!uid) return null;
   const s = await db.collection('users').doc(uid).get();
   return s.exists ? { uid, ...s.data() } : null;
@@ -223,7 +224,9 @@ const isAlreadyExists = (err) => err?.code === 6 || /ALREADY_EXISTS/i.test(err?.
  * a double-submit or retry returns the SAME campaign and never creates a second record, charge or email.
  * The manager is the creating BSO; an office admin manages it themself unless they choose one of the office's BSOs.
  */
-export async function createManagedProperty(db, { actorUid, ownerUid, requestId, input, acceptTerms, managerUid, testCampaign }) {
+const asManagedError = (e) => (e instanceof PromoError ? new ManagedCampaignError(e.message, e.status, e.reason) : e);
+
+export async function createManagedProperty(db, { actorUid, ownerUid, requestId, input, acceptTerms, managerUid, testCampaign, promoCode }) {
   if (acceptTerms !== true) throw new ManagedCampaignError('The campaign terms must be accepted to continue.');
   if (typeof requestId !== 'string' || !/^[A-Za-z0-9-]{16,64}$/.test(requestId)) throw new ManagedCampaignError('Missing request id');
   if (typeof ownerUid !== 'string' || !ownerUid) throw new ManagedCampaignError('Choose the selling agent for this campaign');
@@ -231,6 +234,9 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
   const isTest = testCampaign === true;
   if (testCampaign != null && testCampaign !== false && !isTest) throw new ManagedCampaignError('Invalid test campaign value');
   if (isTest && !canCreateTestCampaign(actorUid)) throw new ManagedCampaignError('Test campaigns are not available for this account.', 403);
+  // Promotion: redeemed for the SELLING AGENT (ownerUid), never the uploader. Separate from test campaigns.
+  const wantsPromo = promoCode != null && String(promoCode).trim() !== '';
+  if (wantsPromo && isTest) throw new ManagedCampaignError(PROMO_MESSAGES.withTestCampaign);
 
   const owner = await loadUser(db, ownerUid);
   if (!owner || !isAgentUser(owner) || !isUsableAccount(owner)) throw new ManagedCampaignError('Agent not found', 404);
@@ -273,7 +279,24 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
 
   const ref = db.collection('properties').doc(id);
   let duplicate = false;
-  try {
+  let promo = null;
+  if (wantsPromo) {
+    // A retry of a request that already succeeded returns that campaign: never a second campaign, redemption or charge.
+    if ((await ref.get()).exists) return { propertyId: id, duplicate: true };
+    let checked;
+    try { checked = await checkPromotionForAgent(db, { code: promoCode, ownerUid }); } catch (e) { throw asManagedError(e); }
+    promo = checked.promo;
+    const redemptionId = redemptionIdFor(promo.code, ownerUid);
+    const exclusion = await buildPromoExclusion({
+      propertyId: id, propertyAddress: data.address || data.formattedAddress, agentUserId: ownerUid,
+      promoCode: promo.code, redemptionId, reason: promo.exclusionReason,
+    });
+    const redemption = buildRedemption({ promo, ownerUid, officeId: checked.officeId, propertyId: id, uploadedByUid: actorUid, uploadedByRole: role, creationPath: 'managed' });
+    let outcome;
+    try { outcome = await commitPromoCampaign(db, { promo, ownerUid, propertyRef: ref, propertyData: data, exclusion, redemption }); } catch (e) { throw asManagedError(e); }
+    if (outcome === 'duplicate') return { propertyId: id, duplicate: true };
+  } else {
+   try {
     if (isTest) {
       // The property and its non-billable billing record land together or not at all: no sweep can slip a
       // pending charge in between.
@@ -288,9 +311,10 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
     } else {
       await ref.create(data);
     }
-  } catch (err) {
+   } catch (err) {
     if (!isAlreadyExists(err)) throw err;
     duplicate = true;
+   }
   }
   if (duplicate) return { propertyId: id, duplicate: true };
 
@@ -303,7 +327,7 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
     });
   } catch (e) { console.error('notification write failed', id, e.message); }
   let charge = null;
-  if (!isTest) { // a test campaign already has its excluded billing record (written with the property above)
+  if (!isTest && !promo) { // test and promo campaigns already have their excluded billing record (written with the property above)
     try {
       // Billing is exactly the existing rule, attributed to the owner. Best-effort like the agent flow: the
       // monthly run sweeps any property missing a charge.
@@ -311,6 +335,9 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
     } catch (e) { console.error('Failed to record managed property charge (monthly run will catch it):', id, e.message); }
   }
   await audit(db, { action: 'campaign.create', propertyId: id, ownerUid, actorUid, actorRole: role, managedByUid, officeId: owner.officeId, ...(isTest ? { testCampaign: true } : {}) });
+  if (promo) {
+    await audit(db, { action: 'campaign.promoRedeemed', propertyId: id, ownerUid, actorUid, actorRole: role, officeId: owner.officeId, promoCode: promo.code });
+  }
   if (isTest) {
     await audit(db, { action: 'campaign.testCampaignBillingExempt', propertyId: id, ownerUid, actorUid, actorRole: role, officeId: owner.officeId, reason: TEST_CAMPAIGN_EXEMPTION_REASON });
   }
@@ -321,7 +348,7 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
   let notification = 'error';
   try { notification = (await sendCampaignLinkOnce({ propertyId: id, recipientUid: ownerUid, seq: 1 })).reason || 'sent'; } catch (e) { console.error('campaign link email failed', id, e.message); }
 
-  return { propertyId: id, duplicate: false, role, managedByUid, testCampaign: isTest, charge: isTest ? 'test-campaign' : (charge?.reason || (charge?.created ? 'recorded' : null)), notification };
+  return { propertyId: id, duplicate: false, role, managedByUid, testCampaign: isTest, ...(promo ? { promoCode: promo.code } : {}), charge: isTest ? 'test-campaign' : promo ? 'promo-excluded' : (charge?.reason || (charge?.created ? 'recorded' : null)), notification };
 }
 
 /**
