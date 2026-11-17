@@ -6,6 +6,7 @@ import { ExternalLink, Eye, EyeOff, Archive, Send, Copy, Pencil, BarChart3, Chec
 import { authFetch } from '../../utils/authFetch';
 import { BSO_TAB_FILTERS } from '../../utils/bsoDashboard';
 import PropertyThumb from '../../components/PropertyThumb';
+import { teamRowStyle, TeamAccentRule, TeamLabel } from '../../components/TeamCampaignMarker';
 
 /**
  * The BSO's campaigns, shown on their Dashboard (formerly the separate "My Campaigns" page). Everything comes from
@@ -158,7 +159,8 @@ export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
         {shown.map((c) => {
           const [label, cls] = STATUS[c.status] || STATUS.hidden;
           return (
-            <li key={c.id} data-testid="bso-campaign" className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+            <li key={c.id} data-testid="bso-campaign" className={`${c.teamTheme ? 'relative overflow-hidden ' : ''}bg-white rounded-xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center gap-3`} style={teamRowStyle(c.teamTheme)}>
+              <TeamAccentRule theme={c.teamTheme} />
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 {c.imageUrl
                   ? <PropertyThumb src={c.imageUrl} width={64} height={48} className="w-16 h-12 rounded-lg object-cover bg-slate-100 shrink-0" />
@@ -172,6 +174,7 @@ export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
                     {c.sellingAgent?.name || 'Agent not set'}
                     {c.sellingAgent?.loginStatus === 'invited' && <span className="text-slate-400"> · not logged in yet</span>}
                   </p>
+                  <TeamLabel theme={c.teamTheme} />
                   <p className="text-xs text-slate-400">{date(c.createdAt)}</p>
                 </div>
               </div>

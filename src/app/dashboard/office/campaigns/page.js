@@ -10,6 +10,7 @@ import { authFetch } from '../../../utils/authFetch';
 import { startOfficeRequest, officeResponse } from '../../../utils/officePrefetch';
 import BackToDashboard from '../../../components/BackToDashboard';
 import PropertyThumb from '../../../components/PropertyThumb';
+import { teamRowStyle, TeamAccentRule, TeamLabel } from '../../../components/TeamCampaignMarker';
 import { OfficePageSkeleton } from '../../components/PageSkeletons';
 
 const date = (iso) => (iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
@@ -153,7 +154,8 @@ function CampaignsInner() {
         <ul className="mt-4 space-y-2">
           {shown.length === 0 && <li className="bg-white rounded-xl border border-slate-200 p-6 text-sm text-slate-500 text-center">No campaigns match.</li>}
           {shown.map((c) => (
-            <li key={c.id} className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col gap-3">
+            <li key={c.id} className={`${c.teamTheme ? 'relative overflow-hidden ' : ''}bg-white rounded-xl border border-slate-200 p-4 flex flex-col gap-3`} style={teamRowStyle(c.teamTheme)}>
+              <TeamAccentRule theme={c.teamTheme} />
               <div className="flex items-start gap-3">
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 {c.imageUrl
@@ -165,6 +167,7 @@ function CampaignsInner() {
                     {c.address || 'Untitled campaign'}
                   </p>
                   <p className="text-sm text-slate-600 truncate">{c.sellingAgent?.name || c.ownerName || c.ownerEmail}{c.sellingAgent?.loginStatus === 'invited' && <span className="text-slate-400"> · not logged in yet</span>}</p>
+                  <TeamLabel theme={c.teamTheme} />
                   <p className="text-xs text-slate-500 truncate">
                     {c.managedByUid ? <>Managed by {c.managedByName || 'unknown'}</> : 'Managed by the agent'}
                     {c.needsManager && <span className="ml-1.5 inline-flex px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">Needs a manager</span>}

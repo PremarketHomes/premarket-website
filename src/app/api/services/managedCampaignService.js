@@ -6,6 +6,7 @@ import { canCreateTestCampaign, loadTestCampaignIds, TEST_CAMPAIGN_EXEMPTION_REA
 import { pickNotificationUser } from '../../utils/notificationUser';
 import { sendCampaignLinkOnce } from './agentNotificationService';
 import { loadActiveOffice, isActiveBso, getBsoAccess, bsoUidsOf, isUsableAccount } from './bsoService';
+import { sellingAgentThemeLookup } from './teamThemes';
 
 /**
  * Office-managed campaigns, built on the EXISTING property model (no second campaign system).
@@ -581,6 +582,8 @@ export async function listOfficeCampaigns(db, officeId) {
   const users = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
   const bsos = new Set(bsoUidsOf(office).filter((uid) => isUsableAccount(users.get(uid))));
   const admins = new Set(adminUidsOf(office).filter((uid) => users.has(uid)));
+  // Display-only team accent marker, from each campaign's SELLING AGENT's verified team (never the uploader).
+  const themeOf = await sellingAgentThemeLookup(db, { users, officeActive: !!office });
   const campaigns = [];
   for (const ids of chunk([...users.keys()], 10)) {
     const snap = await db.collection('properties').where('userId', 'in', ids).get();
@@ -588,6 +591,7 @@ export async function listOfficeCampaigns(db, officeId) {
       const p = d.data();
       if (p.hidden === true) continue;
       const c = toCampaignSummary(d.id, p, users, profiles, testIds);
+      c.teamTheme = themeOf(c.sellingAgent?.uid);
       // An assigned manager who is no longer a BSO or office admin here has lost access: flag it for reassignment.
       c.needsManager = !!p.managedByUid && !bsos.has(p.managedByUid) && !admins.has(p.managedByUid) && !c.archived;
       campaigns.push(c);
@@ -615,6 +619,8 @@ export async function listBsoCampaigns(db, actorUid) {
   ]);
   const testIds = await loadTestCampaignIds(db);
   const users = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
+  // Display-only team accent marker, from each campaign's SELLING AGENT's verified team (never the uploader / this BSO).
+  const themeOf = await sellingAgentThemeLookup(db, { users, officeActive: true }); // getBsoAccess required an active office
   const out = new Map();
   for (const d of managedSnap.docs) {
     const p = d.data();
@@ -629,7 +635,10 @@ export async function listBsoCampaigns(db, actorUid) {
   // Counts only (never the opinions themselves), for the BSO dashboard's figures. The BSO already has report access to
   // every campaign listed here.
   const opinions = await countOpinions(db, [...out.keys()]);
-  for (const [id, c] of out) c.opinions = opinions.get(id) || 0;
+  for (const [id, c] of out) {
+    c.opinions = opinions.get(id) || 0;
+    c.teamTheme = themeOf(c.sellingAgent?.uid);
+  }
   return { office: { id: access.officeId, name: access.officeName }, campaigns: [...out.values()].sort(byNewest) };
 }
 

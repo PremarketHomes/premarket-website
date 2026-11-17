@@ -14,6 +14,8 @@ import { motion } from 'framer-motion';
 import { usePropertyEngagement } from '../hooks/usePropertyEngagement';
 import PriceOpinionSlider, { roundToStep } from './PriceOpinionSlider';
 import { computeBrandStyle, computeDisplayLogoUrl, computeEffectiveColors, applyOfficeBrand } from '../utils/brandStyle';
+import { teamBrandColors } from '../utils/teamTheme';
+import { fetchCampaignThemes } from '../utils/fetchCampaignThemes';
 import { getMarketStatusCopy } from '../utils/marketStatusCopy';
 import { isPreviewDeployment } from '../utils/previewEnvironment';
 import { getSwipeDirection } from '../utils/swipeGesture';
@@ -171,6 +173,9 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
   // price opinions, views, registrations, or any other product logic —
   // this is presentation only.
   const [brand, setBrand] = useState(null);
+  // Team accent (display only): the palette of the team this CAMPAIGN belongs to, decided server-side from its
+  // selling agent (never the uploader or the visitor) — see api/services/teamThemes.js. null for every other campaign.
+  const [teamTheme, setTeamTheme] = useState(null);
 
   const firstInteractionTracked = useRef(false);
 
@@ -259,6 +264,16 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
       }
     };
     fetchProperty();
+  }, [propertyId]);
+
+  // Requested as soon as the campaign id is known, alongside the property itself, so the accent is ready no later
+  // than the office brand. Cleared first so a previous campaign's accent never carries over.
+  useEffect(() => {
+    setTeamTheme(null);
+    if (!propertyId) return undefined;
+    let cancelled = false;
+    fetchCampaignThemes([propertyId]).then((themes) => { if (!cancelled) setTeamTheme(themes[propertyId] || null); });
+    return () => { cancelled = true; };
   }, [propertyId]);
 
   // Fetch agent data for this property
@@ -829,7 +844,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
   // this exact same component with proposed, not-yet-saved colours, so
   // agents see precisely what buyers will see before confirming
   // anything — it takes absolute precedence over both when present.
-  const effectiveColors = computeEffectiveColors({ brand, agentData, previewBrand });
+  const effectiveColors = computeEffectiveColors({ brand, agentData, previewBrand, teamColors: teamBrandColors(teamTheme) });
   const brandStyle = computeBrandStyle(effectiveColors);
   const displayLogoUrl = computeDisplayLogoUrl({ brand, agentData, previewBrand });
 
