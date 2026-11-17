@@ -5,6 +5,9 @@ import Image from 'next/image';
 import { WinTheListingHeroCopy, WinTheListingSections, WinTheListingClosing } from './WinTheListingLanding';
 import { AgentPremarketHeroCopy, AgentPremarketSections, AgentPremarketClosing } from './AgentPremarketTab';
 import { PriceIntelligenceHeroCopy, PriceIntelligenceSections, PriceIntelligenceClosing } from './PriceIntelligenceLanding';
+import { useAuth } from '../../context/AuthContext';
+import { authFetch } from '../../utils/authFetch';
+import { knownTeamTheme } from '../../utils/teamTheme';
 
 const PREMARKET_LOGO = 'https://premarketvideos.b-cdn.net/assets/logo.png';
 // White wordmark with the orange mark, for navy backgrounds.
@@ -25,6 +28,23 @@ export default function AgentHub({ office }) {
   const { name, navy, blue, logo } = office;
   const [active, setActive] = useState(TABS[0].id);
   const headerRef = useRef(null);
+
+  // Team accent for a signed-in agent whose team is VERIFIED server-side (/api/teams/mine returns the palette only for
+  // the agent's current, valid team; see api/services/teamThemes.js). It replaces only the light-blue accent; everyone
+  // else (signed out, no team, any other team) sees the hub exactly as before.
+  const { user } = useAuth();
+  const uid = user?.uid || null;
+  const [teamAccent, setTeamAccent] = useState(null);
+  useEffect(() => {
+    setTeamAccent(null);
+    if (!uid) return undefined;
+    let cancelled = false;
+    authFetch('/api/teams/mine')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setTeamAccent(knownTeamTheme(d?.team?.theme)?.colors.primary || null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [uid]);
 
   // Tabs are linkable (#premarket etc.) so a specific tab can be shared with agents.
   useEffect(() => {
@@ -57,7 +77,7 @@ export default function AgentHub({ office }) {
   };
 
   return (
-    <main className="font-sans text-slate-800 bg-white" style={{ '--navy': navy, '--blue': blue }}>
+    <main className="font-sans text-slate-800 bg-white" style={{ '--navy': navy, '--blue': teamAccent || blue }}>
       <header ref={headerRef} className="bg-(--navy) text-white">
         <div className="max-w-3xl mx-auto px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-10 sm:pb-12">
           {/* Partnership lockup: Premarket | the office */}

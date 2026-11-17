@@ -67,6 +67,14 @@ const nextConfig = {
     ];
   },
 
+  // Mitch Harrop Team's vendor page is shared as /Harropteam; the route lives at /harropteam (one page, both URLs).
+  async rewrites() {
+    return [
+      { source: '/Harropteam', destination: '/harropteam' },
+      { source: '/HarropTeam', destination: '/harropteam' },
+    ];
+  },
+
   // Generate metadata for all pages
   async headers() {
     return [
