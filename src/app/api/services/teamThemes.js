@@ -50,6 +50,41 @@ export function themeForTeamId(teamId, assignments = activeTeamThemeAssignments(
   return palette ? { key: palette.key } : null;
 }
 
+const MAX_LABEL = 80;
+const cleanLabel = (n) => {
+  const v = String(n ?? '').trim().replace(/\s+/g, ' ');
+  return v && v.length <= MAX_LABEL ? v : null;
+};
+
+/**
+ * For the office campaign lists (Office > Campaigns, the BSO workspace), which already hold the office's users and have
+ * already worked out each campaign's SELLING AGENT (managedCampaignService.sellingAgentOf: same rule as above, never the
+ * uploader). Returns uid -> { key, label } | null, where label is the team's own configured name. The same live checks
+ * apply: the agent's one team must be assigned, exist, and be in the agent's current office, and the office must be
+ * active (the caller says so: it has just loaded it). One read per assigned team; none when nothing is assigned.
+ */
+export async function sellingAgentThemeLookup(db, { users, officeActive, assignments = activeTeamThemeAssignments() }) {
+  const teamIds = Object.keys(assignments);
+  if (!officeActive || !teamIds.length || !users) return () => null;
+  const teamDocs = new Map(); // in-memory, this call only
+  await Promise.all(teamIds.map(async (t) => {
+    try {
+      const snap = await db.collection('teams').doc(t).get();
+      if (snap.exists) teamDocs.set(t, snap.data());
+    } catch (err) {
+      console.error('team theme lookup failed (non-fatal):', err?.message || err);
+    }
+  }));
+  return (uid) => {
+    const u = uid ? users.get(uid) : null;
+    if (!u || !u.officeId || !has(assignments, u.teamId)) return null;
+    const team = teamDocs.get(u.teamId);
+    if (!team || team.officeId !== u.officeId) return null;
+    const theme = themeForTeamId(u.teamId, assignments);
+    return theme ? { ...theme, label: cleanLabel(team.name) } : null;
+  };
+}
+
 const normName = (n) => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase();
 const fullName = (u) => `${u?.firstName || ''} ${u?.lastName || ''}`;
 export const MAX_THEME_PROPERTY_IDS = 25;

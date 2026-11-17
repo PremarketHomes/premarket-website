@@ -4,7 +4,7 @@ import {
   MITCH_HARROP_PINK, TEAM_THEME_PALETTES, knownTeamTheme, teamBrandColors, teamAccentStyle, campaignAccentStyle, contrastRatio,
 } from '../../src/app/utils/teamTheme';
 import { computeEffectiveColors, computeBrandStyle } from '../../src/app/utils/brandStyle';
-import { themeForTeamId, resolveCampaignTeamThemes, TEAM_THEME_ASSIGNMENTS, activeTeamThemeAssignments } from '../../src/app/api/services/teamThemes';
+import { themeForTeamId, resolveCampaignTeamThemes, TEAM_THEME_ASSIGNMENTS, activeTeamThemeAssignments, sellingAgentThemeLookup } from '../../src/app/api/services/teamThemes';
 
 const read = (p) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf-8');
 // Source without comments, so guards look at code rather than at explanations.
@@ -107,10 +107,11 @@ function fakeDb(seed) {
             },
           };
         },
-        where(field, _op, value) {
+        where(field, op, value) {
+          const match = (d) => (op === 'in' ? value.includes(d[field]) : d[field] === value);
           return {
             async get() {
-              const docs = Object.entries(col).filter(([, d]) => d && d[field] === value).map(([id, d]) => ({ id, data: () => d }));
+              const docs = Object.entries(col).filter(([, d]) => d && d !== '__throw__' && match(d)).map(([id, d]) => ({ id, data: () => d }));
               reads.count += docs.length || 1;
               return { docs, empty: docs.length === 0 };
             },
@@ -239,6 +240,85 @@ describe('resolveCampaignTeamThemes — by the campaign\'s team, never the uploa
   });
 });
 
+/* ───────────────────────── office lists: BSO workspace + Office > Campaigns ───────────────────────── */
+
+const REAL_TEAM = 'ICSKK5kDs5RF5OYs11mM';
+// Same fake office, with the fake themed team under the REAL shipped id, so the shipped list is what is exercised.
+const listSeed = () => {
+  const s = JSON.parse(JSON.stringify(base()).replaceAll(MITCH_TEAM, REAL_TEAM));
+  s.officeAdminInfo[OFFICE] = { status: 'active', name: 'HPH (fake)', bsoUids: ['bso'], officeAdminUids: ['adminUploader'] };
+  s.properties.pBsoForSolo = { userId: 'solo', managedByUid: 'bso', createdByUid: 'bso', managedCreation: true };
+  s.properties.pBsoForOther = { userId: 'other', managedByUid: 'bso', createdByUid: 'bso', managedCreation: true };
+  return s;
+};
+const LABELLED = { key: MITCH_HARROP_PINK.key, label: 'Mitch Harrop Team' };
+
+describe('sellingAgentThemeLookup (office lists): the selling agent\'s verified team, with the team\'s own name', () => {
+  const users = (s) => new Map(Object.entries(s.users));
+  it('labels a themed team\'s selling agent; other teams, no team and unknown uids get nothing', async () => {
+    const s = listSeed();
+    const themeOf = await sellingAgentThemeLookup(fakeDb(s), { users: users(s), officeActive: true });
+    expect(themeOf('mate')).toEqual(LABELLED);
+    expect(themeOf('mitch')).toEqual(LABELLED);
+    expect(themeOf('other')).toBeNull();
+    expect(themeOf('solo')).toBeNull();
+    expect(themeOf('bso')).toBeNull();
+    expect(themeOf(null)).toBeNull();
+    expect(themeOf('nobody')).toBeNull();
+  });
+  it('inactive office, stale team, or nothing assigned: no marker (and no reads when nothing is assigned)', async () => {
+    const s = listSeed();
+    expect((await sellingAgentThemeLookup(fakeDb(s), { users: users(s), officeActive: false }))('mate')).toBeNull();
+    const moved = listSeed(); moved.teams[REAL_TEAM].officeId = 'elsewhere';
+    expect((await sellingAgentThemeLookup(fakeDb(moved), { users: users(moved), officeActive: true }))('mate')).toBeNull();
+    const db = fakeDb(s);
+    expect((await sellingAgentThemeLookup(db, { users: users(s), officeActive: true, assignments: {} }))('mate')).toBeNull();
+    expect(db.reads.count).toBe(0);
+  });
+  it('a team without a name still gets the accent rule, just no label', async () => {
+    const s = listSeed(); delete s.teams[REAL_TEAM].name;
+    expect((await sellingAgentThemeLookup(fakeDb(s), { users: users(s), officeActive: true }))('mate')).toEqual({ key: MITCH_HARROP_PINK.key, label: null });
+  });
+});
+
+describe('Office > Campaigns and the BSO workspace mark only the themed team\'s campaigns, by selling agent', () => {
+  it('Office > Campaigns: BSO upload for a member is marked; a member uploading for someone else, other teams and no-team agents are not', async () => {
+    routeDb = fakeDb(listSeed());
+    const { listOfficeCampaigns } = await import('../../src/app/api/services/managedCampaignService');
+    const { campaigns } = await listOfficeCampaigns(routeDb, OFFICE);
+    const by = Object.fromEntries(campaigns.map((c) => [c.id, c.teamTheme]));
+    expect(by.pMitch).toEqual(LABELLED);
+    expect(by.pMate).toEqual(LABELLED);
+    expect(by.pManagedForMitch).toEqual(LABELLED); // uploaded + managed by the BSO, selling agent in the team
+    expect(by.pRosterForMitch).toEqual(LABELLED); // admin's account, assigned to a member by unique name
+    expect(by.pUploadedByMitchForSolo).toBeNull(); // uploaded by a member, selling agent not in the team
+    expect(by.pRosterByMitchForOther).toBeNull(); // a member's account, assigned to another team's agent
+    expect(by.pOther).toBeNull();
+    expect(by.pSolo).toBeNull();
+    expect(by.pRosterAmbiguous).toBeNull();
+  });
+
+  it('BSO workspace: the BSO\'s own uploads are marked only when the selling agent is in the team', async () => {
+    routeDb = fakeDb(listSeed());
+    const { listBsoCampaigns } = await import('../../src/app/api/services/managedCampaignService');
+    const { campaigns } = await listBsoCampaigns(routeDb, 'bso');
+    const by = Object.fromEntries(campaigns.map((c) => [c.id, c.teamTheme]));
+    expect(by).toEqual({ pManagedForMitch: LABELLED, pBsoForSolo: null, pBsoForOther: null });
+  });
+
+  it('the list rows render the marker only for a known palette and keep every other row unstyled', () => {
+    for (const f of ['src/app/dashboard/components/BsoCampaigns.js', 'src/app/dashboard/office/campaigns/page.js']) {
+      const src = read(f);
+      expect(src).toContain('style={teamRowStyle(c.teamTheme)}');
+      expect(src).toContain('<TeamAccentRule theme={c.teamTheme} />');
+      expect(src).toContain('<TeamLabel theme={c.teamTheme} />');
+    }
+    const marker = read('src/app/components/TeamCampaignMarker.js');
+    expect(marker).toContain('if (!knownTeamTheme(theme)) return null;');
+    expect(marker).toContain("const label = knownTeamTheme(theme) && typeof theme.label === 'string' ? theme.label : null;");
+  });
+});
+
 /* ───────────────────────── public route ───────────────────────── */
 
 let routeDb;
@@ -269,8 +349,8 @@ describe('scope guards', () => {
   it('the theme service and helpers only read: no writes of any kind', () => {
     const src = THEME_FILES.map(code).join('\n');
     expect(src).not.toMatch(/\.(update|add|delete|create)\(|runTransaction|batch\(|FieldValue|method:\s*'(POST|PUT|PATCH|DELETE)'/);
-    // The only .set( calls are on in-memory Maps (per-request memo / per-page cache), never on a document.
-    for (const m of src.matchAll(/(\w+)\.set\(/g)) expect(['memo', 'cache']).toContain(m[1]);
+    // The only .set( calls are on in-memory Maps (per-request memo / per-page cache / per-call team docs), never on a document.
+    for (const m of src.matchAll(/(\w+)\.set\(/g)) expect(['memo', 'cache', 'teamDocs']).toContain(m[1]);
   });
 
   it('pricing, promo, billing, permissions, membership and opinions are not touched', () => {

@@ -33,6 +33,10 @@
 | 13 | My Team page (My properties tab) | Mitch team member | pink accents + campaign row marker | ✅ |
 | 14 | Dashboard | another team's member | orange (unchanged) | ✅ |
 | 15 | Dashboard | agent with no team | orange (unchanged) | ✅ |
-| 16 | Dashboard | the uploading BSO (not in the team) | orange (unchanged; the uploader is never themed) | ✅ |
+| 16 | BSO workspace | the uploading BSO (not in the team) | standard chrome; only rows whose **selling agent** is in the team get the thin pink rule + "Mitch Harrop Team" label | ✅ |
+| 17 | Office › Campaigns (office admin) | whole office | neutral page; only the team's 2 campaigns marked; other teams, no-team agents and an admin-account upload for another team's agent unmarked | ✅ |
+| 18–19 | Office › Campaigns + BSO workspace, phone | as above | label on its own line, fully visible | ✅ |
+
+List checks (scratchpad `e2e/visual-lists.js`): **16/16 passed**. They cover the marked rows being exactly the team's campaigns, the pink rule + label colour, the label being fully visible (not truncated) on desktop and phone, and every other row having no rule, no label and no style.
 
 Automated computed-colour checks (scratchpad `e2e/visual-final.js`): **42/42 passed**. They include the BSO-uploaded campaign of a never-logged-in team agent (pink), and the kiosk approve → thank-you staying on the same single page.
