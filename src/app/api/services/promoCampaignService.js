@@ -60,7 +60,7 @@ export async function createOwnPromoProperty(db, { uid, requestId, input, accept
 
   const redemptionId = redemptionIdFor(promo.code, uid);
   const exclusion = await buildPromoExclusion({
-    propertyId: ref.id, propertyAddress: data.address || data.formattedAddress, agentUserId: uid,
+    propertyId: ref.id, propertyAddress: data.formattedAddress || data.address, agentUserId: uid,
     promoCode: promo.code, redemptionId, reason: promo.exclusionReason,
   });
   const redemption = buildRedemption({ promo, ownerUid: uid, officeId, propertyId: ref.id, uploadedByUid: uid, uploadedByRole: 'agent', creationPath: 'agent-wizard' });

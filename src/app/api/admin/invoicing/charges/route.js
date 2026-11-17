@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../../firebase/adminApp';
 import { verifyAdmin } from '../../../middleware/auth';
+import { withChargeDetails } from '../../../services/chargeDetails';
 
 /**
  * GET /api/admin/invoicing/charges?status=pending
@@ -11,6 +12,11 @@ import { verifyAdmin } from '../../../middleware/auth';
  * /api/admin/invoicing/charges/[chargeId] (exclude/reverse) changes one,
  * and that's a status flag plus an audit note, never a removal.
  */
+const toIso = (t) => {
+  const d = t?.toDate ? t.toDate() : t ? new Date(t) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toISOString() : null;
+};
+
 export async function GET(request) {
   try {
     const auth = await verifyAdmin(request);
@@ -28,7 +34,15 @@ export async function GET(request) {
       .limit(200)
       .get();
 
-    const charges = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    // Full street address, selling agent and submission date from each
+    // linked property record (read-only; the stored charge is untouched),
+    // newest submission first.
+    const charges = await withChargeDetails(
+      snap.docs.map((d) => ({ id: d.id, ...d.data() })),
+      'propertyAddress',
+    );
+    const sortKey = (c) => c.submittedAt || toIso(c.createdAt) || '';
+    charges.sort((a, b) => sortKey(b).localeCompare(sortKey(a)));
 
     return NextResponse.json({ charges });
   } catch (err) {

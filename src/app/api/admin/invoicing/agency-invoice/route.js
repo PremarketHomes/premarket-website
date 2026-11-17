@@ -3,6 +3,7 @@ import { adminDb } from '../../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { verifyAdmin } from '../../../middleware/auth';
 import { recordPropertyCharge } from '../../../services/billingService';
+import { withChargeDetails } from '../../../services/chargeDetails';
 
 /**
  * POST /api/admin/invoicing/agency-invoice
@@ -76,7 +77,7 @@ export async function POST(request) {
     // invoice is normally for one agency's handful of properties and
     // doesn't need the monthly run's safety-net reconciliation sweep.
     const groups = {};
-    for (const charge of pendingCharges) {
+    for (const charge of await withChargeDetails(pendingCharges, 'propertyAddress')) {
       const key = charge.billingEntityKey;
       if (!groups[key]) {
         groups[key] = {

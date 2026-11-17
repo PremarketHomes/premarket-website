@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Building2, User, AlertTriangle } from 'lucide-react';
 import InvoiceStatusBadge from './InvoiceStatusBadge';
 import { authFetch } from '../../../../utils/authFetch';
+import { formatChargeDate } from '../../../../utils/chargeLine';
+
+const missing = <span className="text-slate-300">—</span>;
 
 const TABS = [
   { key: 'pending', label: 'Pending' },
@@ -126,6 +129,8 @@ export default function ChargesPanel() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-left text-xs text-slate-500">
                 <th className="px-4 py-2 font-medium">Property</th>
+                <th className="px-4 py-2 font-medium">Selling agent</th>
+                <th className="px-4 py-2 font-medium">Submitted</th>
                 <th className="px-4 py-2 font-medium">Billed to</th>
                 <th className="px-4 py-2 font-medium text-right">Amount (inc GST)</th>
                 <th className="px-4 py-2 font-medium">Status</th>
@@ -136,6 +141,8 @@ export default function ChargesPanel() {
               {charges.map((charge) => (
                 <tr key={charge.id}>
                   <td className="px-4 py-2.5 text-slate-700">{charge.propertyAddress}</td>
+                  <td className="px-4 py-2.5 text-slate-600">{charge.sellingAgentName || missing}</td>
+                  <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{formatChargeDate(charge.submittedAt) || missing}</td>
                   <td className="px-4 py-2.5 text-slate-600">
                     <span className="inline-flex items-center gap-1.5">
                       {charge.billingEntityType === 'independent' || charge.billingEntityType === 'review' ? (

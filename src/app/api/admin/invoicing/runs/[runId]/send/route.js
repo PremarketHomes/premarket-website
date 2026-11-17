@@ -20,6 +20,8 @@ import {
 } from '../../../../../services/xeroInvoiceIdentity';
 import { markChargesInvoiced, markChargesFailed, resolveBillingContact } from '../../../../../services/billingService';
 import { taxTypeForGstAmount } from '../../../../../services/xeroTaxTypes';
+import { withChargeDetails } from '../../../../../services/chargeDetails';
+import { chargeLineDescription } from '../../../../../../utils/chargeLine';
 import { verifyAdmin } from '../../../../../middleware/auth';
 
 /**
@@ -188,13 +190,13 @@ export async function POST(request, { params }) {
           // so each property's own numbers are the only source of truth,
           // same principle runs/[runId]/route.js's removeProperties
           // already follows when recalculating a run's totals.
-          const lineItems = item.properties.map((prop) => ({
-            // An office invoice covers many agents, so each line names
-            // the agent whose campaign it is (helps the office re-bill
-            // its vendors); independent invoices keep the original text.
-            description: item.billingEntityType === 'office' && prop.agentName
-              ? `Premarket listing: ${prop.address} (${prop.agentName})`
-              : `Premarket listing: ${prop.address}`,
+          // One line per property: "full address — selling agent —
+          // submission date", read from each linked property record (so
+          // runs drafted earlier get it too). Description text only:
+          // amounts, tax and line count are unchanged.
+          const lineProperties = await withChargeDetails(item.properties, 'address');
+          const lineItems = lineProperties.map((prop) => ({
+            description: chargeLineDescription(prop),
             quantity: 1,
             unitAmount: prop.subtotalEx,
             taxType: taxTypeForGstAmount(prop.gstAmount),

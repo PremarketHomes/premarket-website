@@ -591,8 +591,9 @@ describe('POST .../send — office (consolidated) invoices', () => {
     const call = mockCreateInvoice.mock.calls[0][0];
     expect(call.lineItems).toHaveLength(2);
     expect(call.lineItems.map((l) => [l.description, l.unitAmount, l.taxType])).toEqual([
-      ['Premarket listing: 1 Phil St (Phil Agent)', 200, ZERO_GST_TAX_TYPE],
-      ['Premarket listing: 2 Sam St (Sam Agent)', 200, ZERO_GST_TAX_TYPE],
+      // No property records seeded: the stored address only; the stored (uploader-era) agentName is never used.
+      ['1 Phil St', 200, ZERO_GST_TAX_TYPE],
+      ['2 Sam St', 200, ZERO_GST_TAX_TYPE],
     ]);
     expect(mockFindOrCreateContact.mock.calls[0][0]).toMatchObject({ email: 'accounts@hph.test' });
   });
@@ -656,7 +657,7 @@ describe('POST .../send — office (consolidated) invoices', () => {
     await POST(makeRequest(), { params: Promise.resolve({ runId: 'run1' }) });
     expect(mockCreateInvoice).toHaveBeenCalledTimes(2);
     const descriptions = mockCreateInvoice.mock.calls.flatMap((c) => c[0].lineItems.map((l) => l.description));
-    expect(descriptions).toContain('Premarket listing: 4 Solo St');
+    expect(descriptions).toContain('4 Solo St');
   });
 
   it('passes the approved ABN and billing address through to the Xero contact', async () => {
@@ -873,8 +874,8 @@ describe('POST .../send — HPH consolidated invoices: unique references, verifi
     expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
     const call = mockCreateInvoice.mock.calls[0][0];
     expect(call.lineItems).toEqual([
-      { description: 'Premarket listing: 1 Test St (Phil Agent)', quantity: 1, unitAmount: 200, taxType: ZERO_GST_TAX_TYPE },
-      { description: 'Premarket listing: 2 Test St (Sam Agent)', quantity: 1, unitAmount: 200, taxType: ZERO_GST_TAX_TYPE },
+      { description: '1 Test St', quantity: 1, unitAmount: 200, taxType: ZERO_GST_TAX_TYPE },
+      { description: '2 Test St', quantity: 1, unitAmount: 200, taxType: ZERO_GST_TAX_TYPE },
     ]);
     const due = new Date(); due.setDate(due.getDate() + 14);
     expect(call.dueDate).toBe(due.toISOString().split('T')[0]);
@@ -893,7 +894,7 @@ describe('POST .../send — HPH consolidated invoices: unique references, verifi
     });
     await send('run1');
     const call = mockCreateInvoice.mock.calls[0][0];
-    expect(call.lineItems[0].description).toBe('Premarket listing: 9 Solo Rd');
+    expect(call.lineItems[0].description).toBe('9 Solo Rd');
     expect(call.reference).toBe(refFor('2026-11-01', 'itemSolo'));
     expect(mockFindOrCreateContact.mock.calls[0][0].name).toBe('Solo Realty');
   });
@@ -915,11 +916,42 @@ describe('POST .../send — zero-GST tax type is explicit (BASEXCLUDED), never t
   };
 
   it('HPH\'s $200 campaign fee: unit amount $200, tax type BASEXCLUDED, $0 GST and a $200 invoice total', async () => {
-    seedHph([{ propertyId: 'p1', address: '1 Greenwich Avenue, Pimpama QLD, Australia', agentName: 'Phil Chillemi', subtotalEx: 200, gstAmount: 0, totalInc: 200 }]);
+    fakeDb._seed('properties', 'p1', { userId: 'phil', address: 'Pimpama', formattedAddress: '1 Greenwich Avenue, Pimpama QLD, Australia', createdAt: new Date('2026-11-17T01:00:00Z') });
+    fakeDb._seed('users', 'phil', { firstName: 'Phil', lastName: 'Chillemi' });
+    seedHph([{ propertyId: 'p1', address: 'Pimpama', agentName: 'Phil Chillemi', subtotalEx: 200, gstAmount: 0, totalInc: 200 }]);
     expect((await send()).status).toBe('sent');
     const call = mockCreateInvoice.mock.calls[0][0];
-    expect(call.lineItems).toEqual([{ description: 'Premarket listing: 1 Greenwich Avenue, Pimpama QLD, Australia (Phil Chillemi)', quantity: 1, unitAmount: 200, taxType: 'BASEXCLUDED' }]);
+    expect(call.lineItems).toEqual([{ description: '1 Greenwich Avenue, Pimpama QLD, Australia — Phil Chillemi — 17 Nov 2026', quantity: 1, unitAmount: 200, taxType: 'BASEXCLUDED' }]);
     expect(xero.invoices[0]).toMatchObject({ SubTotal: 200, TotalTax: 0, Total: 200 });
+  });
+
+  it('each line: full address — ASSIGNED selling agent (not the BSO uploader) — submission date; missing parts omitted; amounts and stored run unchanged', async () => {
+    const robina = { userId: 'bso1', agentId: 'roster9', agentName: 'Mitch Harrop', address: 'Robina', formattedAddress: '28 Brighton Crescent, Robina QLD, Australia', createdAt: new Date('2026-11-17T03:00:00Z') };
+    fakeDb._seed('properties', 'pRob', robina);
+    fakeDb._seed('users', 'bso1', { firstName: 'Betty', lastName: 'Bso' });
+    fakeDb._seed('properties', 'pBare', { address: '' }); // nothing on record -> stored text only, never guessed
+    seedHph([
+      { propertyId: 'pRob', address: 'Robina', agentName: 'Betty Bso', subtotalEx: 200, gstAmount: 0, totalInc: 200 },
+      { propertyId: 'pBare', address: 'Varsity Lakes', agentName: 'Betty Bso', subtotalEx: 200, gstAmount: 0, totalInc: 200 },
+    ]);
+    expect((await send()).status).toBe('sent');
+    const call = mockCreateInvoice.mock.calls[0][0];
+    expect(call.lineItems).toEqual([
+      { description: '28 Brighton Crescent, Robina QLD, Australia — Mitch Harrop — 17 Nov 2026', quantity: 1, unitAmount: 200, taxType: 'BASEXCLUDED' },
+      { description: 'Varsity Lakes', quantity: 1, unitAmount: 200, taxType: 'BASEXCLUDED' },
+    ]);
+    expect(xero.invoices[0]).toMatchObject({ SubTotal: 400, TotalTax: 0, Total: 400 });
+    const stored = (await fakeDb.collection('invoiceRunItems').doc('item1').get()).data();
+    expect(stored.properties.map((x) => [x.address, x.agentName, x.totalInc])).toEqual([['Robina', 'Betty Bso', 200], ['Varsity Lakes', 'Betty Bso', 200]]);
+    expect(fakeDb._store.properties.pRob).toEqual(robina);
+  });
+
+  it('an item that already has a Xero invoice is never re-created or re-described (existing invoices untouched)', async () => {
+    fakeDb._seed('properties', 'p1', { userId: 'phil', formattedAddress: '1 Greenwich Avenue, Pimpama QLD, Australia', createdAt: new Date('2026-11-17T01:00:00Z') });
+    seedHph([{ propertyId: 'p1', address: 'Pimpama', subtotalEx: 200, gstAmount: 0, totalInc: 200 }],
+      { xeroInvoiceId: 'existingInv', xeroInvoiceNumber: 'PM-0001', xeroStatus: 'AUTHORISED' });
+    await send();
+    expect(mockCreateInvoice).not.toHaveBeenCalled();
   });
 
   it('a consolidated HPH invoice of several $200 campaigns is all BASEXCLUDED, with $0 GST in total', async () => {
