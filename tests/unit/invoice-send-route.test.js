@@ -922,6 +922,24 @@ describe('POST .../send — zero-GST tax type is explicit (BASEXCLUDED), never t
     expect(xero.invoices[0]).toMatchObject({ SubTotal: 200, TotalTax: 0, Total: 200 });
   });
 
+  it('line items use the linked property\'s full street address, not a suburb-only snapshot; amounts and stored run unchanged', async () => {
+    fakeDb._seed('properties', 'pRob', { address: 'Robina', formattedAddress: '12 Example Street, Robina QLD, Australia' });
+    fakeDb._seed('properties', 'pBare', { address: '' }); // no address on record -> keep the stored text, never guess
+    seedHph([
+      { propertyId: 'pRob', address: 'Robina', agentName: 'Phil Chillemi', subtotalEx: 200, gstAmount: 0, totalInc: 200 },
+      { propertyId: 'pBare', address: 'Varsity Lakes', agentName: 'Phil Chillemi', subtotalEx: 200, gstAmount: 0, totalInc: 200 },
+    ]);
+    expect((await send()).status).toBe('sent');
+    const call = mockCreateInvoice.mock.calls[0][0];
+    expect(call.lineItems).toEqual([
+      { description: 'Premarket listing: 12 Example Street, Robina QLD, Australia (Phil Chillemi)', quantity: 1, unitAmount: 200, taxType: 'BASEXCLUDED' },
+      { description: 'Premarket listing: Varsity Lakes (Phil Chillemi)', quantity: 1, unitAmount: 200, taxType: 'BASEXCLUDED' },
+    ]);
+    const stored = (await fakeDb.collection('invoiceRunItems').doc('item1').get()).data();
+    expect(stored.properties.map((x) => x.address)).toEqual(['Robina', 'Varsity Lakes']);
+    expect(fakeDb._store.properties.pRob).toEqual({ address: 'Robina', formattedAddress: '12 Example Street, Robina QLD, Australia' });
+  });
+
   it('a consolidated HPH invoice of several $200 campaigns is all BASEXCLUDED, with $0 GST in total', async () => {
     seedHph(['a', 'b', 'c'].map((id, i) => ({ propertyId: id, address: `${i + 1} Test St`, agentName: 'Phil Chillemi', subtotalEx: 200, gstAmount: 0, totalInc: 200 })));
     await send();

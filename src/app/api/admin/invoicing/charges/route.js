@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../../firebase/adminApp';
 import { verifyAdmin } from '../../../middleware/auth';
+import { withFullPropertyAddresses } from '../../../services/chargeAddresses';
 
 /**
  * GET /api/admin/invoicing/charges?status=pending
@@ -28,7 +29,12 @@ export async function GET(request) {
       .limit(200)
       .get();
 
-    const charges = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    // Display the linked property's full street address (read-only; the
+    // stored charge is untouched).
+    const charges = await withFullPropertyAddresses(
+      snap.docs.map((d) => ({ id: d.id, ...d.data() })),
+      'propertyAddress',
+    );
 
     return NextResponse.json({ charges });
   } catch (err) {

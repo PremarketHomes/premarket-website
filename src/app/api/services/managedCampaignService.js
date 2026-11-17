@@ -289,7 +289,7 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
     promo = checked.promo;
     const redemptionId = redemptionIdFor(promo.code, ownerUid);
     const exclusion = await buildPromoExclusion({
-      propertyId: id, propertyAddress: data.address || data.formattedAddress, agentUserId: ownerUid,
+      propertyId: id, propertyAddress: data.formattedAddress || data.address, agentUserId: ownerUid,
       promoCode: promo.code, redemptionId, reason: promo.exclusionReason,
     });
     const redemption = buildRedemption({ promo, ownerUid, officeId: checked.officeId, propertyId: id, uploadedByUid: actorUid, uploadedByRole: role, creationPath: 'managed' });
@@ -302,7 +302,7 @@ export async function createManagedProperty(db, { actorUid, ownerUid, requestId,
       // The property and its non-billable billing record land together or not at all: no sweep can slip a
       // pending charge in between.
       const exclusion = await buildTestCampaignExclusion({
-        propertyId: id, propertyAddress: data.address || data.formattedAddress, agentUserId: ownerUid,
+        propertyId: id, propertyAddress: data.formattedAddress || data.address, agentUserId: ownerUid,
         approvedByUid: actorUid, reason: TEST_CAMPAIGN_EXEMPTION_REASON,
       });
       const batch = db.batch();

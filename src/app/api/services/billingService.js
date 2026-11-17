@@ -888,7 +888,7 @@ export async function recordPropertyCharge(property) {
 
   const chargeData = await resolveChargeForAgent({
     propertyId,
-    propertyAddress: property.address || property.formattedAddress,
+    propertyAddress: property.formattedAddress || property.address,
     agentUserId,
     propertyCreatedAt: property.createdAt,
   });
@@ -952,7 +952,7 @@ export async function createPropertyAndChargeAtomically(propertyData, { skipChar
   if (!skipCharge && agentUserId) {
     chargeData = await resolveChargeForAgent({
       propertyId: propRef.id,
-      propertyAddress: propertyData.address || propertyData.formattedAddress,
+      propertyAddress: propertyData.formattedAddress || propertyData.address,
       agentUserId,
       // This property doesn't exist yet — its real createdAt will
       // resolve via FieldValue.serverTimestamp() to effectively this
