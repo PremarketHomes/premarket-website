@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import KioskSlider from './KioskSlider';
+import { transparentKioskLogo } from '../../utils/kioskLogo';
 import { createKioskController, KIOSK_TIMING } from '../../utils/kioskController';
 import { createKioskOutbox } from '../../utils/kioskOutbox';
 import {
@@ -301,6 +302,7 @@ export default function OpenHomeKiosk({
   })();
 
   // ── render ───────────────────────────────────────────────────────────
+  const transparentLogo = transparentKioskLogo(logoUrl);
   const showPrice = ui.moved || ui.phase === 'thanks';
   const confirming = ui.phase === 'confirming';
   const thanks = ui.phase === 'thanks';
@@ -340,7 +342,20 @@ export default function OpenHomeKiosk({
             style={{ touchAction: 'none', WebkitTouchCallout: 'none' }}
             data-testid="kiosk-logo"
           >
-            {logoUrl ? (
+            {transparentLogo ? (
+              // The office's own white-on-transparent logo, straight on the photo: no box, a soft shadow for light photos.
+              <Image
+                src={transparentLogo.src}
+                alt={companyName || 'Agency logo'}
+                width={transparentLogo.width}
+                height={transparentLogo.height}
+                unoptimized
+                draggable={false}
+                className="h-[clamp(44px,7vh,76px)] w-auto max-w-[44vw] object-contain"
+                style={{ filter: 'drop-shadow(0 1px 2px rgba(2,6,23,.55)) drop-shadow(0 3px 10px rgba(2,6,23,.35))' }}
+                data-testid="kiosk-logo-transparent"
+              />
+            ) : logoUrl ? (
               <Image
                 src={logoUrl}
                 alt={companyName || 'Agency logo'}
