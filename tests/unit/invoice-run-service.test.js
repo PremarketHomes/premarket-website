@@ -182,6 +182,22 @@ describe('createInvoiceRunFromPendingCharges', () => {
     expect(result.totalAgencies).toBe(2);
   });
 
+  it('never bundles a promotional waiver or test campaign into a payable run, even if one were ever pending, and leaves it untouched', async () => {
+    confirmContact('agent:agent1');
+    await seedPendingCharge('propPaid');
+    await seedPendingCharge('propPromo', { promoCode: 'HPHNOVEMBER', promoRedemptionId: 'HPHNOVEMBER_agent1' });
+    await seedPendingCharge('propTest', { testCampaign: true });
+    const { createInvoiceRunFromPendingCharges } = await import('../../src/app/api/services/invoiceRunService.js');
+    const result = await createInvoiceRunFromPendingCharges({ createdBy: 'admin1' });
+    expect(result.totalProperties).toBe(1);
+    expect((await fakeDb.collection('propertyCharges').doc('propPaid').get()).data().status).toBe('queued');
+    for (const id of ['propPromo', 'propTest']) {
+      const c = (await fakeDb.collection('propertyCharges').doc(id).get()).data();
+      expect(c.status).toBe('pending');
+      expect(c.runId ?? null).toBeNull();
+    }
+  });
+
   it('moves every included charge from pending to queued, attached to the new run', async () => {
     confirmContact('agent:agent1');
     await seedPendingCharge('propA');

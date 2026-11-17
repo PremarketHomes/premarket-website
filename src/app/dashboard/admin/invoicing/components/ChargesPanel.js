@@ -7,6 +7,25 @@ import { authFetch } from '../../../../utils/authFetch';
 import { formatChargeDate } from '../../../../utils/chargeLine';
 
 const missing = <span className="text-slate-300">—</span>;
+const money = (n) => (typeof n === 'number' && Number.isFinite(n) ? `$${n.toLocaleString()}` : '—');
+
+// Why an excluded charge isn't billed: a promotion code, a test campaign, or a manual admin exclusion.
+function ExclusionKind({ charge }) {
+  if (charge.promoCode) {
+    return (
+      <>
+        <span className="ml-1.5 inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full bg-violet-100 text-violet-700">{charge.promoCode}</span>
+        {charge.adjustment?.retroactive && (
+          <span className="mt-1 block text-[10px] text-slate-400">
+            Applied by {charge.promoAppliedBy || 'an admin'}{charge.promoAppliedAt ? ` · ${formatChargeDate(charge.promoAppliedAt)}` : ''}
+          </span>
+        )}
+      </>
+    );
+  }
+  if (charge.testCampaign) return <span className="ml-1.5 text-[10px] font-semibold text-slate-500">Test campaign</span>;
+  return <span className="ml-1.5 text-[10px] font-semibold text-slate-500">Manual</span>;
+}
 
 const TABS = [
   { key: 'pending', label: 'Pending' },
@@ -24,6 +43,7 @@ const TABS = [
 export default function ChargesPanel() {
   const [tab, setTab] = useState('pending');
   const [charges, setCharges] = useState([]);
+  const [promotions, setPromotions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actioningId, setActioningId] = useState(null);
 
@@ -33,6 +53,7 @@ export default function ChargesPanel() {
       const res = await authFetch(`/api/admin/invoicing/charges?status=${tab}`);
       const data = await res.json();
       setCharges(data.charges || []);
+      setPromotions(data.promotions || []);
     } catch (err) {
       console.error('Fetch charges error:', err);
     } finally {
@@ -41,6 +62,36 @@ export default function ChargesPanel() {
   }, [tab]);
 
   useEffect(() => { fetchCharges(); }, [fetchCharges]);
+
+  async function handleApplyPromo(charge) {
+    const code = charge.promoHint?.code;
+    const agent = charge.sellingAgentName || 'this agent';
+    const ok = window.confirm(
+      `Apply ${code} to ${charge.propertyAddress}?\n\n`
+      + `This uses ${agent}'s one free ${code} campaign, moves this ${money(charge.totalInc)} charge to Excluded `
+      + '(waived, never invoiced) and records that you applied it. It cannot be undone from this screen.',
+    );
+    if (!ok) return;
+    setActioningId(charge.id);
+    try {
+      const res = await authFetch(`/api/admin/invoicing/charges/${charge.id}/apply-promo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || `Failed to apply ${code}`);
+        return;
+      }
+      await fetchCharges();
+    } catch (err) {
+      console.error('Apply promotion error:', err);
+      alert(`Failed to apply ${code}`);
+    } finally {
+      setActioningId(null);
+    }
+  }
 
   async function handleExclude(chargeId) {
     const reason = window.prompt('Why is this charge being excluded? (required)');
@@ -115,6 +166,19 @@ export default function ChargesPanel() {
         ))}
       </div>
 
+      {tab === 'excluded' && !loading && promotions.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          {promotions.map((p) => (
+            <div key={p.code} className="bg-white rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-600">
+              <span className="inline-flex items-center px-2 py-0.5 mr-2 text-[10px] font-bold rounded-full bg-violet-100 text-violet-700">{p.code}</span>
+              <span className="font-semibold text-slate-900">{p.count}</span> promotional {p.count === 1 ? 'campaign' : 'campaigns'}
+              {' · '}
+              <span className="font-semibold text-slate-900">{money(p.waivedInc)}</span> Premarket fees waived
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500" />
@@ -159,11 +223,13 @@ export default function ChargesPanel() {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-right font-medium text-slate-900">
-                    ${charge.totalInc?.toLocaleString()}
+                  <td className="px-4 py-2.5 text-right font-medium text-slate-900 whitespace-nowrap">
+                    {money(charge.totalInc)}
+                    {charge.promoCode && <span className="ml-1 text-xs font-semibold text-violet-700">waived</span>}
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-2.5 whitespace-nowrap">
                     <InvoiceStatusBadge status={charge.status} />
+                    {charge.status === 'excluded' && <ExclusionKind charge={charge} />}
                     {charge.requiresCreditNote && (
                       <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] text-red-600 font-semibold">
                         <AlertTriangle className="w-3 h-3" />
@@ -193,6 +259,15 @@ export default function ChargesPanel() {
                           </button>
                         </>
                       )}
+                      {charge.promoHint?.eligible && (
+                        <button
+                          onClick={() => handleApplyPromo(charge)}
+                          disabled={actioningId === charge.id}
+                          className="text-xs font-semibold text-violet-700 hover:text-violet-800 disabled:opacity-50"
+                        >
+                          Apply {charge.promoHint.code}
+                        </button>
+                      )}
                       <button
                         onClick={() => handleExclude(charge.id)}
                         disabled={actioningId === charge.id}
@@ -208,7 +283,8 @@ export default function ChargesPanel() {
           </table>
           {tab !== 'pending' && (
             <div className="px-4 py-3 border-t border-slate-100 space-y-1.5">
-              {charges.filter((c) => c.adjustment).map((c) => (
+              {/* Promotional waivers are labelled by their code above; this lists the manual/test reasons. */}
+              {charges.filter((c) => c.adjustment && !c.promoCode).map((c) => (
                 <p key={c.id} className="text-xs text-slate-400">
                   <span className="font-medium text-slate-600">{c.propertyAddress}:</span> &ldquo;{c.adjustment.reason}&rdquo;
                 </p>

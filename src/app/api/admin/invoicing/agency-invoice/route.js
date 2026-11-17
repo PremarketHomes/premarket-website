@@ -63,6 +63,12 @@ export async function POST(request) {
         skipped.push({ propertyId, reason: `charge-already-${charge.status}` });
         continue;
       }
+      // Promotional waivers and test campaigns are never invoiced (they are
+      // created 'excluded'; this guard holds even if one were ever pending).
+      if (charge.promoCode || charge.promoRedemptionId || charge.testCampaign === true) {
+        skipped.push({ propertyId, reason: 'not-billable-waiver' });
+        continue;
+      }
 
       pendingCharges.push({ id: chargeDoc.id, ...charge });
     }
