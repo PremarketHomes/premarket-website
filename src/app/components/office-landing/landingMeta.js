@@ -3,7 +3,7 @@ export function officeLandingMetadata(office, path) {
   const who = office.team ? `${office.team.name} · ${office.name}` : office.name;
   const title = `${who} | Understand your property’s potential`;
   const description =
-    `${office.name} has partnered with Premarket so you can explore buyer interest and anonymous pricing opinions before you go to market.`;
+    `${office.team?.partner || office.name} has partnered with Premarket so you can explore buyer interest and anonymous pricing opinions before you go to market.`;
   const url = `https://premarket.homes${path}`;
   return {
     title: { absolute: title },

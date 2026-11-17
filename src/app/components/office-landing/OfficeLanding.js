@@ -65,13 +65,13 @@ export default function OfficeLanding({ office }) {
             )}
           </div>
           <p className="mt-14 text-xs font-semibold uppercase tracking-[0.18em] text-(--blue)">
-            {team ? `${team.name} · In partnership with Premarket` : 'In partnership with Premarket'}
+            {team ? `${team.label || team.name} · In partnership with Premarket` : 'In partnership with Premarket'}
           </p>
           <h1 className="mt-4 text-[2rem] leading-[1.15] sm:text-5xl sm:leading-[1.1] font-semibold tracking-tight text-balance">
             Understand your property&rsquo;s potential before going to market.
           </h1>
           <p className="mt-5 text-base sm:text-lg text-white/80 leading-relaxed">
-            {name} has partnered with Premarket to offer a private way to see how buyers respond
+            {team?.partner || name} has partnered with Premarket to offer a private way to see how buyers respond
             to your home before you commit to a full marketing campaign.
           </p>
         </div>
@@ -167,7 +167,7 @@ export default function OfficeLanding({ office }) {
           {logo && (
             <Image src={logo.src} alt="" width={logo.width} height={logo.height} className="mx-auto mb-6 h-16 w-auto" />
           )}
-          {team && <p className="-mt-2 mb-6 text-sm font-semibold uppercase tracking-[0.18em] text-(--blue)">{team.name}</p>}
+          {team && <p className="-mt-2 mb-6 text-sm font-semibold uppercase tracking-[0.18em] text-(--blue)">{team.label || team.name}</p>}
           <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-balance">
             Ready to find out more?
           </h2>
