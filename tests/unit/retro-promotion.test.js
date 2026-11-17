@@ -115,8 +115,10 @@ describe('applyRetroPromotion', () => {
     ['independent (not an office) charge', () => Object.assign(fakeDb._store.propertyCharges.p1, { billingEntityType: 'independent', officeId: undefined }), 'not-eligible'],
     ['agent no longer in HPH', () => Object.assign(fakeDb._store.users.ellen, { officeId: 'elsewhere' }), 'not-eligible'],
     ['created at/after the 30 Nov cutoff', () => Object.assign(fakeDb._store.properties.p1, { createdAt: new Date('2026-11-29T14:00:00Z') }), 'after-cutoff'],
+    ['created before the 16 Nov launch', () => Object.assign(fakeDb._store.properties.p1, { createdAt: new Date('2026-11-15T13:59:59Z') }), 'before-launch'],
+    ['created in October', () => Object.assign(fakeDb._store.properties.p1, { createdAt: new Date('2026-10-24T04:18:00Z') }), 'before-launch'],
     ['no creation date on record', () => Object.assign(fakeDb._store.properties.p1, { createdAt: null }), 'no-date'],
-    ['assigned to a different roster agent than the owner', () => Object.assign(fakeDb._store.properties.p1, { agentId: 'r1', agentName: 'Someone Else' }), 'assigned-elsewhere'],
+    ['assigned roster name matches no HPH agent account', () => Object.assign(fakeDb._store.properties.p1, { agentId: 'r1', agentName: 'Nobody Known' }), 'assigned-unverified'],
     ['charge agent differs from the campaign owner', () => Object.assign(fakeDb._store.propertyCharges.p1, { agentUserId: 'bso1' }), 'agent-mismatch'],
   ])('refuses when %s, changing nothing', async (_, mutate, reason) => {
     seedEligible();
@@ -133,6 +135,49 @@ describe('applyRetroPromotion', () => {
     const { applyRetroPromotion } = await svc();
     await applyRetroPromotion(fakeDb, { chargeId: 'p1', adminUid: 'admin1', env: ENV });
     expect(fakeDb._store.propertyCharges.p1.status).toBe('excluded');
+  });
+
+  it('a BSO upload for a roster-assigned agent is attributed to the verified ASSIGNED agent, never the BSO', async () => {
+    seedEligible({
+      property: { userId: 'bso1', createdByUid: 'bso1', createdByRole: 'bso', agentId: 'r9', agentName: 'Chantal Damiani' },
+      charge: { agentUserId: 'bso1' },
+    });
+    fakeDb._seed('users', 'bso1', { firstName: 'Peta', lastName: 'Harris', officeId: HPH }); // a BSO, not an agent
+    fakeDb._seed('users', 'chantal', { firstName: 'Chantal', lastName: 'Damiani', agent: true, officeId: HPH });
+    const { applyRetroPromotion } = await svc();
+    const out = await applyRetroPromotion(fakeDb, { chargeId: 'p1', adminUid: 'admin1', env: ENV });
+    expect(out.redemptionId).toBe('HPHNOVEMBER_chantal');
+    expect(fakeDb._store.promoRedemptions.HPHNOVEMBER_chantal).toMatchObject({ agentUid: 'chantal', uploadedByUid: 'bso1', uploadedByRole: 'bso' });
+    expect(fakeDb._store.promoRedemptions.HPHNOVEMBER_bso1).toBeUndefined();
+    expect(fakeDb._store.propertyCharges.p1).toMatchObject({ status: 'excluded', promoRedemptionId: 'HPHNOVEMBER_chantal', agentUserId: 'bso1', totalInc: 200 });
+    expect(Object.values(fakeDb._store.officeCampaignAudit)[0]).toMatchObject({ ownerUid: 'bso1', agentUid: 'chantal', actorUid: 'admin1' });
+  });
+
+  it('refuses when the assigned agent already redeemed, even though the BSO uploader has not', async () => {
+    seedEligible({ property: { userId: 'bso1', agentId: 'r9', agentName: 'Chantal Damiani' }, charge: { agentUserId: 'bso1' } });
+    fakeDb._seed('users', 'bso1', { firstName: 'Peta', lastName: 'Harris', officeId: HPH });
+    fakeDb._seed('users', 'chantal', { firstName: 'Chantal', lastName: 'Damiani', agent: true, officeId: HPH });
+    fakeDb._seed('promoRedemptions', 'HPHNOVEMBER_chantal', { propertyId: 'earlier' });
+    const { applyRetroPromotion } = await svc();
+    expect(await refusal(applyRetroPromotion(fakeDb, { chargeId: 'p1', adminUid: 'admin1', env: ENV }))).toBe('already-redeemed');
+    expect(fakeDb._store.propertyCharges.p1.status).toBe('pending');
+  });
+
+  it('refuses when the assigned name matches more than one HPH agent (unverifiable)', async () => {
+    seedEligible({ property: { userId: 'bso1', agentId: 'r9', agentName: 'Sam Lee' }, charge: { agentUserId: 'bso1' } });
+    fakeDb._seed('users', 'sam1', { firstName: 'Sam', lastName: 'Lee', agent: true, officeId: HPH });
+    fakeDb._seed('users', 'sam2', { firstName: 'Sam', lastName: 'Lee', agent: true, officeId: HPH });
+    const { applyRetroPromotion } = await svc();
+    expect(await refusal(applyRetroPromotion(fakeDb, { chargeId: 'p1', adminUid: 'admin1', env: ENV }))).toBe('assigned-unverified');
+    expect(Object.keys(fakeDb._store.promoRedemptions || {})).toEqual([]);
+    expect(fakeDb._store.propertyCharges.p1.status).toBe('pending');
+  });
+
+  it('allows a campaign created exactly at the 16 Nov launch (00:00 Queensland time)', async () => {
+    seedEligible({ property: { createdAt: new Date('2026-11-15T14:00:00Z') } });
+    const { applyRetroPromotion } = await svc();
+    await applyRetroPromotion(fakeDb, { chargeId: 'p1', adminUid: 'admin1', env: ENV });
+    expect(fakeDb._store.propertyCharges.p1.promoCode).toBe('HPHNOVEMBER');
   });
 
   it('allows a campaign created just before the cutoff even when applied after it', async () => {

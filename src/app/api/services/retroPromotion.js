@@ -7,9 +7,12 @@ import { PROMOTIONS, PromoError, checkPromotionForAgent, eligibleOfficeIds, rede
  * Admin-only (the route calls verifyAdmin). Allowed only when ALL hold:
  *  - the charge is still PENDING: never in a draft run (remove it from the run first), never sent to Xero
  *    (invoiced/reversed), not already excluded, not a test campaign, not already a promotion;
- *  - it is billed to an eligible office (HPH) and its owner is a usable HPH agent in an active office;
- *  - the listing's assigned selling agent IS that owner (a roster-assigned listing for someone else is refused);
- *  - the campaign was CREATED before the promotion's cutoff (30 Nov 2026 00:00 Queensland time);
+ *  - it is billed to an eligible office (HPH);
+ *  - the redemption belongs to the VERIFIED ASSIGNED SELLING AGENT, never the uploader (BSOs upload on agents' behalf):
+ *    the owner (`userId`) when no roster agent is assigned, otherwise the unique HPH agent account with exactly the
+ *    assigned name (unverifiable = refused). That agent must be a usable HPH agent in an active office;
+ *  - the campaign was CREATED from the launch (16 Nov 2026 00:00 Queensland time) up to the existing cutoff
+ *    (30 Nov 2026 00:00 Queensland time);
  *  - that agent has no redemption yet (the same deterministic promoRedemptions/{CODE}_{uid} lock as at creation).
  *
  * Applying is ONE transaction: re-checks the charge and the redemption, creates the redemption, moves the SAME charge
@@ -18,6 +21,11 @@ import { PROMOTIONS, PromoError, checkPromotionForAgent, eligibleOfficeIds, rede
  */
 
 export const RETRO_PROMO_CODE = 'HPHNOVEMBER';
+
+// Retroactive window start per promotion (its launch); the end is the promotion's own endsAtMs.
+const RETRO_STARTS = Object.freeze({
+  HPHNOVEMBER: Object.freeze({ startsAtMs: Date.parse('2026-11-16T00:00:00+10:00'), startsLabel: '16 November 2026' }),
+});
 
 const MESSAGES = Object.freeze({
   notFound: 'Charge not found.',
@@ -29,9 +37,10 @@ const MESSAGES = Object.freeze({
   notOffice: 'Only Harcourts Property Hub campaigns are eligible.',
   noProperty: 'The campaign record could not be found.',
   noDate: 'The campaign has no creation date on record.',
+  beforeLaunch: (promo, start) => `This campaign was created before ${promo.code} started (${start.startsLabel}).`,
   afterCutoff: (promo) => `This campaign was created after the ${promo.code} cutoff (${promo.endsLabel}).`,
-  agentMismatch: 'The charge’s agent doesn’t match the campaign owner. Check it manually.',
-  assignedElsewhere: 'This campaign is assigned to a different agent from the account it was uploaded under. Check it manually.',
+  agentMismatch: 'The charge’s account doesn’t match the campaign. Check it manually.',
+  assignedUnverified: 'The assigned selling agent couldn’t be matched to exactly one HPH agent account. Check it manually.',
 });
 
 const refuse = (reason, message, status = 409) => { throw new PromoError(reason, message, status); };
@@ -42,6 +51,22 @@ const toMs = (t) => {
 };
 const norm = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
 const fullName = (u) => `${u?.firstName || ''} ${u?.lastName || ''}`;
+const isAgentUser = (u) => !!(u?.agent || u?.isAgent || u?.roles?.includes?.('agent'));
+
+/**
+ * The verified assigned selling agent's uid (same rule as managedCampaignService.sellingAgentOf / utils/listingAgent.js):
+ * no roster assignment → the owner (`userId`; for a BSO-managed campaign that is already the agent, the BSO being
+ * `createdByUid`); roster-assigned (`agentId`) → the UNIQUE agent account in the office with exactly the assigned name.
+ * Anything else is unverified (null) — never the uploader.
+ */
+async function assignedSellingAgentUid(db, property, officeId) {
+  if (!property.agentId) return property.userId || null;
+  const assignedName = property.agentName || (await db.collection('agents').doc(property.agentId).get()).data()?.name;
+  if (!norm(assignedName) || !officeId) return null;
+  const people = await db.collection('users').where('officeId', '==', officeId).get();
+  const matches = people.docs.filter((d) => isAgentUser(d.data()) && norm(fullName(d.data())) === norm(assignedName));
+  return matches.length === 1 ? matches[0].id : null;
+}
 
 /** Charge-only rules (status, run, test, promo, office). Throws PromoError. */
 function assertChargeApplicable(charge, promo, env) {
@@ -55,8 +80,8 @@ function assertChargeApplicable(charge, promo, env) {
 }
 
 /**
- * Read-only eligibility check (reserves and writes nothing). Returns { promo, ownerUid, officeId, property }
- * or throws PromoError with a client-safe message.
+ * Read-only eligibility check (reserves and writes nothing). Returns { promo, agentUid, accountUid, officeId, propertyId,
+ * property } or throws PromoError with a client-safe message.
  */
 export async function checkRetroPromotion(db, { chargeId, code = RETRO_PROMO_CODE, charge: given, env = process.env }) {
   const promo = PROMOTIONS[code];
@@ -69,29 +94,32 @@ export async function checkRetroPromotion(db, { chargeId, code = RETRO_PROMO_COD
   if (!property) refuse('no-property', MESSAGES.noProperty, 404);
   const createdAtMs = toMs(property.createdAt);
   if (createdAtMs == null) refuse('no-date', MESSAGES.noDate);
+  const start = RETRO_STARTS[promo.code];
+  if (start && createdAtMs < start.startsAtMs) refuse('before-launch', MESSAGES.beforeLaunch(promo, start));
   if (createdAtMs >= promo.endsAtMs) refuse('after-cutoff', MESSAGES.afterCutoff(promo));
 
-  const ownerUid = property.userId;
-  if (!ownerUid || ownerUid !== charge.agentUserId) refuse('agent-mismatch', MESSAGES.agentMismatch);
+  // The account the campaign (and its charge) sits under — for a roster-assigned listing this can be a BSO's.
+  const accountUid = property.userId;
+  if (!accountUid || accountUid !== charge.agentUserId) refuse('agent-mismatch', MESSAGES.agentMismatch);
 
-  // Same rules as redeeming at creation, judged at the campaign's creation time: usable HPH agent, active office, no
-  // redemption yet.
-  const { owner, officeId } = await checkPromotionForAgent(db, { code, ownerUid, now: createdAtMs, env });
+  // The promotion is attributed to the verified assigned selling agent, never the uploader.
+  const agentUid = await assignedSellingAgentUid(db, property, charge.officeId);
+  if (!agentUid) refuse('assigned-unverified', MESSAGES.assignedUnverified);
 
-  // The redemption belongs to the assigned selling agent. A roster-assigned listing counts only when that agent is the
-  // owner themself (their own display profile); otherwise it would use the wrong person's free campaign.
-  if (property.agentId && norm(property.agentName) !== norm(fullName(owner))) refuse('assigned-elsewhere', MESSAGES.assignedElsewhere);
+  // Same rules as redeeming at creation, for THAT agent, judged at the campaign's creation time: usable HPH agent,
+  // active office, no redemption yet.
+  const { officeId } = await checkPromotionForAgent(db, { code, ownerUid: agentUid, now: createdAtMs, env });
 
-  return { promo, ownerUid, officeId, propertyId, property };
+  return { promo, agentUid, accountUid, officeId, propertyId, property };
 }
 
 /** Applies the promotion atomically (see file comment). Returns { chargeId, promoCode, redemptionId }. */
 export async function applyRetroPromotion(db, { chargeId, code = RETRO_PROMO_CODE, adminUid, env = process.env }) {
   if (!adminUid) refuse('unauthorised', 'Admin required.', 403);
-  const { promo, ownerUid, officeId, propertyId, property } = await checkRetroPromotion(db, { chargeId, code, env });
+  const { promo, agentUid, accountUid, officeId, propertyId, property } = await checkRetroPromotion(db, { chargeId, code, env });
 
   const chargeRef = db.collection('propertyCharges').doc(chargeId);
-  const redemptionId = redemptionIdFor(promo.code, ownerUid);
+  const redemptionId = redemptionIdFor(promo.code, agentUid);
   const redemptionRef = db.collection('promoRedemptions').doc(redemptionId);
   const auditRef = db.collection('officeCampaignAudit').doc();
 
@@ -100,15 +128,15 @@ export async function applyRetroPromotion(db, { chargeId, code = RETRO_PROMO_COD
     const redemptionSnap = await tx.get(redemptionRef);
     const charge = chargeSnap.exists ? chargeSnap.data() : null;
     assertChargeApplicable(charge, promo, env); // still pending, not queued into a run meanwhile
-    if (charge.agentUserId !== ownerUid) refuse('agent-mismatch', MESSAGES.agentMismatch);
+    if (charge.agentUserId !== accountUid) refuse('agent-mismatch', MESSAGES.agentMismatch);
     if (redemptionSnap.exists) refuse('already-redeemed', 'This agent has already used their free November campaign.');
 
-    const createdByUid = property.createdByUid || ownerUid;
+    const uploadedByUid = property.createdByUid || accountUid;
     tx.create(redemptionRef, {
       ...buildRedemption({
-        promo, ownerUid, officeId, propertyId,
-        uploadedByUid: createdByUid,
-        uploadedByRole: property.createdByRole || (createdByUid === ownerUid ? 'agent' : null),
+        promo, ownerUid: agentUid, officeId, propertyId,
+        uploadedByUid,
+        uploadedByRole: property.createdByRole || (uploadedByUid === agentUid ? 'agent' : null),
         creationPath: 'admin-retroactive',
       }),
       retroactive: true,
@@ -130,7 +158,7 @@ export async function applyRetroPromotion(db, { chargeId, code = RETRO_PROMO_COD
     });
     tx.create(auditRef, {
       action: 'campaign.promoAppliedRetroactively',
-      propertyId, chargeId, ownerUid, officeId,
+      propertyId, chargeId, ownerUid: accountUid, agentUid, officeId,
       promoCode: promo.code, redemptionId,
       actorUid: adminUid, actorRole: 'superAdmin',
       at: FieldValue.serverTimestamp(),
