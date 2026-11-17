@@ -8,22 +8,25 @@
  * and agency title) keeps applying exactly as before; a team theme only swaps the accent colour, and only where
  * the page already used an accent.
  *
- * Every palette must keep white text readable on `primary` and `primaryDark`, and `primary` readable as text on
- * white (WCAG AA, 4.5:1). tests/unit/team-theme.test.js enforces this.
+ * Every palette must keep text readable (WCAG AA, 4.5:1), enforced by tests/unit/team-theme.test.js:
+ *   `primaryText` on `primary` and `primaryDark` (button labels on the accent fill), and `accentText` on white and on
+ *   `soft` (accent-coloured text such as prices, badges, links and labels). A bright `primary` is only ever a fill,
+ *   a slider, a ring or a rule, never text on white.
  */
 
-// Mitch Harrop Team (Harcourts Property Hub). No official team logo or team colours exist in Premarket (the only
-// agency brand is the HPH office brand), so this is a TEMPORARY, neutral pink accent — not an official brand
-// identity. Swap in the team's official colours here when they are supplied.
+// Mitch Harrop Team (Harcourts Property Hub). No team logo or colours are configured in Premarket (the only agency
+// brand is the HPH office brand). The accent is the bright pink of Mitch Harrop's public branding (~#FA5DB5, supplied
+// by Luke on 2026-11-17); the text shades are the same hue, darkened only as far as readability requires.
 export const MITCH_HARROP_PINK = Object.freeze({
   key: 'mitch-harrop-pink',
   official: false,
   colors: Object.freeze({
-    primary: '#be185d', // accent: buttons, slider, highlights (6.0:1 against white)
-    primaryDark: '#9d174d', // gradient end / hover (8.0:1 against white)
-    primaryText: '#ffffff',
-    soft: '#fdf2f8', // faint tint for selected states
-    softBorder: '#fbcfe8',
+    primary: '#FA5DB5', // accent fill: buttons, slider, rings, rules, highlights
+    primaryDark: '#F943A9', // gradient end / hover fill
+    primaryText: '#3D0626', // text ON the accent fill (deep plum, 5.8:1; white would be 2.9:1)
+    accentText: '#C61076', // accent-coloured text on white (5.6:1)
+    soft: '#FFF0F8', // faint tint behind labels
+    softBorder: '#FDC3E4',
     // The iPad kiosk tints its photo with the brand colour; for a team accent it stays the neutral slate it has with
     // no brand, so the pink is only on the slider and the approve button, never washed over the photo.
     tint: '#334155',
@@ -44,8 +47,8 @@ export function knownTeamTheme(theme) {
 export function teamBrandColors(theme) {
   const t = knownTeamTheme(theme);
   if (!t) return null;
-  const { primary, primaryDark, primaryText, tint, tintDark } = t.colors;
-  return { primary, primaryDark, primaryText, tint, tintDark };
+  const { primary, primaryDark, primaryText, accentText, tint, tintDark } = t.colors;
+  return { primary, primaryDark, primaryText, accentText, buttonText: primaryText, tint, tintDark };
 }
 
 /** Dashboard accent variables. Every dashboard use reads `var(--team-accent, <today's colour>)`, so with no theme
@@ -58,6 +61,8 @@ export function teamAccentStyle(theme) {
     '--team-accent-strong': t.colors.primaryDark,
     '--team-accent-soft': t.colors.soft,
     '--team-accent-border': t.colors.softBorder,
+    '--team-accent-text': t.colors.accentText,
+    '--team-accent-on': t.colors.primaryText,
   };
 }
 
@@ -68,6 +73,8 @@ const NO_TEAM_ACCENT = Object.freeze({
   '--team-accent-strong': 'initial',
   '--team-accent-soft': 'initial',
   '--team-accent-border': 'initial',
+  '--team-accent-text': 'initial',
+  '--team-accent-on': 'initial',
 });
 
 /** For one CAMPAIGN's card inside a dashboard: `theme` undefined = not known yet (inherit the dashboard's accent),

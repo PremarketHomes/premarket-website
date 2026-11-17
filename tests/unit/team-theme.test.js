@@ -16,16 +16,23 @@ const PINK = { key: MITCH_HARROP_PINK.key };
 
 describe('team palettes: contrast and safety', () => {
   for (const t of Object.values(TEAM_THEME_PALETTES)) {
-    it(`${t.key}: white text on the accent and its dark shade, and the accent as text, all meet WCAG AA (4.5:1)`, () => {
+    it(`${t.key}: button labels on the accent fill and accent-coloured text all meet WCAG AA (4.5:1)`, () => {
       const c = t.colors;
       expect(contrastRatio(c.primaryText, c.primary)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(c.primaryText, c.primaryDark)).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio(c.primary, '#ffffff')).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio(c.primary, c.soft)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(c.accentText, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(c.accentText, c.soft)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(c.accentText, '#f5f5f4')).toBeGreaterThanOrEqual(4.5); // active nav row background
     });
   }
 
-  it('the Mitch Harrop palette is marked temporary, not an official brand, and carries no logo or name', () => {
+  it('the Mitch Harrop accent is the bright pink of his public branding (#FA5DB5); white is never used as text on it', () => {
+    expect(MITCH_HARROP_PINK.colors.primary).toBe('#FA5DB5');
+    expect(contrastRatio('#ffffff', MITCH_HARROP_PINK.colors.primary)).toBeLessThan(4.5); // why labels on it are plum
+    expect(teamBrandColors(PINK)).toMatchObject({ primaryText: '#3D0626', buttonText: '#3D0626', accentText: '#C61076' });
+  });
+
+  it('the Mitch Harrop palette carries no logo or name', () => {
     expect(MITCH_HARROP_PINK.official).toBe(false);
     expect(Object.keys(MITCH_HARROP_PINK)).toEqual(['key', 'official', 'colors']);
   });
@@ -34,7 +41,7 @@ describe('team palettes: contrast and safety', () => {
     expect(knownTeamTheme(PINK)).toBe(MITCH_HARROP_PINK);
     expect(knownTeamTheme({ key: 'nope' })).toBeNull();
     expect(knownTeamTheme({ key: 'constructor' })).toBeNull();
-    expect(knownTeamTheme({ key: MITCH_HARROP_PINK.key, colors: { primary: 'red;background:url(x)' } }).colors.primary).toBe('#be185d');
+    expect(knownTeamTheme({ key: MITCH_HARROP_PINK.key, colors: { primary: 'red;background:url(x)' } }).colors.primary).toBe('#FA5DB5');
     expect(knownTeamTheme(null)).toBeNull();
     expect(knownTeamTheme('mitch-harrop-pink')).toBeNull();
   });
@@ -47,8 +54,9 @@ describe('team palettes: contrast and safety', () => {
 
   it('a campaign card with no team theme resets the accent to today\'s colours even inside a themed dashboard', () => {
     const reset = campaignAccentStyle(null);
-    expect(Object.values(reset)).toEqual(['initial', 'initial', 'initial', 'initial']);
-    expect(campaignAccentStyle(PINK)['--team-accent']).toBe('#be185d');
+    expect(Object.values(reset)).toEqual(Array(6).fill('initial'));
+    expect(Object.keys(reset)).toEqual(Object.keys(campaignAccentStyle(PINK)));
+    expect(campaignAccentStyle(PINK)).toMatchObject({ '--team-accent': '#FA5DB5', '--team-accent-text': '#C61076', '--team-accent-on': '#3D0626' });
   });
 });
 
@@ -69,12 +77,13 @@ describe('buyer page colours: team accent only for that team\'s campaigns', () =
   it('a themed campaign uses the team accent over the office colours (the office logo is untouched: colours only)', () => {
     expect(computeEffectiveColors({ brand: office, agentData: { brandColors: null }, teamColors: team })).toEqual(team);
     expect(computeBrandStyle(team)).toEqual({
-      '--brand-primary': '#be185d', '--brand-primary-dark': '#9d174d', '--brand-text-on-primary': '#ffffff',
+      '--brand-primary': '#FA5DB5', '--brand-primary-dark': '#F943A9', '--brand-text-on-primary': '#3D0626',
+      '--brand-accent-text': '#C61076', '--brand-button-text': '#3D0626',
       // kiosk photo stays neutral slate (the no-brand default): pink only on the slider and buttons
       '--brand-tint': '#334155', '--brand-tint-dark': '#0f172a',
     });
     // an agency brand never sets the tint, so its kiosk overlay is exactly as before
-    expect(Object.keys(computeBrandStyle(office.colors))).not.toContain('--brand-tint');
+    for (const k of ['--brand-tint', '--brand-accent-text', '--brand-button-text']) expect(Object.keys(computeBrandStyle(office.colors))).not.toContain(k);
   });
 
   it('the dashboard branding preview still wins over everything', () => {

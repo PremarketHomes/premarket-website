@@ -75,7 +75,7 @@ export default function ValuationSliderRow({
                 initial={{ scale: 1.08 }}
                 animate={{ scale: 1 }}
                 transition={{ duration: 0.16 }}
-                className="text-lg sm:text-xl font-semibold text-[var(--brand-primary,#c2410c)] tabular-nums flex-shrink-0"
+                className="text-lg sm:text-xl font-semibold text-[var(--brand-accent-text,var(--brand-primary,#c2410c))] tabular-nums flex-shrink-0"
                 style={{ fontFamily: 'var(--font-inter, system-ui, sans-serif)' }}
               >
                 {formatMoney(priceOpinion)}
@@ -109,7 +109,7 @@ export default function ValuationSliderRow({
           onClick={onSubmit}
           disabled={!hasInteracted}
           aria-label="Submit my feedback"
-          className="flex-shrink-0 inline-flex items-center gap-1.5 h-11 pl-4 pr-4 sm:pr-5 rounded-full bg-[var(--brand-primary,#c2410c)] text-white shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
+          className="flex-shrink-0 inline-flex items-center gap-1.5 h-11 pl-4 pr-4 sm:pr-5 rounded-full bg-[var(--brand-primary,#c2410c)] text-[var(--brand-button-text,#ffffff)] shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
         >
           <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />

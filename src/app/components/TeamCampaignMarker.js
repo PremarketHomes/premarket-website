@@ -22,7 +22,7 @@ export function TeamLabel({ theme }) {
   return (
     <p className="mt-1">
       <span
-        className="inline-flex px-1.5 py-0.5 rounded-full text-[11px] font-semibold leading-none bg-[var(--team-accent-soft)] text-[var(--team-accent)] ring-1 ring-inset ring-[var(--team-accent-border)]"
+        className="inline-flex px-1.5 py-0.5 rounded-full text-[11px] font-semibold leading-none bg-[var(--team-accent-soft)] text-[var(--team-accent-text)] ring-1 ring-inset ring-[var(--team-accent-border)]"
         data-testid="team-label"
       >
         {label}
