@@ -23,7 +23,9 @@ import { LIVE_PROJECT_ID, backendProjectId, pointsAtLiveBackend } from './enviro
  * Changing this list is a code change on purpose (reviewed, in git history), like testCampaigns.js.
  */
 export const TEAM_THEME_ASSIGNMENTS = Object.freeze({
-  // Mitch Harrop Team, Harcourts Property Hub — team id to be confirmed from production before release.
+  // "Mitch Harrop Team", Harcourts Property Hub (office ioxigzf4hcRtowqL4C94). Verified read-only on 2026-11-17: the only
+  // team with that name, in the HPH office, 7 members including Mitch Harrop; no team logo or colours configured.
+  ICSKK5kDs5RF5OYs11mM: MITCH_HARROP_PINK.key,
 });
 
 /**

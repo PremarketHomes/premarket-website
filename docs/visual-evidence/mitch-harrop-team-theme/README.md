@@ -1,28 +1,38 @@
 # Mitch Harrop Team accent — visual evidence
 
-Captured 2026-11-17 against a **local build of this branch on the STAGING Firebase project** (fake data only; no
-production data was read or written). `stg_team1` stands in for the Mitch Harrop Team via `TEAM_THEME_TEST_TEAM_ID`,
-which the server ignores whenever it points at the live project. The staging office was given HPH's navy colours so
-"not themed" pages look like production HPH. The kiosk ran with `demo=1` (nothing saved or sent).
+## Production team (verified read-only, 2026-11-17)
+- Team id **`ICSKK5kDs5RF5OYs11mM`**, name "Mitch Harrop Team". It is the only team with that name. It is in the Harcourts Property Hub office (`ioxigzf4hcRtowqL4C94`), and the office has 14 teams.
+- It has 7 members, including Mitch Harrop. There are no stale team pointers.
+- No team-level or member logo or colours are configured. The only agency brand is the HPH office brand (navy + logo).
+- Campaign relationships: **0 of 102** production listings are owned, created, managed or assigned to a team member today.
+- The real resolver was run read-only over all 102 production listings with the shipped id: **0 themed**, so nothing changes on any existing campaign.
+- In-memory controls against the real team, office and user records:
+  - a campaign owned by a member → pink
+  - a BSO upload for Mitch Harrop → pink
+  - another HPH team's campaign → unchanged
+  - a member uploading for a no-team agent → unchanged
+
+## Screens (local build of this branch on the STAGING project, fake data)
+- **Shipped config only.** No test override was used. Staging holds a fake team with the **same id** (fake members), so the real config entry drives everything.
+- **BSO campaigns.** A fake staging BSO created them through the **real managed-campaign API**: owner = team agent, creator/manager = BSO. It then published them with the real "show" action.
+- **Office colours.** The staging office was given HPH's navy so other teams look like production HPH.
+- **Kiosk.** It ran with `demo=1`, so nothing was saved or sent.
 
 | # | Screen | Campaign / viewer | Expected | Result |
 |---|---|---|---|---|
-| 01 | Buyer page, desktop (slider moved) | themed-team agent's campaign | pink | ✅ |
-| 02 | Buyer page, desktop | **other HPH team** | navy (unchanged) | ✅ |
-| 03 | Confirmation dialog, desktop | themed | pink | ✅ |
-| 04–05 | Buyer page + confirmation, phone 390px | themed | pink | ✅ |
-| 06 | Buyer page, phone | other team | navy | ✅ |
-| 07–08 | iPad kiosk, landscape (idle, approve step) | themed | pink slider ring + approve button, photo neutral | ✅ |
-| 10 | iPad kiosk, portrait | themed | pink | ✅ |
-| 11 | iPad kiosk, landscape | other team | navy (unchanged) | ✅ |
-| 12 | Dashboard | themed-team member | pink nav highlight, Add Property, card accents | ✅ |
-| 13 | Dashboard menu, phone | themed-team member | pink nav highlight | ✅ |
-| 14 | My Team page | themed-team member | pink accents, team rows marked | ✅ |
+| 01 | Buyer page, desktop (slider moved) | BSO-uploaded campaign of a Mitch team agent | pink | ✅ |
+| 02 | Buyer page, desktop | other HPH team | navy (unchanged) | ✅ |
+| 03 | Confirmation dialog, desktop | Mitch team | pink | ✅ |
+| 04–05 | Buyer page + confirmation, phone 390px | Mitch team | pink | ✅ |
+| 06 | Buyer page, phone | other HPH team | navy | ✅ |
+| 07–08 | iPad kiosk, landscape (idle, approve step) | Mitch team | pink ring + approve button, photo neutral | ✅ |
+| 09 | iPad kiosk, portrait | Mitch team | pink | ✅ |
+| 10 | iPad kiosk, landscape | other HPH team | navy (unchanged) | ✅ |
+| 11 | Dashboard | Mitch team member | pink nav, Add Property, card accent | ✅ |
+| 12 | Dashboard menu, phone | Mitch team member | pink nav highlight | ✅ |
+| 13 | My Team page (My properties tab) | Mitch team member | pink accents + campaign row marker | ✅ |
+| 14 | Dashboard | another team's member | orange (unchanged) | ✅ |
 | 15 | Dashboard | agent with no team | orange (unchanged) | ✅ |
-| 16 | Dashboard | office admin (no team) owning a listing assigned to a themed member | orange chrome, that one card pink | ✅ |
+| 16 | Dashboard | the uploading BSO (not in the team) | orange (unchanged; the uploader is never themed) | ✅ |
 
-Automated colour checks (computed styles, scratchpad `e2e/visual-theme.js`): **40/40 passed**, including
-- managed campaign uploaded by a BSO for a themed-team agent → pink (follows the selling agent)
-- campaign uploaded **by** a themed-team member **for** a no-team agent → not themed (uploader ignored)
-- older roster-assigned listing (uploaded under an admin account, assigned to a themed member) → pink
-- kiosk approve → thank-you stays on the same single page (`mode=ipad`), no extra step
+Automated computed-colour checks (scratchpad `e2e/visual-final.js`): **42/42 passed**. They include the BSO-uploaded campaign of a never-logged-in team agent (pink), and the kiosk approve → thank-you staying on the same single page.

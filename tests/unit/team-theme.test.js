@@ -171,10 +171,13 @@ describe('themeForTeamId', () => {
     expect(activeTeamThemeAssignments({ TEAM_THEME_TEST_TEAM_ID: 'stgTeam', FIREBASE_SERVICE_ACCOUNT: '{bad' })).toBe(TEAM_THEME_ASSIGNMENTS);
   });
 
-  it('the shipped assignment list holds at most the one Mitch Harrop Team entry', () => {
-    const entries = Object.entries(TEAM_THEME_ASSIGNMENTS);
-    expect(entries.length).toBeLessThanOrEqual(1);
-    for (const [, key] of entries) expect(key).toBe(MITCH_HARROP_PINK.key);
+  it('the shipped list themes exactly one team: the verified Mitch Harrop Team id', () => {
+    expect(TEAM_THEME_ASSIGNMENTS).toEqual({ ICSKK5kDs5RF5OYs11mM: MITCH_HARROP_PINK.key });
+    expect(themeForTeamId('ICSKK5kDs5RF5OYs11mM', TEAM_THEME_ASSIGNMENTS)).toEqual(PINK);
+    // every other HPH team id seen in production stays unthemed
+    for (const other of ['06M7JccJtlbZUA0X33bQ', '1FgqPISsUpUDQbbzuWcy', '80l5CY7rWQ9VHXTHnRAs', 'FIjXIIsiuXp8MjxbxYw6', 'MVPgk1YkioH4JAmjaKsV',
+      'Zph40MPoxyWpw6F2LIEi', 'bgblKDwJVyLS30OYwGdi', 'l366znAyim3u1C85oLQ0', 'qLzxwenbOgw0xQsMnL5C', 'uiTM8WOad5nF5DrNkt88', 'xG8B56SMtCaNj9PZbIcu',
+      'yKyuOGHG5FwyizWyMuip', 'yksFVF7o1zMKtqUo62zV']) expect(themeForTeamId(other, TEAM_THEME_ASSIGNMENTS)).toBeNull();
   });
 });
 
@@ -247,7 +250,7 @@ describe('GET /api/public/campaign-theme', () => {
     const { GET } = await import('../../src/app/api/public/campaign-theme/route.js');
     const res = await GET(new Request('https://x/api/public/campaign-theme?ids=pMitch,pOther,bad%20id'));
     const body = await res.json();
-    // The shipped list has no team id yet, so nothing is themed until the Mitch Harrop Team id is added.
+    // (fake ids: no themed team in this fake data, so both are null)
     expect(Object.keys(body)).toEqual(['themes']);
     expect(Object.keys(body.themes).sort()).toEqual(['pMitch', 'pOther']);
     for (const v of Object.values(body.themes)) expect(v === null || Object.keys(v).join() === 'key').toBe(true);
