@@ -33,7 +33,7 @@ export const TEAM_PAGES = {
     team: {
       id: 'ICSKK5kDs5RF5OYs11mM',
       name: 'Mitch Harrop Team', // page title / social preview
-      label: 'The Guys in Pink', // the pink on-page labels (team's own wording, 2026-11-17)
+      label: "'The Guys in Pink'", // the pink on-page labels; the single quotes are part of the team's branding (2026-11-17)
       partner: 'Mitch Harrop from Harcourts Property Hub', // "… has partnered with Premarket"
     },
   },
