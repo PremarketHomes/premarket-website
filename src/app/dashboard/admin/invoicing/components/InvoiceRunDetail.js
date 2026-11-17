@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp, ExternalLink, Send, RefreshCw, XCircle, CheckCircle, Trash2, Pencil, AlertTriangle, Mail } from 'lucide-react';
 import InvoiceStatusBadge from './InvoiceStatusBadge';
 import { authFetch } from '../../../../utils/authFetch';
+import { formatChargeDate } from '../../../../utils/chargeLine';
 
 export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
   const [expandedAgency, setExpandedAgency] = useState(null);
@@ -422,9 +423,18 @@ function AgencyRow({
         const isRemoving = removingProp === propKey;
         return (
           <tr key={propKey} className="bg-slate-50/50">
-            <td colSpan={3} className="px-4 py-2 pl-10 text-xs text-slate-600">{prop.address}</td>
-            <td colSpan={3} className="px-4 py-2 text-right text-xs text-slate-500">${item.pricePerListing} inc</td>
-            <td></td>
+            <td colSpan={3} className="px-4 py-2 pl-10 text-xs text-slate-600">
+              <div>{prop.address}</div>
+              <div className="text-slate-400">
+                {[prop.sellingAgentName, formatChargeDate(prop.submittedAt) && `Submitted ${formatChargeDate(prop.submittedAt)}`].filter(Boolean).join(' · ')}
+              </div>
+            </td>
+            <td colSpan={3} className="px-4 py-2 text-right text-xs text-slate-500">
+              {prop.totalInc != null ? `$${prop.totalInc.toLocaleString()} inc` : ''}
+            </td>
+            <td className="px-4 py-2 text-center">
+              {prop.chargeStatus && <InvoiceStatusBadge status={prop.chargeStatus} />}
+            </td>
             <td className="px-4 py-2 text-center">
               {isDraft && (
                 <button

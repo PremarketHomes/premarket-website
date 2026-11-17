@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '../../../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { verifyAdmin } from '../../../../middleware/auth';
+import { withChargeDetails } from '../../../../services/chargeDetails';
 import { releaseCharges } from '../../../../services/billingService';
 import { sendInvoice } from '../../../../services/xeroService';
 
@@ -36,7 +37,12 @@ export async function GET(request, { params }) {
       .where('runId', '==', runId)
       .get();
 
-    const items = itemsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    // Each property's full address, selling agent, submission date and charge
+    // status come from its live records (display only; nothing is written).
+    const items = await Promise.all(itemsSnap.docs.map(async (doc) => {
+      const item = { id: doc.id, ...doc.data() };
+      return { ...item, properties: await withChargeDetails(item.properties || [], 'address', { withChargeStatus: true }) };
+    }));
 
     return NextResponse.json({
       run: { id: runDoc.id, ...runDoc.data() },

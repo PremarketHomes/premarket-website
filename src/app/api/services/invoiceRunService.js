@@ -19,7 +19,7 @@
 import { adminDb } from '../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import { reconcileMissingCharges, resolveBillingContact } from './billingService';
-import { withFullPropertyAddresses } from './chargeAddresses';
+import { withChargeDetails } from './chargeDetails';
 
 /**
  * Groups a list of { id, ...chargeData } charge docs by
@@ -142,7 +142,7 @@ export async function createInvoiceRunFromPendingCharges({ createdBy, onlyEntity
   }
   if (charges.length === 0) return null;
 
-  const items = groupChargesByEntity(await withFullPropertyAddresses(charges, 'propertyAddress'));
+  const items = groupChargesByEntity(await withChargeDetails(charges, 'propertyAddress'));
 
   // Every item here already has a confirmed contact — that's exactly
   // what the filter above guaranteed before grouping. Stamp the
