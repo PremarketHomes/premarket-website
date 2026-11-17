@@ -15,7 +15,7 @@ describe('/harropteam: the /hph vendor page, with only the team accent and name'
     expect(rest).toEqual(hphRest); // same name, navy, logos, labels: HPH updates flow through
     expect(slug).toBe('harropteam');
     expect(blue).toBe(MITCH_HARROP_PINK.colors.primary);
-    expect(team).toEqual({ id: 'ICSKK5kDs5RF5OYs11mM', name: 'Mitch Harrop Team', label: 'The Guys in Pink', partner: 'Mitch Harrop from Harcourts Property Hub' });
+    expect(team).toEqual({ id: 'ICSKK5kDs5RF5OYs11mM', name: 'Mitch Harrop Team', label: "'The Guys in Pink'", partner: 'Mitch Harrop from Harcourts Property Hub' });
     expect(Object.keys(TEAM_THEME_ASSIGNMENTS)).toContain(team.id);
     expect(t.logo).toBe(OFFICES.hph.logo); // Harcourts Property Hub logo kept
   });
