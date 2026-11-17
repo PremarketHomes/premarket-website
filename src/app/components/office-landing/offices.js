@@ -30,6 +30,11 @@ export const TEAM_PAGES = {
     ...OFFICES.hph,
     slug: 'harropteam',
     blue: MITCH_HARROP_PINK.colors.primary, // #FA5DB5 on HPH navy: 5.7:1
-    team: { id: 'ICSKK5kDs5RF5OYs11mM', name: 'Mitch Harrop Team' },
+    team: {
+      id: 'ICSKK5kDs5RF5OYs11mM',
+      name: 'Mitch Harrop Team', // page title / social preview
+      label: 'The Guys in Pink', // the pink on-page labels (team's own wording, 2026-11-17)
+      partner: 'Mitch Harrop from Harcourts Property Hub', // "… has partnered with Premarket"
+    },
   },
 };

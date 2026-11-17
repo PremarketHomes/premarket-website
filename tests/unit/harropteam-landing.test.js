@@ -15,7 +15,7 @@ describe('/harropteam: the /hph vendor page, with only the team accent and name'
     expect(rest).toEqual(hphRest); // same name, navy, logos, labels: HPH updates flow through
     expect(slug).toBe('harropteam');
     expect(blue).toBe(MITCH_HARROP_PINK.colors.primary);
-    expect(team).toEqual({ id: 'ICSKK5kDs5RF5OYs11mM', name: 'Mitch Harrop Team' });
+    expect(team).toEqual({ id: 'ICSKK5kDs5RF5OYs11mM', name: 'Mitch Harrop Team', label: 'The Guys in Pink', partner: 'Mitch Harrop from Harcourts Property Hub' });
     expect(Object.keys(TEAM_THEME_ASSIGNMENTS)).toContain(team.id);
     expect(t.logo).toBe(OFFICES.hph.logo); // Harcourts Property Hub logo kept
   });
@@ -35,7 +35,8 @@ describe('/harropteam: the /hph vendor page, with only the team accent and name'
 
   it('team identification appears only on the team page (hph renders exactly as before)', () => {
     const src = read('src/app/components/office-landing/OfficeLanding.js');
-    expect(src).toContain("{team ? `${team.name} · In partnership with Premarket` : 'In partnership with Premarket'}");
+    expect(src).toContain("{team ? `${team.label || team.name} · In partnership with Premarket` : 'In partnership with Premarket'}");
+    expect(src).toContain('{team?.partner || name} has partnered with Premarket');
     expect(src).toContain('{team && <p');
     expect(OFFICES.hph.team).toBeUndefined();
   });
@@ -47,7 +48,8 @@ describe('/harropteam: the /hph vendor page, with only the team accent and name'
     expect(hph.robots).toEqual({ index: false, follow: false });
     const team = officeLandingMetadata(t, '/Harropteam');
     expect(team.title.absolute).toBe('Mitch Harrop Team · Harcourts Property Hub | Understand your property’s potential');
-    expect(team.description).toBe(hph.description);
+    expect(hph.description).toBe('Harcourts Property Hub has partnered with Premarket so you can explore buyer interest and anonymous pricing opinions before you go to market.');
+    expect(team.description).toBe('Mitch Harrop from Harcourts Property Hub has partnered with Premarket so you can explore buyer interest and anonymous pricing opinions before you go to market.');
   });
 });
 
