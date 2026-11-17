@@ -114,9 +114,14 @@ export async function createInvoiceRunFromPendingCharges({ createdBy, onlyEntity
   // Charges held for billing review (ambiguous office attribution — see
   // billingService.resolveBillingAttribution) are never bundled, whatever
   // contacts exist, until an admin resolves them. They stay 'pending'.
+  // Promotional waivers (e.g. HPHNOVEMBER) and test campaigns are created
+  // 'excluded', so they never reach this query; this is a belt-and-braces
+  // guard so one can never be bundled into a payable run even if it were
+  // ever 'pending'. It is left exactly as it is.
   let charges = pendingSnap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((c) => c.billingEntityType !== 'review');
+    .filter((c) => c.billingEntityType !== 'review')
+    .filter((c) => !c.promoCode && !c.promoRedemptionId && c.testCampaign !== true);
 
   // Every charge's billingEntityKey is exclusively one agent's own
   // (`agent:{uid}` — see billingService.js's resolveBillingEntity).

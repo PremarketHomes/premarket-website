@@ -44,7 +44,27 @@ export async function GET(request) {
     const sortKey = (c) => c.submittedAt || toIso(c.createdAt) || '';
     charges.sort((a, b) => sortKey(b).localeCompare(sortKey(a)));
 
-    return NextResponse.json({ charges });
+    // Excluded tab: totals per promotion code (e.g. HPHNOVEMBER) over ALL
+    // excluded promo charges, not just the 200 listed. Each charge's own
+    // snapshotted totalInc is what was waived; nothing is recomputed.
+    let promotions = [];
+    if (status === 'excluded') {
+      const all = await adminDb.collection('propertyCharges').where('status', '==', 'excluded').get();
+      const byCode = new Map();
+      for (const d of all.docs) {
+        const c = d.data();
+        if (!c.promoCode || c.testCampaign === true) continue;
+        const row = byCode.get(c.promoCode) || { code: c.promoCode, count: 0, waivedInc: 0 };
+        row.count += 1;
+        row.waivedInc += Number(c.totalInc) || 0;
+        byCode.set(c.promoCode, row);
+      }
+      promotions = [...byCode.values()]
+        .map((r) => ({ ...r, waivedInc: Math.round(r.waivedInc * 100) / 100 }))
+        .sort((a, b) => a.code.localeCompare(b.code));
+    }
+
+    return NextResponse.json({ charges, promotions });
   } catch (err) {
     console.error('List charges error:', err);
     return NextResponse.json({ error: 'Failed to fetch charges' }, { status: 500 });
