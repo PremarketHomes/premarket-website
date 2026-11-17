@@ -898,7 +898,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
           Your anonymous feedback
         </p>
-        <div className="text-4xl sm:text-5xl font-semibold text-[var(--brand-primary,#c2410c)] mb-6 tabular-nums">
+        <div className="text-4xl sm:text-5xl font-semibold text-[var(--brand-accent-text,var(--brand-primary,#c2410c))] mb-6 tabular-nums">
           {formatMoney(priceOpinion)}
         </div>
         <h3 className="text-lg font-semibold text-slate-900 mb-2">
@@ -1072,7 +1072,7 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, in
               <h3 className="text-2xl font-semibold text-slate-900 mb-3" style={{ fontFamily: 'var(--font-playfair, serif)' }}>
                 Your opinion&rsquo;s locked in
               </h3>
-              <div className="text-4xl font-semibold text-[var(--brand-primary,#c2410c)] mb-4 tabular-nums">
+              <div className="text-4xl font-semibold text-[var(--brand-accent-text,var(--brand-primary,#c2410c))] mb-4 tabular-nums">
                 {formatMoney(priceOpinion)}
               </div>
               <p className="text-slate-500 mb-1 text-sm">

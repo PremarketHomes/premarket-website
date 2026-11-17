@@ -38,6 +38,10 @@ export function computeBrandStyle(colors) {
   // kiosk overlay keeps using its primary colours exactly as before.
   if (colors.tint) style['--brand-tint'] = colors.tint;
   if (colors.tintDark) style['--brand-tint-dark'] = colors.tintDark;
+  // Team accents only: a readable text shade for accent-coloured text (prices) and the label colour for the one button
+  // that had a fixed white label. Absent for every agency brand, so those keep exactly today's colours.
+  if (colors.accentText) style['--brand-accent-text'] = colors.accentText;
+  if (colors.buttonText) style['--brand-button-text'] = colors.buttonText;
   return style;
 }
 

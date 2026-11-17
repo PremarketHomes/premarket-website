@@ -222,7 +222,7 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
                     : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100/60'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--team-accent,currentColor)]' : ''}`} strokeWidth={1.5} />
+                <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--team-accent-text,currentColor)]' : ''}`} strokeWidth={1.5} />
                 {item.label}
               </Link>
             );
@@ -240,7 +240,7 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
                   : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100/60'
               }`}
             >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--team-accent,currentColor)]' : ''}`} strokeWidth={1.5} />
+              <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--team-accent-text,currentColor)]' : ''}`} strokeWidth={1.5} />
               {item.label}
             </button>
           );
@@ -378,7 +378,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           <span className={`px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] rounded-sm ${
             property.listingStatus === 'on-market'
               ? 'bg-white/90 text-stone-800'
-              : 'bg-white/90 text-[var(--team-accent,#c64500)]'
+              : 'bg-white/90 text-[var(--team-accent-text,#c64500)]'
           }`}>
             {property.listingStatus === 'on-market' ? 'On Market' : 'Pre-Market'}
           </span>
@@ -412,7 +412,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           href={`/find-property?propertyId=${property.id}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="font-medium text-stone-900 text-sm truncate mb-1 block hover:text-[var(--team-accent,#c64500)] transition-colors"
+          className="font-medium text-stone-900 text-sm truncate mb-1 block hover:text-[var(--team-accent-text,#c64500)] transition-colors"
         >
           {property.formattedAddress || property.address || 'No address'}
         </a>
@@ -695,7 +695,7 @@ function EmptyState({
       </p>
       <Link
         href={href}
-        className="add-property-pulse inline-flex items-center gap-2 px-6 py-3 bg-[var(--team-accent,#e38100)] hover:bg-[var(--team-accent-strong,#cc7400)] text-white text-sm font-semibold tracking-wide rounded-md transition-colors"
+        className="add-property-pulse inline-flex items-center gap-2 px-6 py-3 bg-[var(--team-accent,#e38100)] hover:bg-[var(--team-accent-strong,#cc7400)] text-[var(--team-accent-on,#ffffff)] text-sm font-semibold tracking-wide rounded-md transition-colors"
       >
         <Plus className="w-4 h-4" strokeWidth={1.75} />
         {cta}
@@ -926,7 +926,7 @@ function ProfilePhotoPrompt({ onDismiss }) {
         </button>
         <Link
           href="/dashboard/settings"
-          className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[var(--team-accent,#e48900)] to-[var(--team-accent-strong,#c64500)] text-white font-semibold text-sm hover:shadow-lg transition-all whitespace-nowrap"
+          className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[var(--team-accent,#e48900)] to-[var(--team-accent-strong,#c64500)] text-[var(--team-accent-on,#ffffff)] font-semibold text-sm hover:shadow-lg transition-all whitespace-nowrap"
         >
           Upload Photo
         </Link>
@@ -1423,7 +1423,7 @@ function DashboardPage() {
             </button>
             <span className="font-serif text-lg text-stone-900">Dashboard</span>
             <Link href={addHref} className="p-2 hover:bg-stone-100 rounded-md" aria-label="Add property">
-              <Plus className="w-5 h-5 text-[var(--team-accent,#e38100)]" strokeWidth={2} />
+              <Plus className="w-5 h-5 text-[var(--team-accent-text,#e38100)]" strokeWidth={2} />
             </Link>
           </div>
         </div>
@@ -1465,7 +1465,7 @@ function DashboardPage() {
             </div>
             <Link
               href={addHref}
-              className="add-property-pulse hidden sm:inline-flex shrink-0 items-center gap-2 px-6 py-3 bg-[var(--team-accent,#e38100)] hover:bg-[var(--team-accent-strong,#cc7400)] text-white text-sm font-semibold tracking-wide rounded-md transition-colors"
+              className="add-property-pulse hidden sm:inline-flex shrink-0 items-center gap-2 px-6 py-3 bg-[var(--team-accent,#e38100)] hover:bg-[var(--team-accent-strong,#cc7400)] text-[var(--team-accent-on,#ffffff)] text-sm font-semibold tracking-wide rounded-md transition-colors"
             >
               <Plus className="w-4 h-4" strokeWidth={1.75} />
               Add Property
@@ -1581,7 +1581,7 @@ function DashboardPage() {
               href={addHref}
               className="sm:hidden bg-white rounded-md border border-stone-200 px-5 py-4 flex items-center gap-4 hover:border-stone-300 transition-colors group"
             >
-              <Plus className="w-5 h-5 text-[var(--team-accent,#e38100)]" strokeWidth={1.5} />
+              <Plus className="w-5 h-5 text-[var(--team-accent-text,#e38100)]" strokeWidth={1.5} />
               <div className="flex-1">
                 <p className="text-sm font-medium text-stone-900">Add Property</p>
                 <p className="text-xs text-stone-500">List a new property for your client</p>
@@ -1694,7 +1694,7 @@ function DashboardPage() {
             >
               <div className="px-8 pt-9 pb-2 text-center">
                 <div className="mx-auto mb-5 h-px w-10 bg-[var(--team-accent,#e38100)]" aria-hidden="true" />
-                <CheckCircle className="w-7 h-7 text-[var(--team-accent,#e38100)] mx-auto mb-3" />
+                <CheckCircle className="w-7 h-7 text-[var(--team-accent-text,#e38100)] mx-auto mb-3" />
                 <h2 className="font-serif text-2xl text-stone-900">
                   {successModal === 'created' ? 'Property created' : 'Changes saved'}
                 </h2>
@@ -1725,7 +1725,7 @@ function DashboardPage() {
 
                 <button
                   onClick={() => setSuccessModal(null)}
-                  className="w-full mt-2 py-3 bg-[var(--team-accent,#e38100)] hover:bg-[var(--team-accent-strong,#cc7400)] text-white text-sm font-medium tracking-wide rounded-md transition-colors"
+                  className="w-full mt-2 py-3 bg-[var(--team-accent,#e38100)] hover:bg-[var(--team-accent-strong,#cc7400)] text-[var(--team-accent-on,#ffffff)] text-sm font-medium tracking-wide rounded-md transition-colors"
                 >
                   Got it
                 </button>

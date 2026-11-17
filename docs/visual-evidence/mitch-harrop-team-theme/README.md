@@ -1,5 +1,7 @@
 # Mitch Harrop Team accent — visual evidence
 
+Palette (2026-11-17, updated): accent **#FA5DB5** (Mitch Harrop's public branding pink) for fills, sliders, rings and rules; **#3D0626** deep plum for text on the pink (5.8:1); **#C61076** for pink text on white (5.6:1). Screens below are re-captured with this palette.
+
 ## Production team (verified read-only, 2026-11-17)
 - Team id **`ICSKK5kDs5RF5OYs11mM`**, name "Mitch Harrop Team". It is the only team with that name. It is in the Harcourts Property Hub office (`ioxigzf4hcRtowqL4C94`), and the office has 14 teams.
 - It has 7 members, including Mitch Harrop. There are no stale team pointers.

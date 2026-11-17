@@ -238,7 +238,7 @@ export default function MyTeamPage() {
         {/* Invitations received */}
         {incoming.length > 0 && (
           <section className="bg-white rounded-xl border border-[var(--team-accent-border,var(--color-orange-200))] p-5">
-            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2"><Mail className="w-4 h-4 text-[var(--team-accent,var(--color-orange-500))]" /> Invitations for you</h2>
+            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2"><Mail className="w-4 h-4 text-[var(--team-accent-text,var(--color-orange-500))]" /> Invitations for you</h2>
             <ul className="mt-3 divide-y divide-slate-100">
               {incoming.map((i) => (
                 <li key={i.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
@@ -251,7 +251,7 @@ export default function MyTeamPage() {
                     <button
                       onClick={() => respond(i.id, 'accept', 'You’ve joined the team.')}
                       disabled={i.blocked || busy !== null}
-                      className="inline-flex items-center gap-1 px-3.5 py-2 rounded-lg bg-[var(--team-accent,var(--color-orange-500))] text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="inline-flex items-center gap-1 px-3.5 py-2 rounded-lg bg-[var(--team-accent,var(--color-orange-500))] text-[var(--team-accent-on,#ffffff)] text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
                     ><Check className="w-4 h-4" /> Accept</button>
                     <button
                       onClick={() => respond(i.id, 'decline', 'Invitation declined.')}
@@ -313,7 +313,7 @@ export default function MyTeamPage() {
                   autoComplete="off"
                   className="min-w-0 flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_oklab,var(--team-accent,var(--color-orange-500))_20%,transparent)]"
                 />
-                <button type="submit" disabled={busy !== null || !email.trim()} className="px-4 py-2 rounded-lg bg-[var(--team-accent,var(--color-orange-500))] text-white text-sm font-semibold disabled:opacity-40">
+                <button type="submit" disabled={busy !== null || !email.trim()} className="px-4 py-2 rounded-lg bg-[var(--team-accent,var(--color-orange-500))] text-[var(--team-accent-on,#ffffff)] text-sm font-semibold disabled:opacity-40">
                   {busy === 'invite' ? 'Sending…' : 'Invite'}
                 </button>
               </form>
@@ -348,7 +348,7 @@ export default function MyTeamPage() {
                     role="tab"
                     aria-selected={tab === id}
                     onClick={() => setTab(id)}
-                    className={`px-3.5 py-1.5 rounded-md ${tab === id ? 'bg-white text-[var(--team-accent,var(--color-slate-900))] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                    className={`px-3.5 py-1.5 rounded-md ${tab === id ? 'bg-white text-[var(--team-accent-text,var(--color-slate-900))] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                   >{label}</button>
                 ))}
               </div>
@@ -376,7 +376,7 @@ export default function MyTeamPage() {
             ) : listing.status === 'error' ? (
               <div>
                 <p className="text-sm text-slate-600 mb-3">We couldn&apos;t load these properties.</p>
-                <button onClick={tab === 'team' ? loadTeamProps : loadMyProps} className="px-4 py-2 rounded-lg bg-[var(--team-accent,var(--color-orange-500))] text-white text-sm font-semibold">Retry</button>
+                <button onClick={tab === 'team' ? loadTeamProps : loadMyProps} className="px-4 py-2 rounded-lg bg-[var(--team-accent,var(--color-orange-500))] text-[var(--team-accent-on,#ffffff)] text-sm font-semibold">Retry</button>
               </div>
             ) : rows.length === 0 ? (
               <p className="text-sm text-slate-500">{tab === 'team' ? 'Your teammates have no properties to show yet.' : 'You have no properties yet.'}</p>
@@ -409,7 +409,7 @@ export default function MyTeamPage() {
                           <Link href={`/dashboard/property/${p.id}`} className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-semibold">
                             {tab === 'team' ? 'View report (read-only)' : 'View report'} <BarChart3 className="w-3 h-3" />
                           </Link>
-                          <Link href={`/find-property?propertyId=${p.id}`} target="_blank" className="inline-flex items-center gap-1 text-[var(--team-accent,var(--color-orange-600))] hover:text-[var(--team-accent-strong,var(--color-orange-700))] font-semibold">
+                          <Link href={`/find-property?propertyId=${p.id}`} target="_blank" className="inline-flex items-center gap-1 text-[var(--team-accent-text,var(--color-orange-600))] hover:text-[var(--team-accent-text,var(--color-orange-700))] font-semibold">
                             View page <ExternalLink className="w-3 h-3" />
                           </Link>
                         </span>

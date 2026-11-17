@@ -87,7 +87,7 @@ export default function PriceOpinionCard({
           initial={{ scale: 1.04 }}
           animate={{ scale: 1 }}
           transition={{ duration: 0.18 }}
-          className="mt-4 text-4xl sm:text-5xl font-semibold text-[var(--brand-primary,#c2410c)] tabular-nums"
+          className="mt-4 text-4xl sm:text-5xl font-semibold text-[var(--brand-accent-text,var(--brand-primary,#c2410c))] tabular-nums"
           style={{ fontFamily: 'var(--font-inter, system-ui, sans-serif)' }}
         >
           {formatMoney(priceOpinion)}
