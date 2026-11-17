@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '../../../../firebase/adminApp';
 import { verifyAdmin } from '../../../middleware/auth';
 import { withChargeDetails } from '../../../services/chargeDetails';
+import { retroPromotionHint } from '../../../services/retroPromotion';
 
 /**
  * GET /api/admin/invoicing/charges?status=pending
@@ -44,11 +45,33 @@ export async function GET(request) {
     const sortKey = (c) => c.submittedAt || toIso(c.createdAt) || '';
     charges.sort((a, b) => sortKey(b).localeCompare(sortKey(a)));
 
+    // Pending tab: read-only "can HPHNOVEMBER still be applied?" hint for HPH
+    // charges (drives the Apply button; the apply route re-checks everything).
+    if (status === 'pending') {
+      await Promise.all(charges.map(async (c) => {
+        const hint = await retroPromotionHint(adminDb, c);
+        if (hint) c.promoHint = hint;
+      }));
+    }
+
     // Excluded tab: totals per promotion code (e.g. HPHNOVEMBER) over ALL
     // excluded promo charges, not just the 200 listed. Each charge's own
     // snapshotted totalInc is what was waived; nothing is recomputed.
     let promotions = [];
     if (status === 'excluded') {
+      // Audit trail for promotions an admin applied retroactively: who and when.
+      const adminNames = new Map();
+      await Promise.all(charges.filter((c) => c.promoCode && c.adjustment?.retroactive).map(async (c) => {
+        const uid = c.adjustment.adminUid;
+        if (uid && !adminNames.has(uid)) {
+          adminNames.set(uid, adminDb.collection('users').doc(uid).get()
+            .then((s) => { const u = s.exists ? s.data() : {}; return `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || uid; })
+            .catch(() => uid));
+        }
+        c.promoAppliedBy = uid ? await adminNames.get(uid) : null;
+        c.promoAppliedAt = toIso(c.adjustment.at);
+      }));
+
       const all = await adminDb.collection('propertyCharges').where('status', '==', 'excluded').get();
       const byCode = new Map();
       for (const d of all.docs) {

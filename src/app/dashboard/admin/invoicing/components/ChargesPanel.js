@@ -12,7 +12,16 @@ const money = (n) => (typeof n === 'number' && Number.isFinite(n) ? `$${n.toLoca
 // Why an excluded charge isn't billed: a promotion code, a test campaign, or a manual admin exclusion.
 function ExclusionKind({ charge }) {
   if (charge.promoCode) {
-    return <span className="ml-1.5 inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full bg-violet-100 text-violet-700">{charge.promoCode}</span>;
+    return (
+      <>
+        <span className="ml-1.5 inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full bg-violet-100 text-violet-700">{charge.promoCode}</span>
+        {charge.adjustment?.retroactive && (
+          <span className="mt-1 block text-[10px] text-slate-400">
+            Applied by {charge.promoAppliedBy || 'an admin'}{charge.promoAppliedAt ? ` · ${formatChargeDate(charge.promoAppliedAt)}` : ''}
+          </span>
+        )}
+      </>
+    );
   }
   if (charge.testCampaign) return <span className="ml-1.5 text-[10px] font-semibold text-slate-500">Test campaign</span>;
   return <span className="ml-1.5 text-[10px] font-semibold text-slate-500">Manual</span>;
@@ -53,6 +62,36 @@ export default function ChargesPanel() {
   }, [tab]);
 
   useEffect(() => { fetchCharges(); }, [fetchCharges]);
+
+  async function handleApplyPromo(charge) {
+    const code = charge.promoHint?.code;
+    const agent = charge.sellingAgentName || 'this agent';
+    const ok = window.confirm(
+      `Apply ${code} to ${charge.propertyAddress}?\n\n`
+      + `This uses ${agent}'s one free ${code} campaign, moves this ${money(charge.totalInc)} charge to Excluded `
+      + '(waived, never invoiced) and records that you applied it. It cannot be undone from this screen.',
+    );
+    if (!ok) return;
+    setActioningId(charge.id);
+    try {
+      const res = await authFetch(`/api/admin/invoicing/charges/${charge.id}/apply-promo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || `Failed to apply ${code}`);
+        return;
+      }
+      await fetchCharges();
+    } catch (err) {
+      console.error('Apply promotion error:', err);
+      alert(`Failed to apply ${code}`);
+    } finally {
+      setActioningId(null);
+    }
+  }
 
   async function handleExclude(chargeId) {
     const reason = window.prompt('Why is this charge being excluded? (required)');
@@ -219,6 +258,15 @@ export default function ChargesPanel() {
                             Bill individually
                           </button>
                         </>
+                      )}
+                      {charge.promoHint?.eligible && (
+                        <button
+                          onClick={() => handleApplyPromo(charge)}
+                          disabled={actioningId === charge.id}
+                          className="text-xs font-semibold text-violet-700 hover:text-violet-800 disabled:opacity-50"
+                        >
+                          Apply {charge.promoHint.code}
+                        </button>
                       )}
                       <button
                         onClick={() => handleExclude(charge.id)}
