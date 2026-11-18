@@ -571,8 +571,11 @@ export function toCampaignSummary(id, p, users, profiles, testIds = null) {
 
 const byNewest = (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 
-/** Every non-hidden campaign owned by someone currently in the office, with who manages it. Caller has verified office admin. */
-export async function listOfficeCampaigns(db, officeId) {
+/**
+ * Every non-hidden campaign owned by someone currently in the office, with who manages it. Caller has verified office admin.
+ * `withStats` (the office admin's Dashboard): also each campaign's views and buyer-opinion COUNT (never the opinions).
+ */
+export async function listOfficeCampaigns(db, officeId, { withStats = false } = {}) {
   const [usersSnap, profiles, office] = await Promise.all([
     db.collection('users').where('officeId', '==', officeId).get(),
     loadOfficeProfiles(db, officeId),
@@ -594,8 +597,13 @@ export async function listOfficeCampaigns(db, officeId) {
       c.teamTheme = themeOf(c.sellingAgent?.uid);
       // An assigned manager who is no longer a BSO or office admin here has lost access: flag it for reassignment.
       c.needsManager = !!p.managedByUid && !bsos.has(p.managedByUid) && !admins.has(p.managedByUid) && !c.archived;
+      if (withStats) { c.access = 'officeAdmin'; c.views = viewsOf(p); }
       campaigns.push(c);
     }
+  }
+  if (withStats) {
+    const opinions = await countOpinions(db, campaigns.map((c) => c.id));
+    for (const c of campaigns) c.opinions = opinions.get(c.id) || 0;
   }
   const managers = [...new Set([...bsos, ...admins])]
     .map((uid) => ({ uid, name: personView(uid, users.get(uid), profiles).name || users.get(uid)?.email || 'Unnamed', role: bsos.has(uid) ? 'bso' : 'officeAdmin' }))
