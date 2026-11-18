@@ -17,7 +17,9 @@ export async function GET(request, { params }) {
     if (!auth.authenticated) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const { officeId } = await params;
     await requireOfficeAdmin({ officeId, uid: auth.uid });
-    return NextResponse.json(await listOfficeCampaigns(adminDb, officeId));
+    // ?stats=1: the office admin's Dashboard figures (views and buyer-opinion counts per campaign).
+    const withStats = new URL(request.url).searchParams.get('stats') === '1';
+    return NextResponse.json(await listOfficeCampaigns(adminDb, officeId, { withStats }));
   } catch (err) {
     if (!err.status) console.error('Office campaigns error:', err);
     return NextResponse.json({ error: err.status ? err.message : 'Failed to load campaigns' }, { status: err.status || 500 });

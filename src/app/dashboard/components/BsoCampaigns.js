@@ -20,7 +20,7 @@ const roleHintKey = (uid) => `premarket_dash_role:${uid}`;
 export function readDashboardRoleHint(uid) { return readRoleHint(uid); }
 function readRoleHint(uid) {
   if (!uid || typeof window === 'undefined') return null;
-  try { const v = window.localStorage.getItem(roleHintKey(uid)); return v === 'bso' || v === 'agent' ? v : null; } catch { return null; }
+  try { const v = window.localStorage.getItem(roleHintKey(uid)); return v === 'bso' || v === 'agent' || v === 'office' ? v : null; } catch { return null; }
 }
 function writeRoleHint(uid, role) {
   if (!uid || typeof window === 'undefined') return;
@@ -33,34 +33,48 @@ function writeRoleHint(uid, role) {
  * Everyone else asks the lightweight GET /api/bso/access first and only loads campaigns if the server says BSO, so
  * regular agents and office admins never pay for the heavier campaign route. The server decides every time.
  * `role` stays 'unknown' only while that answer is pending.
+ *
+ * An office admin who is not a BSO gets role 'office': every campaign in their office, from the office admin route
+ * (GET /api/offices/{officeId}/campaigns, requireOfficeAdmin on every call). A 403 there means the server no longer
+ * sees them as an admin: they get their own-properties dashboard, as before.
  */
-export function useBsoDashboard({ uid, officeId, authLoading }) {
+export function useBsoDashboard({ uid, officeId, authLoading, isOfficeAdmin = false }) {
   const [state, setState] = useState({ role: 'unknown', status: 'idle', office: null, campaigns: [] });
   const hint = useMemo(() => readRoleHint(uid), [uid]);
   const load = useCallback(async () => {
+    const notBso = async () => {
+      if (isOfficeAdmin && officeId) {
+        const res = await authFetch(`/api/offices/${encodeURIComponent(officeId)}/campaigns?stats=1`);
+        if (res.ok) {
+          const body = await res.json();
+          writeRoleHint(uid, 'office');
+          return setState({ role: 'office', status: 'ready', office: { id: officeId }, campaigns: body.campaigns || [] });
+        }
+        if (res.status !== 403) throw Object.assign(new Error(`office campaigns ${res.status}`), { role: 'office' });
+      }
+      writeRoleHint(uid, 'agent');
+      return setState({ role: 'agent', status: 'ready', office: null, campaigns: [] });
+    };
     try {
       if (hint !== 'bso') {
         const access = await authFetch('/api/bso/access');
         const body = access.ok ? await access.json() : null;
-        if (body?.bso !== true) {
-          writeRoleHint(uid, 'agent');
-          return setState({ role: 'agent', status: 'ready', office: null, campaigns: [] });
-        }
+        if (body?.bso !== true) return await notBso();
       }
       const res = await authFetch('/api/bso/campaigns');
       if (res.status === 403) {
-        writeRoleHint(uid, 'agent');
-        return setState({ role: 'agent', status: 'ready', office: null, campaigns: [] });
+        return await notBso();
       }
       if (!res.ok) throw new Error(`campaigns ${res.status}`);
       const body = await res.json();
       writeRoleHint(uid, 'bso');
       setState({ role: 'bso', status: 'ready', office: body.office, campaigns: body.campaigns || [] });
-    } catch {
-      // Unknown failure: a known BSO sees the campaign error (with retry); anyone else the agent dashboard, as before.
-      setState((s) => ({ ...s, role: s.role === 'bso' || hint === 'bso' ? 'bso' : 'agent', status: 'error' }));
+    } catch (err) {
+      // Unknown failure: a known BSO or office admin sees the campaign error (with retry); anyone else the agent dashboard, as before.
+      const office = err?.role === 'office' || hint === 'office';
+      setState((s) => ({ ...s, role: s.role === 'bso' || hint === 'bso' ? 'bso' : s.role === 'office' || office ? 'office' : 'agent', status: 'error' }));
     }
-  }, [uid, hint]);
+  }, [uid, hint, officeId, isOfficeAdmin]);
   useEffect(() => {
     if (authLoading || !uid) return;
     if (!officeId) { setState({ role: 'agent', status: 'ready', office: null, campaigns: [] }); return; }
@@ -184,7 +198,8 @@ export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
               <div className="flex flex-wrap gap-2 sm:justify-end sm:max-w-md">
                 <button onClick={() => copyLink(c)} className={`${btn} text-orange-600 hover:bg-orange-50`}><Copy className="w-3.5 h-3.5" /> Copy buyer link</button>
                 <Link href={`/find-property?propertyId=${c.id}`} target="_blank" className={`${btn} text-slate-600 hover:bg-slate-100`}><ExternalLink className="w-3.5 h-3.5" /> Open</Link>
-                <Link href={`/dashboard/edit/${c.id}`} className={`${btn} text-slate-700 border border-slate-200 hover:bg-slate-50`}><Pencil className="w-3.5 h-3.5" /> Edit</Link>
+                {/* Office admins may edit only campaigns the office manages (same rule as Office → Campaigns). */}
+                {(c.access !== 'officeAdmin' || c.officeManaged) && <Link href={`/dashboard/edit/${c.id}`} className={`${btn} text-slate-700 border border-slate-200 hover:bg-slate-50`}><Pencil className="w-3.5 h-3.5" /> Edit</Link>}
                 <Link href={`/dashboard/property/${c.id}`} className={`${btn} text-slate-700 border border-slate-200 hover:bg-slate-50`}><BarChart3 className="w-3.5 h-3.5" /> Feedback &amp; report</Link>
                 {!c.archived && (c.visibility
                   ? <button onClick={() => act(c, 'hide', 'Buyer link hidden.')} className={`${btn} text-slate-700 border border-slate-200 hover:bg-slate-50`}><EyeOff className="w-3.5 h-3.5" /> Hide</button>

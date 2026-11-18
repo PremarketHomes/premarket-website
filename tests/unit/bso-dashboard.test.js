@@ -25,7 +25,7 @@ describe('BSO Dashboard figures (same meaning as an agent dashboard)', () => {
   });
 });
 
-describe('BSO sidebar and Dashboard (agents and office admins unchanged)', () => {
+describe('BSO sidebar and Dashboard (agents unchanged; office admins see their office, see office-admin-dashboard.test.js)', () => {
   const nav = dash.slice(dash.indexOf('const navItems = ['), dash.indexOf('const sidebarContent'));
   it('BSO: Dashboard, Sold, Archive, Add Property, My Team, Settings — no My Campaigns, no User Manual', () => {
     expect(nav).not.toContain('My Campaigns');
@@ -43,7 +43,7 @@ describe('BSO sidebar and Dashboard (agents and office admins unchanged)', () =>
   it('one request decides BSO and loads campaigns; regular agents never wait for it (Phase 1 perf)', () => {
     const hook = read('src/app/dashboard/components/BsoCampaigns.js');
     expect(dash).not.toContain("/api/bso/access");
-    expect(dash).toContain('const bso = useBsoDashboard({ uid: user?.uid, officeId: userData?.officeId, authLoading: loading });');
+    expect(dash).toContain('const bso = useBsoDashboard({ uid: user?.uid, officeId: userData?.officeId, authLoading: loading, isOfficeAdmin: userData?.isOfficeAdmin === true });');
     expect(hook).toContain("const res = await authFetch('/api/bso/campaigns');");
     expect(hook).toContain('if (res.status === 403) {'); // not a BSO: the server's answer, same check as before
     // regular agents / office admins: the lightweight check; only a device-known BSO skips straight to the campaign list

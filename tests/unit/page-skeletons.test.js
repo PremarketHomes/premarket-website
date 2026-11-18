@@ -35,7 +35,7 @@ describe('full-screen spinners replaced on signed-in pages', () => {
     const dash = read('src/app/dashboard/page.js');
     expect(dash).toContain('<Suspense fallback={<DashboardSkeleton />}>');
     expect(dash).toContain('if (loading) return <DashboardSkeleton />;');
-    expect(dash).toContain('{showBsoLayout ? <CampaignRowsSkeleton /> : <PropertyCardsSkeleton />}');
+    expect(dash).toContain('{showCampaignLayout ? <CampaignRowsSkeleton /> : <PropertyCardsSkeleton />}');
     expect(read('src/app/dashboard/office/page.js')).toContain('if (authLoading || loading) return <OfficePageSkeleton overview />;');
     for (const p of ['campaigns', 'teams', 'registrations', 'agents', 'team']) expect(read(`src/app/dashboard/office/${p}/page.js`), p).toContain('return <OfficePageSkeleton />;');
     expect(read('src/app/dashboard/office/campaigns/page.js')).toContain('<Suspense fallback={<OfficePageSkeleton />}><CampaignsInner /></Suspense>');

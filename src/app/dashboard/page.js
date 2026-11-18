@@ -1087,10 +1087,16 @@ function DashboardPage() {
   // shows the campaigns they manage instead of only the properties they own. One request answers both "is this a BSO?"
   // and "which campaigns?" (see useBsoDashboard). Regular agents never wait for it: their grid shows as soon as their
   // own properties load. While it is pending, the role last seen on this device decides which layout to hold.
-  const bso = useBsoDashboard({ uid: user?.uid, officeId: userData?.officeId, authLoading: loading });
+  const bso = useBsoDashboard({ uid: user?.uid, officeId: userData?.officeId, authLoading: loading, isOfficeAdmin: userData?.isOfficeAdmin === true });
   const isBso = bso.role === 'bso';
   const expectBso = bso.role === 'unknown' && bso.hint === 'bso';
   const showBsoLayout = isBso || expectBso;
+  // Office admin (not a BSO): the Dashboard lists EVERY campaign in their office (server-authorised, office admin route),
+  // in the same campaign layout as a BSO's. Ownership is untouched; agents and BSOs keep their own dashboards.
+  const isOfficeView = bso.role === 'office';
+  const expectOffice = bso.role === 'unknown' && (bso.hint === 'office' || userData?.isOfficeAdmin === true);
+  const showCampaigns = isBso || isOfficeView;
+  const showCampaignLayout = showBsoLayout || isOfficeView || (bso.role === 'unknown' && bso.hint === 'office');
 
   // Logo onboarding for agents without a logo
   useEffect(() => {
@@ -1397,7 +1403,8 @@ function DashboardPage() {
   // flash "No properties yet" at a BSO on a new device. An agent with properties sees them immediately.
   const gridLoading = propertiesLoading
     || (bso.role === 'unknown' && (bso.hint === 'bso' || properties.length === 0))
-    || (isBso && (bso.status === 'idle' || bso.status === 'loading'));
+    || expectOffice
+    || (showCampaigns && (bso.status === 'idle' || bso.status === 'loading'));
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
   return (
@@ -1452,9 +1459,9 @@ function DashboardPage() {
               </h1>
               <p className={`text-sm text-stone-500 mt-2 ${activeTab === 'archived' || activeTab === 'sold' ? '' : 'hidden sm:block'}`}>
                 {activeTab === 'archived'
-                  ? (isBso ? plural(bsoArchivedCount, 'campaign', 'campaigns') : `${archivedProperties.length} ${archivedProperties.length === 1 ? 'property' : 'properties'}`)
+                  ? (isBso ? plural(bsoArchivedCount, 'campaign', 'campaigns') : isOfficeView ? plural(bsoArchivedCount, 'property', 'properties') : `${archivedProperties.length} ${archivedProperties.length === 1 ? 'property' : 'properties'}`)
                   : activeTab === 'sold'
-                  ? (isBso ? plural(bsoSoldCount, 'campaign', 'campaigns') : `${soldProperties.length} ${soldProperties.length === 1 ? 'property' : 'properties'}`)
+                  ? (isBso ? plural(bsoSoldCount, 'campaign', 'campaigns') : isOfficeView ? plural(bsoSoldCount, 'property', 'properties') : `${soldProperties.length} ${soldProperties.length === 1 ? 'property' : 'properties'}`)
                   : <span>
                       Welcome back, {userName}
                       {!userData?.officeId && !userData?.companyName && (
@@ -1485,8 +1492,8 @@ function DashboardPage() {
             </div>
           )}
 
-          {/* Agent Filter (a BSO's campaign list has its own "Filter by agent") */}
-          {!isBso && teamAgents.length > 0 && (
+          {/* Agent Filter (a BSO's or office admin's campaign list has its own "Filter by agent") */}
+          {!showCampaigns && teamAgents.length > 0 && (
             <div className="flex items-center gap-3">
               <select
                 value={filterAgentId}
@@ -1502,7 +1509,7 @@ function DashboardPage() {
           )}
 
           {/* Team portfolio switch — only when teammates have listings to show */}
-          {!isBso && hasTeamListings && (
+          {!showCampaigns && hasTeamListings && (
             <div className="flex items-center gap-1 -mt-2" role="tablist" aria-label="Property view">
               {[
                 ['all', 'All', viewCounts.mine + viewCounts.team],
@@ -1526,7 +1533,14 @@ function DashboardPage() {
 
           {/* Overview Stats */}
           {activeTab === 'overview' && (
-            showBsoLayout ? (
+            showCampaignLayout && !showBsoLayout ? (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200 border border-stone-200 rounded-md overflow-hidden" data-testid="office-stats">
+                <StatCard label="Total Properties" value={gridLoading ? '...' : bsoStats.campaigns} />
+                <StatCard label="Public Listings" value={gridLoading ? '...' : bsoStats.live} />
+                <StatCard label="Total Views" value={gridLoading ? '...' : bsoStats.views} />
+                <StatCard label="Buyer Opinions" value={gridLoading ? '...' : bsoStats.opinions} />
+              </div>
+            ) : showBsoLayout ? (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200 border border-stone-200 rounded-md overflow-hidden" data-testid="bso-stats">
                 <StatCard label="Total Managed Campaigns" value={gridLoading ? '...' : bsoStats.campaigns} />
                 <StatCard label="Live Campaigns" value={gridLoading ? '...' : bsoStats.live} />
@@ -1576,7 +1590,7 @@ function DashboardPage() {
 
           {/* Quick Actions (overview only) — phones only: from tablet up the same
               link lives in the page header and the sidebar. */}
-          {activeTab === 'overview' && !gridLoading && (isBso ? bso.campaigns.length > 0 : properties.length > 0) && (
+          {activeTab === 'overview' && !gridLoading && (showCampaigns ? bso.campaigns.length > 0 : properties.length > 0) && (
             <Link
               href={addHref}
               className="sm:hidden bg-white rounded-md border border-stone-200 px-5 py-4 flex items-center gap-4 hover:border-stone-300 transition-colors group"
@@ -1595,9 +1609,9 @@ function DashboardPage() {
             // Placeholder shapes only: no counts or "no properties yet" until the list has actually loaded.
             <div role="status" aria-busy="true" data-testid="grid-skeleton">
               <span className="sr-only">Loading…</span>
-              {showBsoLayout ? <CampaignRowsSkeleton /> : <PropertyCardsSkeleton />}
+              {showCampaignLayout ? <CampaignRowsSkeleton /> : <PropertyCardsSkeleton />}
             </div>
-          ) : isBso ? (
+          ) : showCampaigns ? (
             bso.status === 'error' ? (
               <div className="bg-white rounded-md border border-stone-200 px-6 py-12 text-center">
                 <p className="text-sm text-stone-500">We could not load your campaigns.</p>
@@ -1606,7 +1620,9 @@ function DashboardPage() {
             ) : activeTab === 'overview' && bso.campaigns.length === 0 ? (
               <EmptyState
                 title="No campaigns yet"
-                text="Campaigns you upload for your agents, and campaigns assigned to you to manage, will appear here."
+                text={isOfficeView
+                  ? "Every campaign from your office's agents and BSOs will appear here."
+                  : 'Campaigns you upload for your agents, and campaigns assigned to you to manage, will appear here.'}
                 cta="Add Property"
                 href={addHref}
               />
