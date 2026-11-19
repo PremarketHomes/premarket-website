@@ -142,7 +142,9 @@ export async function buildAllContacts(adminDb) {
         buyerPreferences: null,
         isFirstHomeBuyer: false,
         isInvestor: false,
-        opinionPropertyIds: [],
+        // Listings this person REGISTERED interest in (registration information). Never the listings they gave a price
+        // opinion on: that would tie an identifiable buyer to an individual, anonymous price (see opinionPrivacy.js).
+        registeredPropertyIds: [],
         ownedPropertyIds: [],
         eagernessLevel: null,
         buyerScore: 0,
@@ -195,17 +197,17 @@ export async function buildAllContacts(adminDb) {
       contact.lastName = parts.slice(1).join(' ') || null;
     }
 
-    // Count opinions
+    // Count opinions (a total only: no listing, no amount)
     if (data.type === 'opinion' || data.offerAmount) {
       contact.totalPriceOpinions++;
-      if (data.propertyId && !contact.opinionPropertyIds.includes(data.propertyId)) {
-        contact.opinionPropertyIds.push(data.propertyId);
-      }
     }
 
-    // Count serious registrations
+    // Count serious registrations, and which listings they are for
     if (data.serious === true) {
       contact.totalRegisteredInterest++;
+      if (data.propertyId && !contact.registeredPropertyIds.includes(data.propertyId)) {
+        contact.registeredPropertyIds.push(data.propertyId);
+      }
     }
 
     // Track highest seriousness level
@@ -228,8 +230,9 @@ export async function buildAllContacts(adminDb) {
       if (!contact.lastActivityAt || offerTime > contact.lastActivityAt) contact.lastActivityAt = offerTime;
     }
 
-    // Link agent from property
-    if (data.propertyId && propertyMap[data.propertyId]) {
+    // Link agent from property: only through a REGISTRATION (the buyer chose to share their details with that agent).
+    // An anonymous price opinion never makes a person visible in the listing agent's contacts.
+    if (data.serious === true && data.propertyId && propertyMap[data.propertyId]) {
       const prop = propertyMap[data.propertyId];
       const agentId = prop.userId || prop.agentId;
       if (agentId && !contact.linkedAgentIds.includes(agentId)) {
@@ -381,7 +384,9 @@ export async function writeContacts(adminDb, contacts) {
 
     for (const contact of chunk) {
       const key = contact._key;
-      const doc = { ...contact, computedAt: FieldValue.serverTimestamp() };
+      // opinionPropertyIds (the listings a person gave a price opinion on) is no longer kept: removed from every stored
+      // contact on its next recompute, since these writes merge.
+      const doc = { ...contact, opinionPropertyIds: FieldValue.delete(), computedAt: FieldValue.serverTimestamp() };
       delete doc._key;
 
       // Convert timestamps to Firestore Timestamps

@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 // Team managers: members listed in a team's server-only `managerUids` run every campaign of THEIR team (any uploader),
-// with the full (privacy-separated) report, emailing it only to the selling agent or themselves, and may remove members.
+// with the full (privacy-separated) report, emailing it only to the selling agent or themselves. Removing team members
+// stays with the team creator and office admins.
 // Nothing for invited (not yet activated) accounts, other teams, other offices or the rest of the office.
 
 // ── in-memory Firestore: doc get/set/update, where ('==' / 'in'), simple transactions ──
@@ -237,12 +238,17 @@ describe('managing the team\'s campaigns', () => {
 });
 
 describe('team administration', () => {
-  it('a team manager may remove members like the creator; ordinary members may not', async () => {
-    await expect(removeTeamMember({ actorUid: 'mitch', targetUid: 'george' })).rejects.toMatchObject({ status: 403 });
-    await removeTeamMember({ actorUid: 'erika', targetUid: 'george' });
+  it('removing members stays with the team creator and office admins: team managers and ordinary members cannot', async () => {
+    for (const actorUid of ['erika', 'estelle', 'mitch']) {
+      await expect(removeTeamMember({ actorUid, targetUid: 'george' }), actorUid).rejects.toMatchObject({ status: 403 });
+    }
+    expect(user('george').teamId).toBe(TEAM);
+    const managerView = await getTeamOverview('estelle');
+    expect(managerView.team.members.some((m) => m.canRemove)).toBe(false); // no Remove buttons for a manager
+    await removeTeamMember({ actorUid: 'bailey', targetUid: 'george' }); // the creator
     expect(user('george').teamId).toBeUndefined();
-    const overview = await getTeamOverview('estelle');
-    expect(overview.team.members.filter((m) => !m.isYou).every((m) => m.canRemove)).toBe(true);
+    await removeTeamMember({ actorUid: 'jess', targetUid: 'mitch' }); // an HPH office admin
+    expect(user('mitch').teamId).toBeUndefined();
   });
   it('managerUids is server-only: the team collection is closed to every client', () => {
     expect(readFileSync('firestore.rules', 'utf8')).toContain('match /teams/{teamId} { allow read, write: if false; }');

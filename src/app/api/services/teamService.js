@@ -25,11 +25,6 @@
  * the property owner's own office, see billingService) or any permission: the
  * only thing it unlocks is the READ-ONLY, redacted report level in
  * propertyAccessService.
- *
- * Exception, opt-in per team: members listed in the server-only
- * `teams/{teamId}.managerUids` (set by Premarket, never client-writable) are
- * team managers. They run every campaign of their team and see its full report
- * (teamAccess.isTeamManagerFor), and may remove members like the creator.
  */
 
 import { getAuth } from 'firebase-admin/auth';
@@ -39,10 +34,6 @@ import { BASE_URL } from './emailTemplates';
 import { sendTeamInviteEmail } from './resendService';
 import { toOfficeTeamProperty } from './officeTeamService';
 import { isEligibleTeamAgent } from './teamAccess';
-
-/** Listed in the team's server-only `managerUids` and an activated agent (see teamAccess.managedTeamOf). */
-const isTeamManagerOf = (team, uid, user) =>
-  !!team && Array.isArray(team.managerUids) && team.managerUids.includes(uid) && isEligibleTeamAgent(user);
 import { loadTestCampaignIds } from './testCampaigns';
 import { themeForTeamId } from './teamThemes';
 
@@ -418,15 +409,13 @@ export async function removeTeamMember({ actorUid, targetUid }) {
     const office = await read(ref('officeAdminInfo', target.team.officeId));
 
     const isCreator = actor.team?.id === target.team.id && target.team.createdBy === actorUid;
-    // A team manager (server-only managerUids) administers the team like its creator: activated, same team.
-    const isManager = actor.team?.id === target.team.id && isTeamManagerOf(actor.team, actorUid, actor.user);
     const isOfficeAdmin = office.exists
       && office.data().status === 'active'
       && Array.isArray(office.data().officeAdminUids)
       && office.data().officeAdminUids.includes(actorUid)
       && actor.user?.officeId === target.team.officeId;
-    if (!isCreator && !isManager && !isOfficeAdmin) {
-      throw new TeamError('Only the team creator, a team manager or an office administrator can remove members.', 403, 'forbidden');
+    if (!isCreator && !isOfficeAdmin) {
+      throw new TeamError('Only the team creator or an office administrator can remove members.', 403, 'forbidden');
     }
 
     const members = await readMembers(tx, target.team);
@@ -458,8 +447,7 @@ export async function getTeamOverview(uid) {
   let outgoing = [];
   if (me.team) {
     const members = await activeTeamMembers(me.team);
-    const isManager = isTeamManagerOf(me.team, uid, me.user);
-    const mayRemove = me.team.createdBy === uid || isManager || iAmOfficeAdmin;
+    const mayRemove = me.team.createdBy === uid || iAmOfficeAdmin;
     team = {
       id: me.team.id,
       createdBy: me.team.createdBy,
