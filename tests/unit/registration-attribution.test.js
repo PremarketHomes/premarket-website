@@ -100,6 +100,14 @@ describe('vendor Send Report: serious buyer details', () => {
     expect(b.phone).toBe('0411 111 111'); // missing typed phone filled from the SAME person's profile
     expect(b.preferredLocations).toEqual(['Gold Coast']);
   });
+  it('PRIVACY: the emailed report never carries a registered buyer\'s price, and withholds serious/passive medians for small groups', async () => {
+    reportDb = makeDb(seed);
+    const { buildReport } = await import('../../src/app/api/services/reportService');
+    const report = await buildReport('p1');
+    expect(JSON.stringify(report.seriousBuyerDetails)).not.toMatch(/900000|price/);
+    expect(report).toMatchObject({ seriousCount: 1, seriousMedian: null, passiveMedian: null, combinedMedian: 900000 });
+    expect(report).not.toHaveProperty('allOpinions');
+  });
 });
 
 // ── the real form: what gets written to Firestore ────────────────────────

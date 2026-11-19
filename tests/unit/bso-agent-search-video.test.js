@@ -105,7 +105,9 @@ describe('page wiring (BSO only; office admin and agent flows unchanged)', () =>
     expect(add).toContain('await enqueueManagedVideoUpload({ propertyId: job.propertyId, userId: user.uid');
   });
   it('the managing BSO can add, replace or remove the video when editing; office admins still photos only', () => {
-    expect(edit).toContain("if (managerMode && manageRole !== 'bso') {");
+    // A team manager runs their team's campaigns like a managing BSO (video too); office admins still photos only.
+    expect(edit).toContain("const bsoLikeManager = manageRole === 'bso' || manageRole === 'teamManager';");
+    expect(edit).toContain('if (managerMode && !bsoLikeManager) {');
     expect(edit).toContain('enqueueManagedVideoUpload({ propertyId, userId: user.uid');
     expect(edit).toContain('} else if (savedVideoUrl && !existingVideoUrl) {');
     expect(read('src/app/api/properties/[id]/managed/video/route.js')).toContain('setManagedVideo(db, { actorUid, propertyId');

@@ -25,7 +25,8 @@
  */
 
 import { getAuth } from 'firebase-admin/auth';
-import { redactOffersForTeam, redactLikesForTeam } from './teamRedaction';
+import { redactLikesForTeam } from './teamRedaction';
+import { separateOpinions } from './opinionPrivacy';
 import { serializeForClient } from './propertyAccessService';
 import { loadTestCampaignIds } from './testCampaigns';
 import {
@@ -211,7 +212,8 @@ export async function getLeadershipPropertyReport(db, scope, propertyId) {
       registrations: opinionDocs.filter((o) => o.serious === true).length,
       likes: likesSnap.size,
     },
-    opinions: redactOffersForTeam(opinionDocs, serializeForClient),
+    // Anonymous amounts only, highest first: no buyer, date, interest or timeframe per price (opinionPrivacy.js).
+    opinions: separateOpinions(opinionDocs, { withIdentity: false }).priceOpinions.map((o, i) => ({ id: `price-${i + 1}`, ...o })),
     likes: redactLikesForTeam(likesSnap.docs.map((d) => d.data()), serializeForClient),
   };
 }

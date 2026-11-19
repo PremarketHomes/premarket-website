@@ -217,6 +217,7 @@ describe('boundaries (source guards)', () => {
   it('existing My Team invitation/leave/remove flows are unchanged in behaviour (only helper exports added)', () => {
     const src = readFileSync('src/app/api/services/teamService.js', 'utf8');
     expect(src).toContain('export async function sendTeamInvite');
-    expect(src).toContain("'Only the team creator or an office administrator can remove members.'");
+    // Team managers (server-only managerUids) may also remove members: see team-managers.test.js.
+    expect(src).toContain("'Only the team creator, a team manager or an office administrator can remove members.'");
   });
 });

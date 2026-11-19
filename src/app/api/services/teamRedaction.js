@@ -7,29 +7,10 @@
  * Raw `offers`, `likes` and buyer-profile documents are never returned — each
  * row is rebuilt from scratch.
  *
- * Audited offer fields (see PropertyPageClient.js / tv/[id]/page.js writers):
- *   shown        type, offerAmount, createdAt, updatedAt, serious, fromWeb,
- *                isFirstHomeBuyer, isInvestor, buyerType, nextAction, timeframe
- *   withheld     buyerName, buyerEmail, buyerPhone, userName, userId, email,
- *                phone, sessionId, visitorId, displayId, interest-notification
- *                bookkeeping, and anything not listed (e.g. buyer preferences
- *                resolved from the linked account)
- * Buyers are labelled "Buyer 1…n" in creation order so rows stay distinguishable
- * without identifying anyone.
+ * Opinions: see opinionPrivacy.separateOpinions({ withIdentity: false }) —
+ * anonymous amounts, plus "Registered buyer N" rows saying only what each buyer
+ * wants (no name, contact, preferences, real id or price).
  */
-
-const OFFER_FIELDS = [
-  'type', 'offerAmount', 'createdAt', 'updatedAt', 'serious', 'fromWeb',
-  'isFirstHomeBuyer', 'isInvestor', 'buyerType', 'nextAction', 'timeframe',
-];
-
-const millis = (t) => {
-  if (!t) return 0;
-  if (typeof t.toMillis === 'function') return t.toMillis();
-  if (typeof t.toDate === 'function') return t.toDate().getTime();
-  const n = new Date(t).getTime();
-  return Number.isNaN(n) ? 0 : n;
-};
 
 const pick = (data, fields) => {
   const out = {};
@@ -37,18 +18,8 @@ const pick = (data, fields) => {
   return out;
 };
 
-/** Offer documents -> anonymous rows. `serializeValue` converts Timestamps. */
-export function redactOffersForTeam(offers, serializeValue = (v) => v) {
-  return [...offers]
-    .sort((a, b) => millis(a.createdAt) - millis(b.createdAt))
-    .map((o, i) => ({
-      // Document ids are opaque and not derived from the buyer, but are not
-      // needed by a read-only viewer either; use a positional key.
-      id: `anon-${i + 1}`,
-      ...serializeValue(pick(o, OFFER_FIELDS)),
-      buyerName: o.serious === true ? `Buyer ${i + 1}` : null,
-    }));
-}
+// Offers (opinions) are no longer redacted row by row here: every report, the team level included, gets the separated
+// shape from opinionPrivacy.js (anonymous prices + registrations without prices; no identity at team level).
 
 /** Likes carry the buyer's uid — a team member only needs the count/dates. */
 export function redactLikesForTeam(likes, serializeValue = (v) => v) {

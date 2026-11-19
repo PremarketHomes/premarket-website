@@ -65,19 +65,16 @@ export default function LeadershipReportPage({ params }) {
 
             <h2 className="mt-10 mb-3 font-serif text-2xl">Buyer opinions</h2>
             <div className="bg-white rounded-md border border-stone-200 overflow-x-auto">
-              <table className="w-full text-sm min-w-[560px]">
+              {/* Anonymous price opinions, highest first: never matched to a buyer, a date or a registration. */}
+              <table className="w-full text-sm">
                 <thead><tr className="border-b border-stone-200 bg-[#fdfcfb] text-left text-[10px] uppercase tracking-[0.16em] text-stone-400">
-                  <th className="px-4 py-3 font-medium">Buyer</th><th className="px-4 py-3 font-medium">Opinion</th><th className="px-4 py-3 font-medium">Date</th><th className="px-4 py-3 font-medium">Interest</th><th className="px-4 py-3 font-medium">Timeframe</th>
+                  <th className="px-4 py-3 font-medium">Price opinion (anonymous)</th>
                 </tr></thead>
                 <tbody>
-                  {r.opinions.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-stone-400">No opinions yet.</td></tr>}
-                  {r.opinions.map((o, i) => (
+                  {r.opinions.length === 0 && <tr><td className="px-4 py-8 text-center text-stone-400">No price opinions yet.</td></tr>}
+                  {r.opinions.map((o) => (
                     <tr key={o.id} className="border-b border-stone-100 last:border-b-0">
-                      <td className="px-4 py-3 text-stone-700">{o.buyerName || `Buyer ${i + 1}`}</td>
                       <td className="px-4 py-3 tabular-nums">{fmtPrice(o.offerAmount, '—')}</td>
-                      <td className="px-4 py-3 text-stone-600">{fmtDate(o.createdAt)}</td>
-                      <td className="px-4 py-3">{o.serious ? <span className="px-2 py-0.5 rounded text-xs bg-[#fdf1df] text-[#a85f00]">Registered</span> : <span className="text-stone-400">Opinion only</span>}</td>
-                      <td className="px-4 py-3 text-stone-600">{o.timeframe || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

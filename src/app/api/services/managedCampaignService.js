@@ -7,6 +7,7 @@ import { pickNotificationUser } from '../../utils/notificationUser';
 import { sendCampaignLinkOnce } from './agentNotificationService';
 import { loadActiveOffice, isActiveBso, getBsoAccess, bsoUidsOf, isUsableAccount } from './bsoService';
 import { sellingAgentThemeLookup } from './teamThemes';
+import { managedTeamOf, isTeamManagerFor } from './teamAccess';
 
 /**
  * Office-managed campaigns, built on the EXISTING property model (no second campaign system).
@@ -115,7 +116,7 @@ export async function resolveCreatorRole(db, { actorUid, owner }) {
 }
 
 /**
- * The actor's authority over ONE campaign: 'owner' | 'officeAdmin' | 'bso' | null. A BSO's authority comes only from
+ * The actor's authority over ONE campaign: 'owner' | 'officeAdmin' | 'bso' | 'teamManager' | null. A BSO's authority comes only from
  * being this campaign's `managedByUid` while holding the BSO role in the owner's office: never from creating other
  * campaigns for the same agent, and never from team membership.
  */
@@ -131,6 +132,8 @@ export async function resolveCampaignRole(db, { actorUid, property, owner: known
     return actor?.officeId === owner.officeId ? 'officeAdmin' : null;
   }
   if (property.managedByUid === actorUid && await isActiveBso(db, { uid: actorUid, officeId: owner.officeId, office })) return 'bso';
+  // A manager of the team this campaign belongs to (server-only teams/{id}.managerUids; see teamAccess.isTeamManagerFor).
+  if (await isTeamManagerFor(db, { actorUid, actor: await loadUser(db, actorUid), property, owner })) return 'teamManager';
   return null;
 }
 
@@ -651,6 +654,44 @@ export async function listBsoCampaigns(db, actorUid) {
 }
 
 const viewsOf = (p) => (Number.isFinite(Number(p.stats?.views)) ? Number(p.stats.views) : 0);
+
+/**
+ * A team manager's Dashboard: every non-hidden campaign of the team they manage (owned by a team member, or whose
+ * roster selling agent is a team member; see teamAccess.isTeamCampaign), with views and buyer-opinion COUNTS only.
+ * 403 unless the caller currently manages a team (activated agent, listed in the team's server-only managerUids).
+ */
+export async function listTeamManagerCampaigns(db, actorUid) {
+  const actor = await loadUser(db, actorUid);
+  const team = await managedTeamOf(db, { actorUid, actor });
+  if (!team) throw new ManagedCampaignError('Only team managers can open this workspace.', 403);
+  const [usersSnap, profiles] = await Promise.all([
+    db.collection('users').where('officeId', '==', team.officeId).get(),
+    loadOfficeProfiles(db, team.officeId),
+  ]);
+  const testIds = await loadTestCampaignIds(db);
+  const users = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
+  const themeOf = await sellingAgentThemeLookup(db, { users, officeActive: true }); // managedTeamOf required an active office
+  const inTeam = (uid) => !!uid && users.get(uid)?.teamId === team.id;
+  const campaigns = [];
+  for (const ids of chunk([...users.keys()], 10)) {
+    const snap = await db.collection('properties').where('userId', 'in', ids).get();
+    for (const d of snap.docs) {
+      const p = d.data();
+      if (p.hidden === true) continue;
+      const c = toCampaignSummary(d.id, p, users, profiles, testIds);
+      // Same rule as isTeamCampaign: owned by a team member (an agent), or the roster selling agent is one.
+      const ownerInTeam = inTeam(p.userId) && isAgentUser(users.get(p.userId));
+      if (!ownerInTeam && !(p.agentId && inTeam(c.sellingAgent?.uid))) continue;
+      c.access = p.userId === actorUid ? 'owner' : 'teamManager';
+      c.views = viewsOf(p);
+      c.teamTheme = themeOf(c.sellingAgent?.uid);
+      campaigns.push(c);
+    }
+  }
+  const opinions = await countOpinions(db, campaigns.map((c) => c.id));
+  for (const c of campaigns) c.opinions = opinions.get(c.id) || 0;
+  return { team: { id: team.id, name: team.name || '' }, campaigns: campaigns.sort(byNewest) };
+}
 
 /** Buyer opinions per campaign: the same rule as the agent dashboard (offers of type 'opinion'). */
 async function countOpinions(db, propertyIds) {
