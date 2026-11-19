@@ -734,10 +734,10 @@ describe('report + buyer-profile + management routes for a team member', () => {
     const res = await report('alice');
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body).toMatchObject({ access: 'teamMember', readOnly: true, redacted: true, buyers: {} });
-    expect(body.offers).toHaveLength(2);
+    expect(body).toMatchObject({ access: 'teamMember', readOnly: true, redacted: true });
+    expect(body.priceOpinions).toEqual([{ offerAmount: 880000 }, { offerAmount: 850000 }]); // feedback still useful
+    expect(body.registrations).toEqual([expect.objectContaining({ name: 'Registered buyer 1', timeframe: '3 months', isInvestor: true })]);
     expect(body.likes).toHaveLength(1);
-    expect(body.offers.find((o) => o.offerAmount === 880000)).toBeTruthy(); // feedback still useful
     expect(res.headers.get('cache-control')).toMatch(/no-store/);
   });
 
@@ -749,21 +749,24 @@ describe('report + buyer-profile + management routes for a team member', () => {
     ]) expect(text, `leaked "${forbidden}"`).not.toContain(forbidden);
   });
 
-  it('offer rows are rebuilt from an allowlist and carry only anonymous labels', async () => {
-    const { offers } = await (await report('alice')).json();
-    const allowed = new Set(['id', 'type', 'offerAmount', 'createdAt', 'updatedAt', 'serious', 'fromWeb', 'isFirstHomeBuyer', 'isInvestor', 'buyerType', 'nextAction', 'timeframe', 'buyerName']);
-    for (const o of offers) for (const k of Object.keys(o)) expect(allowed.has(k), `unexpected field ${k}`).toBe(true);
-    expect(offers.find((o) => o.serious).buyerName).toMatch(/^Buyer \d+$/);
-    expect(offers.find((o) => !o.serious).buyerName).toBeNull();
+  it('rows are rebuilt from allowlists: registrations say only what the buyer wants (no identity, no price); prices are bare amounts', async () => {
+    const { registrations, priceOpinions } = await (await report('alice')).json();
+    const allowed = new Set(['id', 'serious', 'registeredOn', 'nextAction', 'timeframe', 'buyerType', 'seriousnessLevel', 'isFirstHomeBuyer', 'isInvestor', 'name']);
+    for (const r of registrations) for (const k of Object.keys(r)) expect(allowed.has(k), `unexpected field ${k}`).toBe(true);
+    expect(registrations[0].name).toMatch(/^Registered buyer \d+$/);
+    for (const p of priceOpinions) expect(Object.keys(p)).toEqual(['offerAmount']);
   });
 
-  it('the listing agent and the office admin keep their existing, un-redacted reports', async () => {
+  it('the listing agent and the office admin see who registered, but never next to a price', async () => {
     const owner = await (await report('bob')).json();
     expect(owner.readOnly).toBe(false);
-    expect(owner.offers.find((o) => o.id === 'offer1').buyerEmail).toBe('bea@buyer.test');
+    expect(owner.registrations).toEqual([expect.objectContaining({ id: 'offer1', email: 'bea@buyer.test' })]);
+    expect(owner.registrations[0]).not.toHaveProperty('offerAmount');
+    expect(owner).not.toHaveProperty('offers');
     const admin = await (await report('adminA')).json();
     expect(admin).toMatchObject({ access: 'officeAdmin', readOnly: true });
-    expect(admin.buyers.buyer1.email).toBe('bea@buyer.test');
+    expect(admin.registrations[0].email).toBe('bea@buyer.test');
+    expect(admin.priceOpinions).toEqual([{ offerAmount: 880000 }, { offerAmount: 850000 }]);
   });
 
   it('buyer-profiles is refused for a teammate (and still served to the owner / office admin)', async () => {

@@ -18,7 +18,6 @@ import {
   ChevronDown,
   ChevronUp,
   Heart,
-  MessageSquare,
   UserCheck,
   Eye,
   Loader2,
@@ -116,7 +115,7 @@ export default function ContactProfile() {
 
   const [contact, setContact] = useState(null);
   const [loadingContact, setLoadingContact] = useState(true);
-  const [offers, setOffers] = useState([]);
+  const [registrations, setRegistrations] = useState([]); // registration fields only, never a price
   const [properties, setProperties] = useState([]);
   const [showBreakdown, setShowBreakdown] = useState(false);
 
@@ -144,14 +143,15 @@ export default function ContactProfile() {
         const data = { id: contactDoc.id, ...contactDoc.data() };
         setContact(data);
 
-        // Fetch related offers and properties
+        // A buyer's contact details and REGISTRATIONS only: never their price opinions, and never which listings they
+        // gave an anonymous opinion on. A price is never shown next to an identifiable buyer anywhere in Premarket
+        // (see api/services/opinionPrivacy.js); the listing reports show prices anonymously.
         const email = data.email;
-        const opinionPropertyIds = data.opinionPropertyIds || [];
         const ownedPropertyIds = data.ownedPropertyIds || [];
+        const toRegistration = (o) => ({ id: o.id, propertyId: o.propertyId || null, createdAt: o.createdAt || null, nextAction: o.nextAction || null });
+        let registrations = [];
 
-        const allPropertyIds = [...new Set([...opinionPropertyIds, ...ownedPropertyIds])];
-
-        // Fetch offers by email
+        // Fetch this buyer's registrations by email (each record is reduced to its registration fields at once)
         if (email) {
           const offersSnap = await getDocs(
             query(collection(db, 'offers'), where('email', '==', email))
@@ -164,12 +164,19 @@ export default function ContactProfile() {
           const offersData2 = offersSnap2.docs.map((d) => ({ id: d.id, ...d.data() }));
           const combined = [...offersData, ...offersData2];
           const unique = Array.from(new Map(combined.map((o) => [o.id, o])).values());
-          setOffers(unique.sort((a, b) => {
+          registrations = unique.filter((o) => o.serious === true).map(toRegistration).sort((a, b) => {
             const at = a.createdAt?.toDate?.()?.getTime() || 0;
             const bt = b.createdAt?.toDate?.()?.getTime() || 0;
             return bt - at;
-          }));
+          });
+          setRegistrations(registrations);
         }
+
+        const allPropertyIds = [...new Set([
+          ...(data.registeredPropertyIds || []),
+          ...registrations.map((r) => r.propertyId).filter(Boolean),
+          ...ownedPropertyIds,
+        ])];
 
         // Fetch properties by IDs (in chunks of 10 for Firestore 'in' queries)
         if (allPropertyIds.length > 0) {
@@ -201,32 +208,22 @@ export default function ContactProfile() {
 
   if (!contact) return null;
 
-  const propertiesByOpinion = properties.filter((p) => contact.opinionPropertyIds?.includes(p.id));
+  const registrationFor = (propertyId) => registrations.find((r) => r.propertyId === propertyId) || null;
+  const propertiesRegistered = properties.filter((p) => registrationFor(p.id) || contact.registeredPropertyIds?.includes(p.id));
   const propertiesOwned = properties.filter((p) => contact.ownedPropertyIds?.includes(p.id));
 
-  // Build activity feed
+  // Build activity feed: registrations only (no price opinions, see above)
   const activityFeed = [];
-  for (const offer of offers) {
-    const prop = properties.find((p) => p.id === offer.propertyId);
-    const addr = prop?.formattedAddress || prop?.address || offer.propertyId;
-    if (offer.serious === true) {
-      activityFeed.push({
-        type: 'registered_interest',
-        icon: UserCheck,
-        description: `Registered serious interest in ${addr}`,
-        time: offer.createdAt,
-        color: 'text-emerald-500',
-      });
-    }
-    if (offer.offerAmount) {
-      activityFeed.push({
-        type: 'opinion',
-        icon: MessageSquare,
-        description: `Submitted price opinion of ${formatPrice(offer.offerAmount)} on ${addr}`,
-        time: offer.createdAt,
-        color: 'text-blue-500',
-      });
-    }
+  for (const r of registrations) {
+    const prop = properties.find((p) => p.id === r.propertyId);
+    const addr = prop?.formattedAddress || prop?.address || r.propertyId;
+    activityFeed.push({
+      type: 'registered_interest',
+      icon: UserCheck,
+      description: `Registered serious interest in ${addr}`,
+      time: r.createdAt,
+      color: 'text-emerald-500',
+    });
   }
   activityFeed.sort((a, b) => {
     const at = a.time?.toDate?.()?.getTime() || a.time?.getTime?.() || 0;
@@ -391,34 +388,26 @@ export default function ContactProfile() {
         )}
 
         {/* ─── Linked Properties: Buyer ───────────────────────────────── */}
-        {propertiesByOpinion.length > 0 && (
+        {propertiesRegistered.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
             className="bg-white rounded-xl border border-slate-200 p-6"
           >
-            <h3 className="text-sm font-semibold text-slate-900 mb-4">Properties Opined On</h3>
+            <h3 className="text-sm font-semibold text-slate-900 mb-4">Registered Interest</h3>
             <div className="space-y-2">
-              {propertiesByOpinion.map((p) => {
-                const opinion = offers.find((o) => o.propertyId === p.id && o.offerAmount);
-                const listingPrice = parseFloat(String(p.price || '').replace(/[^0-9.]/g, ''));
-                const opinionAmount = opinion ? parseFloat(String(opinion.offerAmount).replace(/[^0-9.]/g, '')) : null;
-                const deviation = opinionAmount && listingPrice ? Math.round(((opinionAmount - listingPrice) / listingPrice) * 100) : null;
+              {propertiesRegistered.map((p) => {
+                const r = registrationFor(p.id);
                 return (
                   <div key={p.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-900 truncate">{p.formattedAddress || p.address || p.id}</p>
                       <p className="text-xs text-slate-500">Listed: {formatPrice(p.price)}</p>
                     </div>
-                    <div className="text-right shrink-0 ml-4">
-                      {opinionAmount && <p className="text-sm font-medium text-slate-700">Opinion: {formatPrice(opinionAmount)}</p>}
-                      {deviation !== null && (
-                        <p className={`text-xs font-medium ${deviation >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                          {deviation >= 0 ? '+' : ''}{deviation}%
-                        </p>
-                      )}
-                    </div>
+                    {r?.createdAt && (
+                      <p className="text-right shrink-0 ml-4 text-xs text-slate-500">Registered {formatDate(r.createdAt)}</p>
+                    )}
                   </div>
                 );
               })}

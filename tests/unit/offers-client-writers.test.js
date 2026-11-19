@@ -27,7 +27,8 @@ const REVIEWED_CLIENT_ACCESS = {
   // readers
   'src/app/buyer-dashboard/hooks/useBuyerData.js': 1, // where userId == own uid
   'src/app/dashboard/page.js': 1, // where propertyId in own listings
-  'src/app/dashboard/property/[id]/page.js': 1, // where propertyId == own listing
+  // (the Report page no longer reads offers in the browser: every viewer gets the server's separated report,
+  // opinionPrivacy.js, so a buyer's identity never reaches the page together with their price)
   'src/app/dashboard/crm/[id]/page.js': 2, // superAdmin CRM, by email / buyerEmail
   'src/app/dashboard/admin/components/tabs/PropertiesTab.js': 1, // superAdmin counts
 };

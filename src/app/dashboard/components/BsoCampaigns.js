@@ -20,7 +20,7 @@ const roleHintKey = (uid) => `premarket_dash_role:${uid}`;
 export function readDashboardRoleHint(uid) { return readRoleHint(uid); }
 function readRoleHint(uid) {
   if (!uid || typeof window === 'undefined') return null;
-  try { const v = window.localStorage.getItem(roleHintKey(uid)); return v === 'bso' || v === 'agent' || v === 'office' ? v : null; } catch { return null; }
+  try { const v = window.localStorage.getItem(roleHintKey(uid)); return ['bso', 'agent', 'office', 'team'].includes(v) ? v : null; } catch { return null; }
 }
 function writeRoleHint(uid, role) {
   if (!uid || typeof window === 'undefined') return;
@@ -37,12 +37,16 @@ function writeRoleHint(uid, role) {
  * An office admin who is not a BSO gets role 'office': every campaign in their office, from the office admin route
  * (GET /api/offices/{officeId}/campaigns, requireOfficeAdmin on every call). A 403 there means the server no longer
  * sees them as an admin: they get their own-properties dashboard, as before.
+ *
+ * A team manager (not a BSO or office admin) gets role 'team': every campaign of the team they manage, from
+ * GET /api/teams/campaigns (server-only teams/{id}.managerUids, re-checked on every call). /api/bso/access says
+ * `teamManager: true` first, so ordinary agents make no extra request.
  */
 export function useBsoDashboard({ uid, officeId, authLoading, isOfficeAdmin = false }) {
   const [state, setState] = useState({ role: 'unknown', status: 'idle', office: null, campaigns: [] });
   const hint = useMemo(() => readRoleHint(uid), [uid]);
   const load = useCallback(async () => {
-    const notBso = async () => {
+    const notBso = async (teamManager = false) => {
       if (isOfficeAdmin && officeId) {
         const res = await authFetch(`/api/offices/${encodeURIComponent(officeId)}/campaigns?stats=1`);
         if (res.ok) {
@@ -52,6 +56,15 @@ export function useBsoDashboard({ uid, officeId, authLoading, isOfficeAdmin = fa
         }
         if (res.status !== 403) throw Object.assign(new Error(`office campaigns ${res.status}`), { role: 'office' });
       }
+      if (teamManager) {
+        const res = await authFetch('/api/teams/campaigns');
+        if (res.ok) {
+          const body = await res.json();
+          writeRoleHint(uid, 'team');
+          return setState({ role: 'team', status: 'ready', office: null, team: body.team || null, campaigns: body.campaigns || [] });
+        }
+        if (res.status !== 403) throw Object.assign(new Error(`team campaigns ${res.status}`), { role: 'team' });
+      }
       writeRoleHint(uid, 'agent');
       return setState({ role: 'agent', status: 'ready', office: null, campaigns: [] });
     };
@@ -59,7 +72,7 @@ export function useBsoDashboard({ uid, officeId, authLoading, isOfficeAdmin = fa
       if (hint !== 'bso') {
         const access = await authFetch('/api/bso/access');
         const body = access.ok ? await access.json() : null;
-        if (body?.bso !== true) return await notBso();
+        if (body?.bso !== true) return await notBso(body?.teamManager === true);
       }
       const res = await authFetch('/api/bso/campaigns');
       if (res.status === 403) {
@@ -70,9 +83,10 @@ export function useBsoDashboard({ uid, officeId, authLoading, isOfficeAdmin = fa
       writeRoleHint(uid, 'bso');
       setState({ role: 'bso', status: 'ready', office: body.office, campaigns: body.campaigns || [] });
     } catch (err) {
-      // Unknown failure: a known BSO or office admin sees the campaign error (with retry); anyone else the agent dashboard, as before.
+      // Unknown failure: a known BSO, office admin or team manager sees the campaign error (with retry); anyone else the agent dashboard, as before.
       const office = err?.role === 'office' || hint === 'office';
-      setState((s) => ({ ...s, role: s.role === 'bso' || hint === 'bso' ? 'bso' : s.role === 'office' || office ? 'office' : 'agent', status: 'error' }));
+      const team = err?.role === 'team' || hint === 'team';
+      setState((s) => ({ ...s, role: s.role === 'bso' || hint === 'bso' ? 'bso' : s.role === 'office' || office ? 'office' : s.role === 'team' || team ? 'team' : 'agent', status: 'error' }));
     }
   }, [uid, hint, officeId, isOfficeAdmin]);
   useEffect(() => {
@@ -204,7 +218,7 @@ export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
                 {!c.archived && (c.visibility
                   ? <button onClick={() => act(c, 'hide', 'Buyer link hidden.')} className={`${btn} text-slate-700 border border-slate-200 hover:bg-slate-50`}><EyeOff className="w-3.5 h-3.5" /> Hide</button>
                   : <button onClick={() => act(c, 'show', 'Buyer link is live.')} className={`${btn} text-slate-700 border border-slate-200 hover:bg-slate-50`}><Eye className="w-3.5 h-3.5" /> Go live</button>)}
-                {!c.archived && c.access === 'bso' && (
+                {!c.archived && (c.access === 'bso' || (c.access === 'teamManager' && c.ownerUid === c.sellingAgent?.uid)) && (
                   <button onClick={() => { if (window.confirm(`Email the buyer link to ${c.sellingAgent?.name || 'the agent'}?`)) resendLink(c); }} className={`${btn} text-slate-700 border border-slate-200 hover:bg-slate-50`}><Send className="w-3.5 h-3.5" /> Email link to agent</button>
                 )}
                 {!c.archived && (

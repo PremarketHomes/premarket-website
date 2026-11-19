@@ -113,6 +113,17 @@ describe('SECURITY — GET /api/v1/contacts', () => {
     expect(data.contacts.some((c) => c.email === 'secret@example.com')).toBe(false);
   });
 
+  it('PRIVACY: never returns which listings a person gave a price opinion on, even from contacts stored before that field was retired', async () => {
+    fakeDb._seed('users', 'agentA', { isAgent: true, superAdmin: false, apiAccess: { status: 'approved', apiKey: 'key-a' } });
+    fakeDb._seed('contacts', 'c1', { firstName: 'Reg', email: 'reg@example.com', isBuyer: true, linkedAgentIds: ['agentA'], opinionPropertyIds: ['p1', 'p2'], registeredPropertyIds: ['p1'], totalPriceOpinions: 2 });
+
+    const { GET } = await import('../../src/app/api/v1/contacts/route.js');
+    const data = await (await GET(makeGetRequest('http://localhost/api/v1/contacts', { 'x-api-key': 'key-a' }))).json();
+    expect(data.contacts).toHaveLength(1);
+    expect(data.contacts[0]).not.toHaveProperty('opinionPropertyIds');
+    expect(data.contacts[0]).toMatchObject({ email: 'reg@example.com', registeredPropertyIds: ['p1'], totalPriceOpinions: 2 }); // contact + registration info kept
+  });
+
   it('a buyer who somehow has approved API access still gets zero contacts — they have no linkedAgentIds entries at all, never other users\' data', async () => {
     fakeDb._seed('users', 'buyer1', { isBuyer: true, superAdmin: false, apiAccess: { status: 'approved', apiKey: 'key-buyer' } });
     fakeDb._seed('contacts', 'c1', { firstName: 'Someone', email: 'someone@example.com', linkedAgentIds: ['agentA'] });

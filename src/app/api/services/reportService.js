@@ -1,22 +1,17 @@
-import { resolveBuyerIdentity, profileForRegistration } from '../../utils/registrationIdentity';
+import { separateOpinions } from './opinionPrivacy';
 import { adminDb } from '../../firebase/adminApp';
 import { sendEmail } from './resendService';
 import { wrapEmail } from './emailTemplates';
 import PDFDocument from 'pdfkit';
 
-function median(values) {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 !== 0
-    ? sorted[mid]
-    : (sorted[mid - 1] + sorted[mid]) / 2;
-}
 
 function fmtMoney(v) {
   if (!v) return '$0';
   return '$' + Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
+
+// Serious / passive medians are withheld (null) until both groups have 3+ price opinions (opinionPrivacy.js).
+const fmtMedian = (v) => (v ? fmtMoney(v) : '--');
 
 function fmtFinance(type) {
   if (!type) return '--';
@@ -101,39 +96,27 @@ export async function buildReport(propertyId) {
     }
   }
 
-  // Build serious buyer details with all registration data.
-  // Prefer linked user profile; fall back to contact info captured directly on
-  // the offer (e.g. iPad kiosk / web "register interest" flow).
-  const seriousBuyerDetails = serious.map(o => {
-    const u = o.userId ? userMap[o.userId] : null;
-    // Typed registration details win; the linked account only fills gaps and
-    // only if it can be the same person (see utils/registrationIdentity.js).
-    const identity = resolveBuyerIdentity(o, u);
-    const prefs = profileForRegistration(o, u)?.buyerPreferences || {};
-    return {
-      name: identity.name || 'Anonymous',
-      email: identity.email,
-      phone: identity.phone,
-      price: o.offerAmount || 0,
-      buyerType: o.buyerType || null,
-      seriousness: o.seriousnessLevel || null,
-      isFirstHomeBuyer: !!o.isFirstHomeBuyer,
-      isInvestor: !!o.isInvestor,
-      createdAt: o.createdAt || null,
-      preferredLocations: prefs.locations || [],
-      preferredType: prefs.propertyType || null,
-      minBedrooms: prefs.minBedrooms || null,
-      minBudget: prefs.minBudget || null,
-      maxBudget: prefs.maxBudget || null,
-    };
-  });
+  // Registered buyers WITHOUT their price, and figures that never reduce to one registered buyer's price
+  // (opinionPrivacy.js; the same rules as the Report page). Identity: typed registration details first, the linked
+  // account only filling gaps (utils/registrationIdentity.js), resolved inside separateOpinions.
+  const separated = separateOpinions(offersSnap.docs.map((d) => ({ id: d.id, ...d.data() })), { buyers: userMap });
+  const seriousBuyerDetails = separated.registrations.map((r) => ({
+    name: r.name || 'Name not given',
+    email: r.email,
+    phone: r.phone,
+    buyerType: r.buyerType,
+    seriousness: r.seriousnessLevel,
+    isFirstHomeBuyer: r.isFirstHomeBuyer,
+    isInvestor: r.isInvestor,
+    registeredOn: r.registeredOn,
+    preferredLocations: r.preferredLocations || [],
+    preferredType: r.preferredType,
+    minBedrooms: r.minBedrooms,
+    minBudget: r.minBudget,
+    maxBudget: r.maxBudget,
+  }));
 
-  const seriousMedian = median(serious.map((o) => o.offerAmount || 0));
-  const passiveMedian = median(passive.map((o) => o.offerAmount || 0));
-  const combinedMedian = median([
-    ...serious.map((o) => o.offerAmount || 0),
-    ...passive.map((o) => o.offerAmount || 0),
-  ]);
+  const { seriousMedian, passiveMedian, combinedMedian, weekly } = separated.summary;
 
   // Buyer breakdown
   const fhbCount = allOpinions.filter(o => o.isFirstHomeBuyer).length;
@@ -168,7 +151,7 @@ export async function buildReport(propertyId) {
     priceDistribution,
     listingVsMedianPct,
     seriousBuyerDetails,
-    allOpinions,
+    weekly, // weekly medians, only for weeks with 3+ price opinions (never single dated prices)
   };
 }
 
@@ -285,14 +268,14 @@ async function generateReportPDF(report) {
     doc.fontSize(10).fillColor(dark);
     doc.text('Serious Buyers', col1 + 8, r1 + 4);
     doc.text(String(report.seriousCount), col2, r1 + 4);
-    doc.text(fmtMoney(report.seriousMedian), col3, r1 + 4);
+    doc.text(fmtMedian(report.seriousMedian), col3, r1 + 4);
 
     // Row 2 - Passive
     const r2 = r1 + rowH;
     doc.fontSize(10).fillColor(dark);
     doc.text('Passive Buyers', col1 + 8, r2 + 4);
     doc.text(String(report.passiveCount), col2, r2 + 4);
-    doc.text(fmtMoney(report.passiveMedian), col3, r2 + 4);
+    doc.text(fmtMedian(report.passiveMedian), col3, r2 + 4);
 
     // Row 3 - Combined
     const r3 = r2 + rowH;
@@ -341,11 +324,9 @@ async function generateReportPDF(report) {
           doc.text(contactParts.join('  |  '), 58, cardTop + 22, { width: 250 });
         }
 
-        // Price + date (right)
-        doc.fontSize(14).fillColor(dark).font('Helvetica-Bold');
-        doc.text(fmtMoney(b.price), 350, cardTop + 8, { width: 190, align: 'right' });
+        // Registration date (right). Never their price opinion: prices are reported anonymously only.
         doc.font('Helvetica').fontSize(8).fillColor(grey);
-        doc.text(fmtTimestamp(b.createdAt), 350, cardTop + 24, { width: 190, align: 'right' });
+        if (b.registeredOn) doc.text(`Registered ${fmtTimestamp(`${b.registeredOn}T00:00:00+10:00`)}`, 350, cardTop + 8, { width: 190, align: 'right' });
 
         // Row 2: Finance, Interest, Badges
         const row2Y = cardTop + 40;
@@ -383,16 +364,14 @@ async function generateReportPDF(report) {
     }
 
     // --- Opinion Timeline Chart ---
-    const opinionsWithDate = (report.allOpinions || []).filter(o => {
-      if (!o.createdAt || !(o.offerAmount > 0)) return false;
-      const d = o.createdAt.toDate ? o.createdAt.toDate() : (o.createdAt._seconds ? new Date(o.createdAt._seconds * 1000) : new Date(o.createdAt));
-      return !isNaN(d.getTime());
-    });
+    // Weekly medians of weeks with 3+ price opinions only: a single dated price could be matched to the day a buyer
+    // registered (opinionPrivacy.js).
+    const weeklyPoints = (report.weekly || []).filter((w) => w.median > 0);
 
-    if (opinionsWithDate.length >= 2) {
+    if (weeklyPoints.length >= 2) {
       if (doc.y > doc.page.height - 250) doc.addPage();
 
-      doc.fontSize(14).fillColor(dark).text('Price Opinion Timeline');
+      doc.fontSize(14).fillColor(dark).text('Price Opinion Timeline (weekly median)');
       doc.moveTo(50, doc.y + 2).lineTo(50 + pageWidth, doc.y + 2).strokeColor('#E2E8F0').lineWidth(1).stroke();
       doc.moveDown(0.5);
 
@@ -400,10 +379,9 @@ async function generateReportPDF(report) {
       const chartY = doc.y;
 
       // Parse dates and sort
-      const points = opinionsWithDate.map(o => {
-        const d = o.createdAt.toDate ? o.createdAt.toDate() : (o.createdAt._seconds ? new Date(o.createdAt._seconds * 1000) : new Date(o.createdAt));
-        return { date: d, price: o.offerAmount, serious: !!o.serious };
-      }).sort((a, b) => a.date - b.date);
+      const points = weeklyPoints
+        .map((w) => ({ date: new Date(`${w.weekOf}T00:00:00+10:00`), price: w.median }))
+        .sort((a, b) => a.date - b.date);
 
       const minTime = points[0].date.getTime();
       const maxTime = points[points.length - 1].date.getTime();
@@ -433,7 +411,6 @@ async function generateReportPDF(report) {
       const plotPoints = points.map(p => ({
         x: chartX + ((p.date.getTime() - minTime) / timeRange) * chartW,
         y: chartY + chartH - ((p.price - minPrice) / priceRange) * chartH,
-        serious: p.serious,
       }));
 
       // Line
@@ -446,17 +423,13 @@ async function generateReportPDF(report) {
 
       // Dots
       plotPoints.forEach(pt => {
-        const radius = pt.serious ? 4 : 3;
-        const color = pt.serious ? dark : orange;
-        doc.circle(pt.x, pt.y, radius).fillColor(color).fill();
+        doc.circle(pt.x, pt.y, 3.5).fillColor(orange).fill();
       });
 
       // Legend
       const legendY = chartY + chartH + 16;
-      doc.circle(chartX, legendY, 4).fillColor(dark).fill();
-      doc.fontSize(8).fillColor(grey).text('Serious', chartX + 8, legendY - 4);
-      doc.circle(chartX + 70, legendY, 3).fillColor(orange).fill();
-      doc.text('Passive', chartX + 78, legendY - 4);
+      doc.circle(chartX, legendY, 3.5).fillColor(orange).fill();
+      doc.fontSize(8).fillColor(grey).text('Weekly median (weeks with 3 or more price opinions)', chartX + 8, legendY - 4);
 
       doc.y = legendY + 20;
     }
@@ -586,11 +559,11 @@ export async function gatherReport(email, propertyId, name) {
         <tr>
           <td style="padding:12px; text-align:center; background:#FFF7ED; border-radius:8px 0 0 8px; border:1px solid #FED7AA;">
             <div style="font-size:11px; color:#9A3412; margin-bottom:4px;">Serious Buyers</div>
-            <div style="font-size:18px; font-weight:bold; color:#1E293B;">${fmtMoney(report.seriousMedian)}</div>
+            <div style="font-size:18px; font-weight:bold; color:#1E293B;">${fmtMedian(report.seriousMedian)}</div>
           </td>
           <td style="padding:12px; text-align:center; background:#F8FAFC; border:1px solid #E2E8F0; border-left:none;">
             <div style="font-size:11px; color:#64748B; margin-bottom:4px;">Passive Buyers</div>
-            <div style="font-size:18px; font-weight:bold; color:#1E293B;">${fmtMoney(report.passiveMedian)}</div>
+            <div style="font-size:18px; font-weight:bold; color:#1E293B;">${fmtMedian(report.passiveMedian)}</div>
           </td>
           <td style="padding:12px; text-align:center; background:#F8FAFC; border-radius:0 8px 8px 0; border:1px solid #E2E8F0; border-left:none;">
             <div style="font-size:11px; color:#64748B; margin-bottom:4px;">Combined</div>
@@ -658,8 +631,7 @@ export async function gatherReport(email, propertyId, name) {
               </div>
             </td>
             <td style="padding:12px 14px; text-align:right; vertical-align:top;">
-              <div style="font-size:18px; font-weight:bold; color:#1E293B;">${fmtMoney(b.price)}</div>
-              <div style="font-size:11px; color:#64748B;">${fmtTimestamp(b.createdAt)}</div>
+              ${b.registeredOn ? `<div style="font-size:11px; color:#64748B;">Registered ${fmtTimestamp(`${b.registeredOn}T00:00:00+10:00`)}</div>` : ''}
             </td>
           </tr>
           <tr>
@@ -682,43 +654,25 @@ export async function gatherReport(email, propertyId, name) {
 
       <!-- Opinion Timeline -->
       ${(() => {
-        const opinionsWithDate = report.allOpinions.filter(o => o.createdAt && (o.offerAmount || 0) > 0);
-        if (opinionsWithDate.length < 2) return '';
-        // Group by week
-        const weeks = {};
-        opinionsWithDate.forEach(o => {
-          const d = o.createdAt.toDate ? o.createdAt.toDate() : (o.createdAt._seconds ? new Date(o.createdAt._seconds * 1000) : new Date(o.createdAt));
-          if (isNaN(d.getTime())) return;
-          const weekStart = new Date(d);
-          weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-          const key = weekStart.toISOString().slice(0, 10);
-          if (!weeks[key]) weeks[key] = { prices: [], serious: 0, passive: 0 };
-          weeks[key].prices.push(o.offerAmount);
-          if (o.serious) weeks[key].serious++; else weeks[key].passive++;
-        });
-        const sortedWeeks = Object.entries(weeks).sort(([a], [b]) => a.localeCompare(b));
-        if (sortedWeeks.length < 1) return '';
+        // Weekly price opinions: a median only for weeks with 3+ (opinionPrivacy.js), and no serious/passive split per
+        // week, so no week's figure can be matched to one registered buyer.
+        const weeks = report.weekly || [];
+        if (weeks.reduce((n, w) => n + w.count, 0) < 2) return '';
         return `
         <h3 style="margin-top:24px; color:#111; font-size:16px;">Opinion Timeline</h3>
         <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:13px; margin-top:10px; border:1px solid #E2E8F0; border-radius:8px;">
           <tr style="background:#F8FAFC;">
             <td style="padding:8px 12px; color:#64748B; font-size:11px; font-weight:bold;">Week of</td>
             <td style="padding:8px 12px; color:#64748B; font-size:11px; font-weight:bold;">Opinions</td>
-            <td style="padding:8px 12px; color:#64748B; font-size:11px; font-weight:bold;">Avg Price</td>
-            <td style="padding:8px 12px; color:#64748B; font-size:11px; font-weight:bold;">Serious</td>
-            <td style="padding:8px 12px; color:#64748B; font-size:11px; font-weight:bold;">Passive</td>
+            <td style="padding:8px 12px; color:#64748B; font-size:11px; font-weight:bold;">Median Price</td>
           </tr>
-          ${sortedWeeks.map(([weekKey, data]) => {
-            const avg = Math.round(data.prices.reduce((s, p) => s + p, 0) / data.prices.length);
-            const weekDate = new Date(weekKey);
-            const label = weekDate.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+          ${weeks.map((w) => {
+            const label = new Date(`${w.weekOf}T00:00:00+10:00`).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'Australia/Brisbane' });
             return `
           <tr>
             <td style="padding:8px 12px; color:#1E293B;">${label}</td>
-            <td style="padding:8px 12px; color:#1E293B;">${data.prices.length}</td>
-            <td style="padding:8px 12px; color:#1E293B; font-weight:600;">${fmtMoney(avg)}</td>
-            <td style="padding:8px 12px; color:#1E293B;">${data.serious}</td>
-            <td style="padding:8px 12px; color:#64748B;">${data.passive}</td>
+            <td style="padding:8px 12px; color:#1E293B;">${w.count}</td>
+            <td style="padding:8px 12px; color:#1E293B; font-weight:600;">${w.median ? fmtMoney(w.median) : '<span style="color:#94A3B8; font-weight:normal;">fewer than 3</span>'}</td>
           </tr>`;
           }).join('')}
         </table>`;

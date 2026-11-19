@@ -49,7 +49,10 @@ export async function GET(request) {
     q = q.orderBy('lastActivityAt', 'desc');
 
     const snapshot = await q.get();
-    let contacts = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    // Never return the listings a person gave a price opinion on (it would tie an identifiable buyer to an individual,
+    // anonymous price). Stripped here too, so contacts computed before that field was retired never expose it.
+    // eslint-disable-next-line no-unused-vars
+    let contacts = snapshot.docs.map((doc) => { const { opinionPropertyIds, ...c } = doc.data(); return { id: doc.id, ...c }; });
 
     // Tenant scoping — applied in application code, not as a Firestore
     // query constraint, deliberately: adding an extra .where() here

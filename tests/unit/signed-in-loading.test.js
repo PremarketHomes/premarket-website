@@ -66,9 +66,9 @@ describe('fewer repeated requests', () => {
   });
   it('edit page starts the role check alongside the property read only for likely managers', () => {
     const edit = read('src/app/dashboard/edit/[id]/page.js');
-    expect(edit).toContain("const likelyManager = userData?.isOfficeAdmin === true || readDashboardRoleHint(user.uid) === 'bso';");
+    expect(edit).toContain("const likelyManager = userData?.isOfficeAdmin === true || ['bso', 'team'].includes(readDashboardRoleHint(user.uid));");
     expect(edit).toContain('const earlyRole = likelyManager ? checkRole() : null;');
     expect(edit).toContain('const role = await (earlyRole || checkRole());');
-    expect(edit).toContain("if (role !== 'bso' && role !== 'officeAdmin') {"); // the server still decides
+    expect(edit).toContain("if (role !== 'bso' && role !== 'officeAdmin' && role !== 'teamManager') {"); // the server still decides
   });
 });

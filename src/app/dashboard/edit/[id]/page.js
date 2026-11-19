@@ -121,7 +121,9 @@ export default function EditPropertyPage() {
   // 'owner' edits write the property directly (unchanged). 'manager' = the campaign's managing BSO or an office admin, who
   // cannot write the property directly (firestore.rules keep client writes owner-only): their changes go through the server.
   const [manageRole, setManageRole] = useState(null);
-  const managerMode = manageRole === 'bso' || manageRole === 'officeAdmin';
+  const managerMode = manageRole === 'bso' || manageRole === 'officeAdmin' || manageRole === 'teamManager';
+  // A team manager runs their team's campaigns the way a managing BSO does (video too; back to their Dashboard).
+  const bsoLikeManager = manageRole === 'bso' || manageRole === 'teamManager';
 
   // UX state
   const [errors, setErrors] = useState({});
@@ -152,7 +154,7 @@ export default function EditPropertyPage() {
         } catch { /* not allowed */ }
         return null;
       };
-      const likelyManager = userData?.isOfficeAdmin === true || readDashboardRoleHint(user.uid) === 'bso';
+      const likelyManager = userData?.isOfficeAdmin === true || ['bso', 'team'].includes(readDashboardRoleHint(user.uid));
       const earlyRole = likelyManager ? checkRole() : null;
       try {
         const snap = await getDoc(doc(db, 'properties', propertyId));
@@ -165,7 +167,7 @@ export default function EditPropertyPage() {
         // Verify ownership, or that the server lets this user manage the campaign (managing BSO / office admin).
         if (p.userId !== user.uid) {
           const role = await (earlyRole || checkRole());
-          if (role !== 'bso' && role !== 'officeAdmin') {
+          if (role !== 'bso' && role !== 'officeAdmin' && role !== 'teamManager') {
             router.push('/dashboard');
             return;
           }
@@ -326,7 +328,7 @@ export default function EditPropertyPage() {
           continue;
         }
         // The managing BSO handles video too (uploaded like an agent's own, attached through the server). Office admins: photos only.
-        if (managerMode && manageRole !== 'bso') {
+        if (managerMode && !bsoLikeManager) {
           setMediaError('Photos only here: the selling agent can add a video to their own campaign.');
           continue;
         }
@@ -534,7 +536,7 @@ export default function EditPropertyPage() {
       if (newFiles.length > 0) {
         enqueueManagedMediaUpload({ propertyId, userId: user.uid, label: `Photos for ${formattedAddress || address || 'campaign'}`, files: [...newFiles] });
       }
-      if (manageRole === 'bso') {
+      if (bsoLikeManager) {
         if (video) {
           enqueueManagedVideoUpload({ propertyId, userId: user.uid, label: `Video for ${formattedAddress || address || 'campaign'}`, video });
         } else if (savedVideoUrl && !existingVideoUrl) {
@@ -542,7 +544,7 @@ export default function EditPropertyPage() {
           if (!vr.ok) throw new Error((await vr.json().catch(() => ({}))).error || 'The video could not be removed.');
         }
       }
-      router.push(manageRole === 'bso' ? '/dashboard?updated=1' : '/dashboard/office/campaigns?updated=1');
+      router.push(bsoLikeManager ? '/dashboard?updated=1' : '/dashboard/office/campaigns?updated=1');
     } catch (err) {
       console.error('Managed update failed:', err);
       setErrors({ step: err.message || 'Something went wrong. Please try again.' });

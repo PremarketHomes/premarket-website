@@ -248,7 +248,8 @@ describe('GET /api/leadership/properties/[id]/report (read-only, buyer-redacted)
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ readOnly: true, redacted: true, totals: { opinions: 3, registrations: 1, likes: 1 } });
-    expect(body.opinions).toHaveLength(3);
+    // Anonymous amounts only (one of the three opinions has a price): no buyer label, date, interest or timeframe.
+    expect(body.opinions).toEqual([{ id: 'price-1', offerAmount: 900000 }]);
     const text = JSON.stringify(body);
     for (const leak of ['real@buyer.test', '0400111222', 'Real Buyer', 'bea@x.test', SECRET, '"userId"', 'buyerEmail', 'buyerPhone']) {
       expect(text).not.toContain(leak);

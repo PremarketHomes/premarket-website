@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../firebase/adminApp';
 import { verifyAuth } from '../middleware/auth';
-import { getPropertyReportAccess, canManageProperty } from '../services/propertyAccessService';
+import { getPropertyReportAccess, canManageProperty, teamManagerReportRecipients } from '../services/propertyAccessService';
 import { gatherReport } from '../services/reportService';
 
 export async function POST(request) {
@@ -26,7 +26,13 @@ export async function POST(request) {
     }
     const access = await getPropertyReportAccess(adminDb, { uid: auth.uid, property: propertySnap.data() });
     if (!canManageProperty(access)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      // A team manager may email the report only to the campaign's selling agent or to themself (account emails on
+      // file, checked here on the server), never to a typed address.
+      if (access !== 'teamManager') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      const allowed = await teamManagerReportRecipients(adminDb, { uid: auth.uid, property: propertySnap.data() });
+      if (!allowed.some((r) => r.email.toLowerCase() === String(email).trim().toLowerCase())) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
     }
 
     await gatherReport(email, propertyId, name);

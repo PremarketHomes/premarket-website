@@ -1093,10 +1093,12 @@ function DashboardPage() {
   const showBsoLayout = isBso || expectBso;
   // Office admin (not a BSO): the Dashboard lists EVERY campaign in their office (server-authorised, office admin route),
   // in the same campaign layout as a BSO's. Ownership is untouched; agents and BSOs keep their own dashboards.
-  const isOfficeView = bso.role === 'office';
-  const expectOffice = bso.role === 'unknown' && (bso.hint === 'office' || userData?.isOfficeAdmin === true);
+  // Team manager (server-only teams/{id}.managerUids): the same layout, listing every campaign of the team they manage.
+  const isTeamManagerView = bso.role === 'team';
+  const isOfficeView = bso.role === 'office' || isTeamManagerView;
+  const expectOffice = bso.role === 'unknown' && (bso.hint === 'office' || bso.hint === 'team' || userData?.isOfficeAdmin === true);
   const showCampaigns = isBso || isOfficeView;
-  const showCampaignLayout = showBsoLayout || isOfficeView || (bso.role === 'unknown' && bso.hint === 'office');
+  const showCampaignLayout = showBsoLayout || isOfficeView || (bso.role === 'unknown' && (bso.hint === 'office' || bso.hint === 'team'));
 
   // Logo onboarding for agents without a logo
   useEffect(() => {
@@ -1620,7 +1622,9 @@ function DashboardPage() {
             ) : activeTab === 'overview' && bso.campaigns.length === 0 ? (
               <EmptyState
                 title="No campaigns yet"
-                text={isOfficeView
+                text={isTeamManagerView
+                  ? "Every campaign of the team you manage will appear here."
+                  : isOfficeView
                   ? "Every campaign from your office's agents and BSOs will appear here."
                   : 'Campaigns you upload for your agents, and campaigns assigned to you to manage, will appear here.'}
                 cta="Add Property"

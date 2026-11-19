@@ -52,13 +52,23 @@ const OFFERS = [
   { id: 'ANON_ONE001', type: 'opinion', serious: false, offerAmount: 850000, createdAt: '2026-10-04T00:00:00.000Z' },
 ];
 
+// The report route's response, built by the REAL server-side separation (opinionPrivacy.js) from the fixtures, so these
+// page tests exercise exactly what every viewer, the listing agent included, now receives.
+const { separateOpinions } = await import('../../src/app/api/services/opinionPrivacy');
+let buyerProfiles = {};
+const serverReport = (extra = { access: 'owner', readOnly: false }) => async (url) => {
+  if (!String(url).endsWith('/report')) return { ok: true, status: 200, json: async () => ({}) };
+  await dataGate;
+  return { ok: true, status: 200, json: async () => ({ ...extra, property: propertyDoc, likes: ownLikes, ...separateOpinions(ownOffers, { buyers: buyerProfiles }) }) };
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   dataGate = Promise.resolve();
   authState = { user: { uid: 'agentA', email: 'phil@example.com' }, userData: { agent: true }, loading: false };
   propertyDoc = { ...PROPERTY };
-  ownOffers = OFFERS; ownLikes = [];
-  authFetch.mockImplementation(async (url) => ({ ok: true, status: 200, json: async () => ({ buyers: {} }) }));
+  ownOffers = OFFERS; ownLikes = []; buyerProfiles = {};
+  authFetch.mockImplementation(serverReport());
   Element.prototype.scrollIntoView = scrollIntoView;
   setUrl('?registration=REG_TARGET1');
 });
@@ -143,7 +153,7 @@ describe('report page: whose details are shown for a registration', () => {
 
   it('REGRESSION: a registration typed as Luke but linked to Hannah\'s account shows LUKE, never Hannah', async () => {
     ownOffers = [{ id: 'REG_TARGET1', type: 'opinion', serious: true, userId: 'hannah', buyerName: 'Luke Wilson', buyerEmail: 'lukejwilson15@gmail.com', buyerPhone: '0400 000 000', offerAmount: 900000, createdAt: '2026-10-26T00:00:00.000Z' }];
-    authFetch.mockImplementation(async () => ({ ok: true, status: 200, json: async () => ({ buyers: { hannah: HANNAH } }) }));
+    buyerProfiles = { hannah: HANNAH };
     await mount();
     const row = await waitFor(() => { const r = document.getElementById('registration-REG_TARGET1'); expect(r).toBeTruthy(); return r; });
     expect(row.textContent).toContain('Luke Wilson');
@@ -153,11 +163,26 @@ describe('report page: whose details are shown for a registration', () => {
 
   it('a genuine linked buyer (same email) still shows the typed name and gets the profile fallback for missing fields', async () => {
     ownOffers = [{ id: 'REG_TARGET1', type: 'opinion', serious: true, userId: 'hannah', buyerName: 'Hannah L', buyerEmail: 'HANNAH@premarket.homes', offerAmount: 900000, createdAt: '2026-10-26T00:00:00.000Z' }];
-    authFetch.mockImplementation(async () => ({ ok: true, status: 200, json: async () => ({ buyers: { hannah: HANNAH } }) }));
+    buyerProfiles = { hannah: HANNAH };
     await mount();
     const row = await waitFor(() => { const r = document.getElementById('registration-REG_TARGET1'); expect(r).toBeTruthy(); return r; });
     expect(row.textContent).toContain('Hannah L');
     expect(row.textContent).toContain('0411 111 111'); // phone not typed -> same person's profile
+  });
+});
+
+describe('report page: a buyer\'s identity is never shown with their price opinion (every viewer)', () => {
+  it('registration cards carry contact details but no price; prices are listed anonymously with no names or badges', async () => {
+    await mount();
+    const target = await waitFor(() => { const r = document.getElementById('registration-REG_TARGET1'); expect(r).toBeTruthy(); return r; });
+    const other = document.getElementById('registration-REG_OTHER22');
+    for (const card of [target, other]) expect(card.textContent).not.toMatch(/\$\s?\d/); // no dollar amount on any card
+    expect(target.textContent).toContain('Target Buyer');
+    expect(target.textContent).toContain('target@x.test');
+    fireEvent.click(screen.getByRole('button', { name: /price opinions, anonymous \(3\)/i }));
+    const table = document.querySelector('table');
+    expect(table.textContent).toMatch(/950,000[\s\S]*900,000[\s\S]*850,000/); // highest first
+    expect(table.textContent).not.toMatch(/Target|Other|@x\.test|FHB|Investor/);
   });
 });
 
@@ -207,12 +232,7 @@ describe('emailed registration link: signed in as the WRONG account', () => {
 describe('emailed registration link: office administrator (existing read-only access preserved)', () => {
   beforeEach(() => {
     authState = { user: { uid: 'adminA', email: 'hannah@example.com' }, userData: { agent: true, isOfficeAdmin: true }, loading: false };
-    authFetch.mockImplementation(async (url) => {
-      if (String(url).endsWith('/report')) {
-        return { ok: true, status: 200, json: async () => ({ readOnly: true, access: 'officeAdmin', property: PROPERTY, offers: OFFERS, likes: [], buyers: {} }) };
-      }
-      return { ok: true, status: 200, json: async () => ({ buyers: {} }) };
-    });
+    authFetch.mockImplementation(serverReport({ readOnly: true, access: 'officeAdmin' }));
   });
 
   it('sees the same highlighted registration, in read-only mode with the banner and no management actions', async () => {

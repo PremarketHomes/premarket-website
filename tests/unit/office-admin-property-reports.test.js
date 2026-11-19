@@ -129,16 +129,21 @@ describe('GET /api/properties/[id]/report', () => {
     expect(res.status).toBe(200);
     expect(body.readOnly).toBe(true);
     expect(body.access).toBe('officeAdmin');
-    expect(body.offers).toHaveLength(2);
     expect(body.likes).toHaveLength(1);
-    expect(body.buyers.buyer1).toMatchObject({ firstName: 'Bea', email: 'bea@x.test', phone: '0411' });
+    // Registered buyer: contact details WITHOUT their price; prices: anonymous amounts only (opinionPrivacy.js).
+    expect(body.registrations).toEqual([expect.objectContaining({ id: 'o1', name: 'Bea Buyer', email: 'bea@x.test', phone: '0411' })]);
+    expect(body.registrations[0]).not.toHaveProperty('offerAmount');
+    expect(body.priceOpinions).toEqual([{ offerAmount: 900000 }, { offerAmount: 850000 }]);
+    expect(body).not.toHaveProperty('offers');
+    expect(body).not.toHaveProperty('buyers');
+    expect(body.summary).toMatchObject({ opinions: 2, serious: 1, passive: 1, seriousMedian: null, passiveMedian: null, combinedMedian: 875000 });
     expect(JSON.stringify(body)).not.toContain(SECRET);
     expect(res.headers.get('cache-control')).toMatch(/no-store/);
   });
-  it('timestamps are sent as ISO strings the page can already format', async () => {
+  it('timestamps are sent as ISO strings the page can already format; registrations to the day', async () => {
     const body = await (await call('adminA')).json();
     expect(body.property.createdAt).toBe('2026-09-09T00:00:00.000Z');
-    expect(body.offers.find((o) => o.id === 'o1').createdAt).toBe('2026-10-02T00:00:00.000Z');
+    expect(body.registrations[0].registeredOn).toBe('2026-10-02');
   });
   it('owner and superAdmin are served but are NOT read-only', async () => {
     expect((await (await call('phil')).json()).readOnly).toBe(false);
@@ -207,10 +212,11 @@ describe('report page: read-only mode and Team link (source-level)', () => {
   const team = fs.readFileSync(new URL('../../src/app/dashboard/office/team/page.js', import.meta.url), 'utf-8');
 
   it('shows the "Viewing as office admin" indicator only when read-only', () => {
-    expect(page).toMatch(/\{readOnly && \([\s\S]{0,800}Viewing as office admin/);
+    expect(page).toMatch(/\{readOnly && \([\s\S]{0,1400}Viewing as office admin/);
     // The managing BSO's read-only view is labelled as such (and links back to My Campaigns).
     expect(page).toMatch(/\{readOnly && \([\s\S]{0,500}Viewing as the campaign&apos;s BSO/);
-    expect(page).toContain("viewerLevel === 'manager' ? '/dashboard'"); // a BSO's campaigns are on their Dashboard
+    // A BSO's (and a team manager's) campaigns are on their Dashboard.
+    expect(page).toContain("viewerLevel === 'manager' || viewerLevel === 'teamManager' ? '/dashboard'");
   });
   it('every management action is gated behind !readOnly', () => {
     for (const marker of ['Send Report - primary action', '{/* iPad mode */}', 'Sold Status Action']) {
@@ -227,15 +233,11 @@ describe('report page: read-only mode and Team link (source-level)', () => {
     expect(page.indexOf('Copy Link')).toBeLessThan(iPad);
     expect(page.indexOf('Preview Listing')).toBeLessThan(iPad);
   });
-  it('owners/superAdmins still read Firestore directly; others go through the server route only', () => {
-    expect(page).toContain('const ownListing =');
+  it('every viewer, the listing agent included, gets the separated report from the server route only', () => {
     expect(page).toContain('/api/properties/${propertyId}/report');
-    // the direct offers query lives only inside the ownListing branch
-    const direct = page.indexOf("collection(db, 'offers')");
-    const branch = page.indexOf('if (ownListing) {');
-    const elseBranch = page.indexOf('} else {', branch);
-    expect(direct).toBeGreaterThan(branch);
-    expect(direct).toBeLessThan(elseBranch);
+    expect(page).not.toContain("collection(db, 'offers')"); // no raw offer documents in the browser
+    expect(page).not.toContain('/buyer-profiles');
+    expect(page).not.toContain('const ownListing =');
   });
   it('Team page links each property to its report', () => {
     expect(team).toContain('href={`/dashboard/property/${p.id}`}');

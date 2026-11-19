@@ -414,7 +414,10 @@ describe('reports: the managing BSO gets the office-admin level for their campai
     expect(await getPropertyReportAccess(db, { uid: 'peta', property: prop(ids.petaChantal1) })).toBe('manager');
     const report = await getPropertyReportData(db, { uid: 'peta', propertyId: ids.petaChantal1 });
     expect(report).toMatchObject({ status: 200, access: 'manager', readOnly: true });
-    expect(report.offers).toHaveLength(1);
+    // The registration with its contact details, never with its price; the price only as an anonymous amount.
+    expect(report.registrations).toEqual([expect.objectContaining({ id: 'o1', email: 'b@buyer.test' })]);
+    expect(report.registrations[0]).not.toHaveProperty('offerAmount');
+    expect(report.priceOpinions).toEqual([{ offerAmount: 900000 }]);
     expect((await getBuyerProfilesForProperty(db, { uid: 'peta', propertyId: ids.petaChantal1 })).status).toBe(200);
     expect(await getPropertyReportAccess(db, { uid: 'bea', property: prop(ids.petaChantal1) })).toBeNull();
     expect((await getPropertyReportData(db, { uid: 'bea', propertyId: ids.petaChantal1 })).status).toBe(403);
@@ -431,8 +434,9 @@ describe('reports: the managing BSO gets the office-admin level for their campai
     expect(await getPropertyReportAccess(db, { uid: 'bill', property: prop(ids.petaChantal1) })).toBeNull();
     withOffer(ids.petaChantal1);
     const redacted = await getPropertyReportData(db, { uid: 'tom', propertyId: ids.petaChantal1 });
-    expect(redacted).toMatchObject({ redacted: true, readOnly: true, buyers: {} });
-    expect(JSON.stringify(redacted)).not.toMatch(/b@buyer\.test|Fake Buyer/);
+    expect(redacted).toMatchObject({ redacted: true, readOnly: true });
+    expect(redacted.registrations).toEqual([expect.objectContaining({ id: 'registration-1', name: 'Registered buyer 1' })]);
+    expect(JSON.stringify(redacted)).not.toMatch(/b@buyer\.test|Fake Buyer|buyer1|"o1"/);
     // the former Team Admin has no more than any teammate
     expect(await getPropertyReportAccess(db, { uid: 'ann', property: prop(ids.petaChantal1) })).toBe('teamMember');
   });

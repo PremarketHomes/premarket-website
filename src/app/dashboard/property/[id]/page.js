@@ -11,7 +11,6 @@ import { authFetch } from '../../../utils/authFetch';
 import { db, auth } from '../../../firebase/clientApp';
 import { signOut as firebaseSignOut } from 'firebase/auth';
 import { loginUrlForCurrentPage } from '../../../utils/loginRedirect';
-import { resolveBuyerIdentity, profileForRegistration } from '../../../utils/registrationIdentity';
 import {
   getRegistrationIdFromSearch,
   registrationElementId,
@@ -23,10 +22,6 @@ import {
   getDoc,
   updateDoc,
   deleteDoc,
-  collection,
-  query,
-  where,
-  getDocs,
   serverTimestamp,
   deleteField,
 } from 'firebase/firestore';
@@ -74,12 +69,6 @@ import {
 import { formatPrice, formatDate } from '../../../utils/formatters';
 import { ReportSkeleton } from '../../components/PageSkeletons';
 
-function median(arr) {
-  if (!arr.length) return 0;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
 
 // --- Engagement Stat Card ---
 function EngagementCard({ label, value, icon: Icon }) {
@@ -252,21 +241,18 @@ function PriceDistribution({ opinions }) {
 }
 
 // --- Buyer Breakdown ---
-function BuyerBreakdown({ seriousBuyers, passiveBuyers, opinions }) {
-  const total = opinions.length;
+// Counts only, from the server's separated report (opinionPrivacy.js).
+function BuyerBreakdown({ summary }) {
+  const total = summary?.opinions || 0;
   if (total === 0) return null;
 
+  const seriousBuyers = { length: summary.serious || 0 };
+  const passiveBuyers = { length: summary.passive || 0 };
   const seriousPct = Math.round((seriousBuyers.length / total) * 100);
   const passivePct = 100 - seriousPct;
-  const fhbCount = opinions.filter(o => o.isFirstHomeBuyer).length;
-  const investorCount = opinions.filter(o => o.isInvestor).length;
-
-  // Seriousness distribution
-  const seriousnessLevels = {};
-  opinions.forEach(o => {
-    const level = o.seriousnessLevel || 'Unknown';
-    seriousnessLevels[level] = (seriousnessLevels[level] || 0) + 1;
-  });
+  const fhbCount = summary.fhbCount || 0;
+  const investorCount = summary.investorCount || 0;
+  const seriousnessLevels = summary.seriousnessLevels || {};
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -329,17 +315,16 @@ function BuyerBreakdown({ seriousBuyers, passiveBuyers, opinions }) {
 }
 
 // --- Price Timeline ---
-function PriceTimeline({ opinions }) {
+// Weekly medians only (weeks with at least 3 price opinions, decided on the server): a single dated price could be
+// matched to the day a buyer registered, so individual prices are never plotted.
+function PriceTimeline({ weekly }) {
   const points = useMemo(() => {
-    return opinions
-      .filter(o => o.createdAt && (parseFloat(o.offerAmount) || 0) > 0)
-      .map(o => {
-        const d = o.createdAt?.toDate ? o.createdAt.toDate() : new Date(o.createdAt);
-        return { date: d, price: parseFloat(o.offerAmount), serious: !!o.serious };
-      })
+    return (weekly || [])
+      .filter(w => w.weekOf && w.median > 0)
+      .map(w => ({ date: new Date(`${w.weekOf}T00:00:00+10:00`), price: w.median }))
       .filter(p => !isNaN(p.date.getTime()))
       .sort((a, b) => a.date - b.date);
-  }, [opinions]);
+  }, [weekly]);
 
   if (points.length < 2) return null;
 
@@ -384,6 +369,7 @@ function PriceTimeline({ opinions }) {
       <h3 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
         <TrendingUp className="w-4 h-4 text-slate-500" />
         Price Opinion Timeline
+        <span className="text-xs font-normal text-slate-400">weekly median, weeks with 3+ opinions</span>
       </h3>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="xMidYMid meet">
         {/* Grid lines */}
@@ -412,8 +398,8 @@ function PriceTimeline({ opinions }) {
               key={i}
               cx={x}
               cy={y}
-              r={p.serious ? 5 : 3.5}
-              fill={p.serious ? '#1E293B' : '#F97316'}
+              r={4}
+              fill="#F97316"
               stroke="#fff"
               strokeWidth="1.5"
             />
@@ -477,19 +463,17 @@ function fmtBudget(val) {
 }
 
 // --- Opinions Table ---
-function OpinionsTable({ opinions, highlightId }) {
+// Two lists that share nothing (built on the server, opinionPrivacy.js): registered buyers WITHOUT their price, and
+// every price opinion WITHOUT any buyer, date or badge. A buyer's identity is never shown with their price opinion.
+function OpinionsTable({ registrations = [], priceOpinions = [], highlightId }) {
   const [showAnonymous, setShowAnonymous] = useState(false);
   const [anonSortField, setAnonSortField] = useState('offerAmount');
   const [anonSortDir, setAnonSortDir] = useState('desc');
 
-  const seriousOpinions = useMemo(() => {
-    return [...opinions]
-      .filter(o => o.serious === true)
-      .sort((a, b) => (parseFloat(b.offerAmount) || 0) - (parseFloat(a.offerAmount) || 0));
-  }, [opinions]);
+  const seriousOpinions = registrations; // newest first, from the server
 
   // The registration an agent was emailed about (?registration=<offerId>).
-  const highlighted = findRegistration(opinions, highlightId);
+  const highlighted = findRegistration(registrations, highlightId);
   const highlightedId = highlighted?.id || null;
 
   // Scroll the linked registration into view once the list is on screen. The
@@ -513,25 +497,10 @@ function OpinionsTable({ opinions, highlightId }) {
     };
   }, [highlightedId]);
 
-  const anonymousOpinions = useMemo(() => {
-    const anon = opinions.filter(o => o.serious !== true);
-    return [...anon].sort((a, b) => {
-      let aVal, bVal;
-      if (anonSortField === 'offerAmount') {
-        aVal = parseFloat(a.offerAmount) || 0;
-        bVal = parseFloat(b.offerAmount) || 0;
-      } else if (anonSortField === 'createdAt') {
-        const aTs = a.createdAt?.toDate ? a.createdAt.toDate() : (a.createdAt ? new Date(a.createdAt) : new Date(0));
-        const bTs = b.createdAt?.toDate ? b.createdAt.toDate() : (b.createdAt ? new Date(b.createdAt) : new Date(0));
-        aVal = aTs.getTime();
-        bVal = bTs.getTime();
-      } else {
-        aVal = a[anonSortField] || '';
-        bVal = b[anonSortField] || '';
-      }
-      return anonSortDir === 'asc' ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
-    });
-  }, [opinions, anonSortField, anonSortDir]);
+  // Amounts only, so the only sort is by amount.
+  const anonymousOpinions = useMemo(() => [...priceOpinions].sort((a, b) => (
+    anonSortDir === 'asc' ? a.offerAmount - b.offerAmount : b.offerAmount - a.offerAmount
+  )), [priceOpinions, anonSortDir]);
 
   const toggleAnonSort = (field) => {
     if (anonSortField === field) {
@@ -542,7 +511,7 @@ function OpinionsTable({ opinions, highlightId }) {
     }
   };
 
-  if (opinions.length === 0) {
+  if (registrations.length === 0 && priceOpinions.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
         <MessageSquare className="w-10 h-10 text-slate-300 mx-auto mb-3" />
@@ -594,12 +563,12 @@ function OpinionsTable({ opinions, highlightId }) {
                     The registration from your email
                   </p>
                 )}
-                {/* Top row: name/contact + price/date */}
+                {/* Top row: name/contact + registration date (never their price opinion) */}
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-slate-900">
-                        {op.resolvedBuyerName || op.buyerName || op.userName || 'Anonymous'}
+                        {op.name || 'Name not given'}
                       </span>
                       {op.isFirstHomeBuyer && (
                         <span className="inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-100 text-slate-600">FHB</span>
@@ -615,21 +584,16 @@ function OpinionsTable({ opinions, highlightId }) {
                         Wants: {fmtNextAction(op.nextAction)}
                       </p>
                     )}
-                    {(op.resolvedEmail || op.resolvedPhone) && (
+                    {(op.email || op.phone) && (
                       <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
-                        {op.resolvedEmail && <span>{op.resolvedEmail}</span>}
-                        {op.resolvedPhone && <span>{op.resolvedPhone}</span>}
+                        {op.email && <span>{op.email}</span>}
+                        {op.phone && <span>{op.phone}</span>}
                       </div>
                     )}
                   </div>
-                  <div className="text-right shrink-0">
-                    {op.offerAmount ? (
-                      <div className="text-lg font-bold text-slate-900">{formatPrice(op.offerAmount)}</div>
-                    ) : (
-                      <div className="text-xs text-slate-400 italic">No price opinion</div>
-                    )}
-                    <div className="text-xs text-slate-400">{formatDate(op.createdAt)}</div>
-                  </div>
+                  {op.registeredOn && (
+                    <div className="text-right shrink-0 text-xs text-slate-400">Registered {formatDate(`${op.registeredOn}T00:00:00+10:00`)}</div>
+                  )}
                 </div>
 
                 {/* Detail grid */}
@@ -693,7 +657,7 @@ function OpinionsTable({ opinions, highlightId }) {
           >
             <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               <Users className="w-4 h-4 text-slate-400" />
-              Anonymous Opinions ({anonymousOpinions.length})
+              Price Opinions, anonymous ({anonymousOpinions.length})
             </h3>
             <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${showAnonymous ? 'rotate-90' : ''}`} />
           </button>
@@ -703,29 +667,13 @@ function OpinionsTable({ opinions, highlightId }) {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <AnonSortHeader field="offerAmount">Price Opinion</AnonSortHeader>
-                    <AnonSortHeader field="createdAt">Date</AnonSortHeader>
-                    <th className="text-left px-4 py-3 font-semibold text-slate-600">Badges</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {anonymousOpinions.map((op) => (
-                    <tr key={op.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                  {anonymousOpinions.map((op, i) => (
+                    <tr key={i} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                       <td className="px-4 py-3 text-slate-700 font-semibold">
                         {formatPrice(op.offerAmount)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
-                        {formatDate(op.createdAt)}
-                      </td>
-                      <td className="px-4 py-3 space-x-1">
-                        {op.isFirstHomeBuyer && (
-                          <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-slate-200 text-slate-700">FHB</span>
-                        )}
-                        {op.isInvestor && (
-                          <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-slate-200 text-slate-700">Investor</span>
-                        )}
-                        {!op.isFirstHomeBuyer && !op.isInvestor && (
-                          <span className="text-slate-400">--</span>
-                        )}
                       </td>
                     </tr>
                   ))}
@@ -798,13 +746,16 @@ function AccessPanel({ kind, email, onSwitchAccount }) {
 // --- Main Report Page ---
 export default function PropertyReportPage() {
   useRequireAgent();
-  const { user, userData, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
   const propertyId = params.id;
 
   const [property, setProperty] = useState(null);
-  const [offers, setOffers] = useState([]);
+  // The separated buyer report from the server (opinionPrivacy.js): anonymous prices, registrations without prices, figures.
+  const [opinionReport, setOpinionReport] = useState({ priceOpinions: [], registrations: [], summary: null });
+  // Team manager only: who they may email this report to (selling agent / themself, emails on file).
+  const [reportRecipients, setReportRecipients] = useState([]);
   const [likes, setLikes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
@@ -858,81 +809,26 @@ export default function PropertyReportPage() {
           return;
         }
 
-        // The listing agent (and a superAdmin) read their own data directly,
-        // exactly as before. Anyone else — in practice an office administrator
-        // — goes through the server, which only answers for an admin of the
-        // listing agent's CURRENT office and marks the response read-only.
-        const ownListing = propertySnap.data().userId === user.uid || userData?.superAdmin;
-        let rawOffers;
-        let rawLikes;
-        let userMap = {};
-
-        if (ownListing) {
-          const [offersSnap, likesSnap] = await Promise.all([
-            getDocs(query(collection(db, 'offers'), where('propertyId', '==', propertyId))),
-            getDocs(query(collection(db, 'likes'), where('propertyId', '==', propertyId))),
-          ]);
-          setProperty({ id: propertySnap.id, ...propertySnap.data() });
-          rawOffers = offersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-          rawLikes = likesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-          // Other users' documents are no longer client-readable; the server
-          // returns just the contact/preference fields for this listing's buyers.
-          if (rawOffers.some(o => o.type === 'opinion' && o.serious === true && o.userId)) {
-            try {
-              const res = await authFetch(`/api/properties/${propertyId}/buyer-profiles`);
-              if (res.ok) userMap = (await res.json()).buyers || {};
-            } catch (err) {
-              console.error('Error fetching buyer profiles:', err);
-            }
-          }
-        } else {
-          const res = await authFetch(`/api/properties/${propertyId}/report`);
-          if (!res.ok) {
-            setAccessError(res.status === 403 ? 'denied' : res.status === 404 ? 'notfound' : 'error');
-            return;
-          }
-          const report = await res.json();
-          setReadOnly(report.readOnly === true);
-          setViewerLevel(report.access || null);
-          setProperty(report.property);
-          rawOffers = report.offers;
-          rawLikes = report.likes;
-          userMap = report.buyers || {};
+        // Every viewer, the listing agent included, reads the report through the server: it checks access
+        // (propertyAccessService) and separates buyer identity from price opinions (opinionPrivacy.js), so this page
+        // never receives a buyer's details together with their price. Registration identity (typed details first,
+        // the linked account only filling gaps) is resolved there too.
+        const res = await authFetch(`/api/properties/${propertyId}/report`);
+        if (!res.ok) {
+          setAccessError(res.status === 403 ? 'denied' : res.status === 404 ? 'notfound' : 'error');
+          return;
         }
-
-        // Enrich offers with resolved buyer name, contact info, and preferences.
-        // Prefer user-profile data (resolved from userId); fall back to whatever
-        // was captured directly on the offer (e.g. iPad kiosk flow).
-        const enrichedOffers = rawOffers.map(o => {
-          if (o.type === 'opinion' && o.serious === true && o.userId && userMap[o.userId]) {
-            // Typed registration details win; the linked account only fills gaps,
-            // and only if it can be the same person (see registrationIdentity.js).
-            const identity = resolveBuyerIdentity(o, userMap[o.userId]);
-            const prefs = profileForRegistration(o, userMap[o.userId])?.buyerPreferences || {};
-            return {
-              ...o,
-              resolvedBuyerName: identity.name,
-              resolvedEmail: identity.email,
-              resolvedPhone: identity.phone,
-              preferredLocations: prefs.locations || [],
-              preferredType: prefs.propertyType || null,
-              minBedrooms: prefs.minBedrooms || null,
-              minBudget: prefs.minBudget || null,
-              maxBudget: prefs.maxBudget || null,
-            };
-          }
-          // No linked user profile — use contact info captured on the offer itself
-          return {
-            ...o,
-            resolvedBuyerName: o.buyerName || o.userName || null,
-            resolvedEmail: o.buyerEmail || null,
-            resolvedPhone: o.buyerPhone || null,
-          };
+        const report = await res.json();
+        setReadOnly(report.readOnly === true);
+        setViewerLevel(report.access || null);
+        setReportRecipients(Array.isArray(report.reportRecipients) ? report.reportRecipients : []);
+        setProperty(report.property);
+        setOpinionReport({
+          priceOpinions: Array.isArray(report.priceOpinions) ? report.priceOpinions : [],
+          registrations: Array.isArray(report.registrations) ? report.registrations : [],
+          summary: report.summary || null,
         });
-
-        setOffers(enrichedOffers);
-        setLikes(rawLikes);
+        setLikes(Array.isArray(report.likes) ? report.likes : []);
       } catch (err) {
         console.error('Error fetching report data:', err);
         setAccessError('error');
@@ -1195,16 +1091,13 @@ export default function PropertyReportPage() {
   };
 
   // Computed data
-  const opinions = offers.filter(o => o.type === 'opinion');
-  const seriousBuyers = opinions.filter(o => o.serious === true);
-  const passiveBuyers = opinions.filter(o => o.serious !== true);
-
-  const seriousAmounts = seriousBuyers.map(o => parseFloat(o.offerAmount) || 0).filter(a => a > 0);
-  const passiveAmounts = passiveBuyers.map(o => parseFloat(o.offerAmount) || 0).filter(a => a > 0);
-  const allAmounts = [...seriousAmounts, ...passiveAmounts];
+  // Figures from the server's separated report (opinionPrivacy.js): counts and medians that never reduce to one
+  // registered buyer's price (serious/passive medians only once both groups have 3+ price opinions).
+  const { priceOpinions, registrations } = opinionReport;
+  const summary = opinionReport.summary || {};
 
   const listingPrice = parseFloat(String(property.price).replace(/[^0-9.]/g, '')) || 0;
-  const combinedMedian = median(allAmounts);
+  const combinedMedian = summary.combinedMedian || null;
   const priceDiff = combinedMedian && listingPrice
     ? ((combinedMedian - listingPrice) / listingPrice * 100).toFixed(1)
     : null;
@@ -1217,7 +1110,7 @@ export default function PropertyReportPage() {
           <div className="flex items-center justify-between gap-3">
             {/* Left: Back + Title */}
             <div className="flex items-center gap-3 min-w-0">
-              <Link href={viewerLevel === 'teamMember' ? '/dashboard/team' : viewerLevel === 'manager' ? '/dashboard' : readOnly ? '/dashboard/office/team' : '/dashboard'} className="p-2 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
+              <Link href={viewerLevel === 'teamMember' ? '/dashboard/team' : viewerLevel === 'manager' || viewerLevel === 'teamManager' ? '/dashboard' : readOnly ? '/dashboard/office/team' : '/dashboard'} className="p-2 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
                 <ArrowLeft className="w-5 h-5 text-slate-600" />
               </Link>
               <div className="min-w-0">
@@ -1253,11 +1146,15 @@ export default function PropertyReportPage() {
                 )}
               </VisibilityTag>
 
-              {/* Send Report - primary action (hidden for read-only office admins) */}
-              {!readOnly && (
+              {/* Send Report - primary action (hidden for read-only office admins; a team manager may send it to the
+                  selling agent or themself, see reportRecipients) */}
+              {(!readOnly || reportRecipients.length > 0) && (
               <button
-                onClick={() => { setShowSendReport(true); setReportSent(false); setReportEmail(''); setReportName(''); }}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-orange-500 text-white hover:bg-orange-600 transition-colors"
+                onClick={() => {
+                  setShowSendReport(true); setReportSent(false);
+                  setReportEmail(reportRecipients[0]?.email || ''); setReportName(reportRecipients[0]?.name || '');
+                }}
+                className={`${readOnly ? 'flex' : 'hidden sm:flex'} items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-orange-500 text-white hover:bg-orange-600 transition-colors`}
               >
                 <Send className="w-3.5 h-3.5" />
                 Send Report
@@ -1380,6 +1277,11 @@ export default function PropertyReportPage() {
                   <span className="font-semibold">Viewing as the campaign&apos;s BSO</span>
                   <span className="text-indigo-800"> — this report is read-only. Edit the campaign, its photos and its buyer link from your Dashboard.</span>
                 </>
+              ) : viewerLevel === 'teamManager' ? (
+                <>
+                  <span className="font-semibold">Viewing as a team manager</span>
+                  <span className="text-indigo-800"> — edit the campaign, its photos and its buyer link from your Dashboard. You can email this report to the selling agent or to yourself.</span>
+                </>
               ) : viewerLevel !== 'teamMember' ? (
                 <>
                   <span className="font-semibold">Viewing as office admin</span>
@@ -1449,8 +1351,8 @@ export default function PropertyReportPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <EngagementCard label="Total Views" value={property.stats?.views || 0} icon={Eye} />
             <EngagementCard label="Total Likes" value={likes.length} icon={Heart} />
-            <EngagementCard label="Price Opinions" value={opinions.length} icon={MessageSquare} />
-            <EngagementCard label="Serious Buyers" value={seriousBuyers.length} icon={UserCheck} />
+            <EngagementCard label="Price Opinions" value={summary.opinions || 0} icon={MessageSquare} />
+            <EngagementCard label="Serious Buyers" value={summary.serious || 0} icon={UserCheck} />
           </div>
         </div>
 
@@ -1483,24 +1385,29 @@ export default function PropertyReportPage() {
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-            <MedianCard label="Serious Buyer Median" value={median(seriousAmounts)} />
-            <MedianCard label="Passive Buyer Median" value={median(passiveAmounts)} />
-            <MedianCard label="Combined Median" value={median(allAmounts)} />
+            <MedianCard label="Serious Buyer Median" value={summary.seriousMedian} />
+            <MedianCard label="Passive Buyer Median" value={summary.passiveMedian} />
+            <MedianCard label="Combined Median" value={combinedMedian} />
           </div>
+          {summary.serious > 0 && !summary.seriousMedian && (
+            <p className="text-xs text-slate-400 -mt-2 mb-4">
+              Serious and passive medians appear once each group has at least {summary.minGroup || 3} price opinions, so no registered buyer&apos;s price can be worked out.
+            </p>
+          )}
 
           {/* Price Range */}
-          {allAmounts.length > 0 && (
+          {summary.priceCount > 0 && (
             <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-500">Lowest Opinion</p>
-                <p className="text-sm font-bold text-slate-900">{formatPrice(Math.min(...allAmounts))}</p>
+                <p className="text-sm font-bold text-slate-900">{formatPrice(summary.priceMin)}</p>
               </div>
               <div className="flex-1 mx-4 h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-slate-300 via-slate-500 to-slate-800 rounded-full" />
               </div>
               <div className="text-right">
                 <p className="text-xs text-slate-500">Highest Opinion</p>
-                <p className="text-sm font-bold text-slate-900">{formatPrice(Math.max(...allAmounts))}</p>
+                <p className="text-sm font-bold text-slate-900">{formatPrice(summary.priceMax)}</p>
               </div>
             </div>
           )}
@@ -1508,19 +1415,15 @@ export default function PropertyReportPage() {
 
         {/* Price Distribution + Buyer Breakdown */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <PriceDistribution opinions={opinions} />
-          <BuyerBreakdown
-            seriousBuyers={seriousBuyers}
-            passiveBuyers={passiveBuyers}
-            opinions={opinions}
-          />
+          <PriceDistribution opinions={priceOpinions} />
+          <BuyerBreakdown summary={summary} />
         </div>
 
         {/* Price Timeline */}
-        <PriceTimeline opinions={opinions} />
+        <PriceTimeline weekly={summary.weekly} />
 
         {/* Opinions Table */}
-        <OpinionsTable opinions={opinions} highlightId={registrationId} />
+        <OpinionsTable registrations={registrations} priceOpinions={priceOpinions} highlightId={registrationId} />
 
         {/* Sold Status Action — internal agent/admin control, never shown on the public property page; hidden for read-only office admins */}
         {!readOnly && (
@@ -1771,6 +1674,22 @@ export default function PropertyReportPage() {
                   </div>
                   <h3 className="text-lg font-bold text-slate-900 text-center mb-1">Send Report</h3>
                   <p className="text-sm text-slate-500 text-center mb-5">Email a PDF report with property insights and buyer data.</p>
+                  {reportRecipients.length > 0 ? (
+                    // Team manager: only the selling agent or themself (account emails on file; the server checks too).
+                    <fieldset className="space-y-2 mb-5">
+                      <legend className="block text-xs font-semibold text-slate-600 mb-1.5">Send to</legend>
+                      {reportRecipients.map((r) => (
+                        <label key={r.email} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 cursor-pointer">
+                          <input type="radio" name="report-recipient" checked={reportEmail === r.email}
+                            onChange={() => { setReportEmail(r.email); setReportName(r.name || ''); }} />
+                          <span className="min-w-0">
+                            <span className="font-semibold">{r.role === 'me' ? 'Me' : r.name || 'Selling agent'}</span>
+                            <span className="text-slate-500">{r.role === 'me' ? '' : ' · selling agent'} · {r.email}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : (
                   <div className="space-y-3 mb-5">
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">Recipient Name</label>
@@ -1793,6 +1712,7 @@ export default function PropertyReportPage() {
                       />
                     </div>
                   </div>
+                  )}
                   <div className="flex gap-3">
                     <button
                       onClick={() => setShowSendReport(false)}
