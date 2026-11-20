@@ -11,6 +11,7 @@ export const OFFICES = {
   hph: {
     slug: 'hph',
     name: 'Harcourts Property Hub',
+    shortName: 'HPH', // Agent Hub copy: "the HPH vendor information page", "HPH agents"
     agentLabel: 'Harcourts Property Hub agent',
     navy: '#001f49',
     blue: '#00aeef',
@@ -39,14 +40,16 @@ export const TEAM_PAGES = {
   },
 };
 
-// Branded copies of the /hph vendor page for other offices: the HPH page EXACTLY (same component, layout, copy, colours
-// and features), derived from the HPH entry so every update to it flows through, with only the office name, agent label
-// and logo replaced. Kept out of OFFICES so office-specific features keyed on it (the iPad kiosk logo) are untouched.
+// Branded copies of the /hph vendor page and /hph-agent-hub for other offices: the HPH pages EXACTLY (same components,
+// layout, copy, colours and features), derived from the HPH entry so every update to it flows through, with only the
+// office name, agent label and logo replaced. The Agent Hub's vendor-page link goes to /<slug>. Kept out of OFFICES so
+// office-specific features keyed on it (the iPad kiosk logo) are untouched.
 export const BRANDED_PAGES = {
   harcourtsinnereast: {
     ...OFFICES.hph,
     slug: 'harcourtsinnereast',
     name: 'Harcourts Inner East',
+    shortName: 'Harcourts Inner East', // no abbreviation in use: the full name
     agentLabel: 'Harcourts Inner East agent',
     // Supplied Harcourts Inner East logo (2026-11-20) with its navy background removed: white + light blue on
     // transparent, for navy backgrounds. A @2x asset (768x346) declared at half size, matching the HPH white logo.

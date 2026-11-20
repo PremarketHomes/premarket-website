@@ -94,7 +94,7 @@ export default function AgentHub({ office }) {
             <Image src={logo.src} alt={name} width={logo.width} height={logo.height} priority className="h-11 sm:h-16 w-auto" />
           </div>
           <p className="mt-14 min-[360px]:whitespace-nowrap text-[0.7rem] sm:text-xs font-semibold uppercase tracking-[0.12em] sm:tracking-[0.18em] text-(--blue)">
-            Harcourts Property Hub <span aria-hidden="true">&middot;</span> Agent Hub
+            {name} <span aria-hidden="true">&middot;</span> Agent Hub
           </p>
           <h1 className="mt-4 text-[2rem] leading-[1.15] sm:text-5xl sm:leading-[1.1] font-semibold tracking-tight text-balance">
             One platform. Every stage of the campaign.
@@ -139,7 +139,7 @@ export default function AgentHub({ office }) {
               <HeroCopy Heading="h2" />
             </div>
           </section>
-          <Sections />
+          <Sections office={office} />
           <Closing />
         </div>
       ))}

@@ -31,7 +31,7 @@ export function PriceIntelligenceHeroCopy({ Heading = 'h1' }) {
   );
 }
 
-export function PriceIntelligenceSections() {
+export function PriceIntelligenceSections({ office }) {
   return (
     <>
       {/* 2. Market reality */}
@@ -77,7 +77,7 @@ export function PriceIntelligenceSections() {
             We need to get our days on market back down.
           </h2>
           <p className="mt-5 leading-relaxed text-slate-700">
-            At Harcourts Property Hub, the focus is simple: collect more meaningful buyer feedback, identify
+            At {office.name}, the focus is simple: collect more meaningful buyer feedback, identify
             pricing resistance earlier and give vendors the information they need to make decisions.
           </p>
           <p className="mt-4 leading-relaxed text-slate-700">
@@ -99,7 +99,7 @@ export function PriceIntelligenceSections() {
           Stop guessing where buyers see value.
         </h2>
         <p className="mt-5 leading-relaxed text-slate-700">
-          Price Intelligence gives HPH agents a simple way to collect anonymous buyer pricing opinions and
+          Price Intelligence gives {office.shortName} agents a simple way to collect anonymous buyer pricing opinions and
           present that feedback to vendors throughout the sales campaign.
         </p>
         <p className="mt-4 leading-relaxed text-slate-700">
@@ -160,7 +160,7 @@ export default function PriceIntelligenceLanding({ office }) {
         </div>
       </section>
 
-      <PriceIntelligenceSections />
+      <PriceIntelligenceSections office={office} />
 
       <PriceIntelligenceClosing logo={logo} />
 
