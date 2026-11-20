@@ -1,7 +1,6 @@
-// Agent-facing "Premarket" tab for the HPH Agent Hub. This is written for agents running a campaign.
-// The vendor-facing explanation lives on /hph and is linked from here rather than copied.
-
-const VENDOR_PAGE_URL = 'https://premarket.homes/hph';
+// Agent-facing "Premarket" tab for an office's Agent Hub. This is written for agents running a campaign.
+// The vendor-facing explanation lives on the office's vendor page (/hph, /harcourtsinnereast, i.e. /<slug>) and is
+// linked from here rather than copied.
 
 const STEPS = [
   { title: 'Introduce the property', body: 'Share the property with relevant buyers in your database, by email, SMS or your usual channels.' },
@@ -25,7 +24,7 @@ export function AgentPremarketHeroCopy({ Heading = 'h2' }) {
   );
 }
 
-export function AgentPremarketSections() {
+export function AgentPremarketSections({ office }) {
   return (
     <>
       <section className="max-w-3xl mx-auto px-5 py-14 sm:py-20">
@@ -57,10 +56,10 @@ export function AgentPremarketSections() {
           </h2>
           <p className="mt-5 leading-relaxed text-slate-700">
             Some homeowners want to understand how Premarket works before they agree to a campaign. Send
-            them the HPH vendor information page, written for homeowners.
+            them the {office.shortName} vendor information page, written for homeowners.
           </p>
           <a
-            href={VENDOR_PAGE_URL}
+            href={`https://premarket.homes/${office.slug}`}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-full border-2 border-(--navy) px-6 text-sm font-semibold text-(--navy) transition-colors hover:bg-(--navy) hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--blue)"

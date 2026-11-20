@@ -11,11 +11,12 @@ describe('/harcourtsinnereast: the /hph vendor page, with only the office name a
   const p = BRANDED_PAGES.harcourtsinnereast;
 
   it('is derived from OFFICES.hph: identical except slug, name, agent label and logo', () => {
-    const { slug, name, agentLabel, logo, logoColour, ...rest } = p;
-    const { slug: s0, name: n0, agentLabel: a0, logo: l0, logoColour: c0, ...hphRest } = OFFICES.hph;
+    const { slug, name, shortName, agentLabel, logo, logoColour, ...rest } = p;
+    const { slug: s0, name: n0, shortName: sn0, agentLabel: a0, logo: l0, logoColour: c0, ...hphRest } = OFFICES.hph;
     expect(rest).toEqual(hphRest); // same navy, accent and contact: HPH updates flow through
     expect(slug).toBe('harcourtsinnereast');
     expect(name).toBe('Harcourts Inner East');
+    expect(shortName).toBe('Harcourts Inner East'); // never inherits "HPH"
     expect(agentLabel).toBe('Harcourts Inner East agent');
     expect(logo).toEqual({ src: '/offices/harcourtsinnereast/logo.png', width: 384, height: 173 });
     expect(logoColour).toBeUndefined(); // no HPH logo carried over
