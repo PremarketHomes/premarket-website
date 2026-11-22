@@ -3,6 +3,7 @@ import { sendEmail } from './resendService';
 import { wrapEmail, greeting, p, signature, BASE_URL } from './emailTemplates';
 import { Timestamp } from 'firebase-admin/firestore';
 import { formatPriceShort } from '../../utils/formatters';
+import { isExcludedOpinion } from '../../utils/opinionExclusion';
 
 export async function fetchBuyersWithPreferences() {
   const usersSnapshot = await adminDb
@@ -81,6 +82,7 @@ export async function fetchHottestProperties(limit = 5) {
 
   const counts = {};
   offersSnapshot.forEach((doc) => {
+    if (isExcludedOpinion(doc.data())) return; // excluded by Premarket (utils/opinionExclusion.js)
     const propertyId = doc.data().propertyId;
     if (propertyId) counts[propertyId] = (counts[propertyId] || 0) + 1;
   });

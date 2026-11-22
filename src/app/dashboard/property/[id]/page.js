@@ -68,6 +68,7 @@ import {
 } from 'lucide-react';
 import { formatPrice, formatDate } from '../../../utils/formatters';
 import { ReportSkeleton } from '../../components/PageSkeletons';
+import { exclusionNotice } from '../../../utils/opinionExclusion';
 
 
 // --- Engagement Stat Card ---
@@ -1354,6 +1355,11 @@ export default function PropertyReportPage() {
             <EngagementCard label="Price Opinions" value={summary.opinions || 0} icon={MessageSquare} />
             <EngagementCard label="Serious Buyers" value={summary.serious || 0} icon={UserCheck} />
           </div>
+          {exclusionNotice(summary.excluded) && (
+            <p data-testid="opinion-exclusion-notice" className="mt-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+              <strong>Note:</strong> {exclusionNotice(summary.excluded)}
+            </p>
+          )}
         </div>
 
         {/* Price Intelligence */}

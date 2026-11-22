@@ -7,6 +7,7 @@ import { useAuth } from '../../../../context/AuthContext';
 import { useRequireAgent } from '../../../../hooks/useRequireAgent';
 import { authFetch } from '../../../../utils/authFetch';
 import { fmtDate, fmtInt, fmtPrice, campaignPrice, STATUS_LABEL } from '../../format';
+import { exclusionNotice } from '../../../../utils/opinionExclusion';
 
 /** Read-only, buyer-redacted campaign report for the Leadership Hub. Offers no actions of any kind. */
 export default function LeadershipReportPage({ params }) {
@@ -62,6 +63,11 @@ export default function LeadershipReportPage({ params }) {
                 </div>
               ))}
             </dl>
+            {exclusionNotice(r.excluded) && (
+              <p data-testid="opinion-exclusion-notice" className="mt-4 rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+                <strong>Note:</strong> {exclusionNotice(r.excluded)}
+              </p>
+            )}
 
             <h2 className="mt-10 mb-3 font-serif text-2xl">Buyer opinions</h2>
             <div className="bg-white rounded-md border border-stone-200 overflow-x-auto">

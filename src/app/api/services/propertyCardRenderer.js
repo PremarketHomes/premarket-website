@@ -85,6 +85,7 @@ export async function renderPropertyCardPng({
   opinionsCount,
   seriousBuyersCount,
   medianDisplay,
+  excludedCount = 0,
 }) {
   const leftMargin = 72;
   const usableWidth = CARD_WIDTH - leftMargin * 2;
@@ -96,7 +97,11 @@ export async function renderPropertyCardPng({
 
   const statDefs = [
     { value: String(viewsCount ?? 0), label: 'Views' },
-    { value: String(opinionsCount ?? 0), label: opinionsCount === 1 ? 'Price Opinion' : 'Price Opinions' },
+    {
+      value: String(opinionsCount ?? 0),
+      // Disclosed on the card itself when Premarket excluded opinions (utils/opinionExclusion.js); labels wrap safely.
+      label: `${opinionsCount === 1 ? 'Price Opinion' : 'Price Opinions'}${excludedCount > 0 ? ` (${excludedCount} excluded by Premarket)` : ''}`,
+    },
     { value: medianDisplay || '--', label: 'Combined Median' },
     { value: String(seriousBuyersCount ?? 0), label: seriousBuyersCount === 1 ? 'Serious Buyer' : 'Serious Buyers' },
   ];

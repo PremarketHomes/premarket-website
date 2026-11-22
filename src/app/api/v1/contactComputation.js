@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { isExcludedOpinion } from '../../utils/opinionExclusion';
 
 /**
  * Contact Computation Engine
@@ -180,6 +181,7 @@ export async function buildAllContacts(adminDb) {
 
   for (const doc of offersSnap.docs) {
     const data = doc.data();
+    if (isExcludedOpinion(data)) continue; // excluded by Premarket (utils/opinionExclusion.js)
     const email = data.email || data.buyerEmail;
     const phone = data.phone || data.buyerPhone;
     const key = contactKey(email, phone);

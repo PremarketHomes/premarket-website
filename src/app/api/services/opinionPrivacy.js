@@ -15,6 +15,7 @@
  * the one anonymous amount shown is still obviously theirs.
  */
 import { resolveBuyerIdentity, profileForRegistration } from '../../utils/registrationIdentity';
+import { isExcludedOpinion, exclusionSummary } from '../../utils/opinionExclusion';
 
 export const MIN_GROUP = 3;
 
@@ -57,9 +58,12 @@ export function median(values) {
  * `buyers`: { [uid]: profile } for registered buyers with a linked account (optional).
  * `withIdentity`: false for viewers who may never see buyers (team colleagues, leadership): registrations keep only
  * what the buyer wants (no name, contact or preferences) and get positional ids.
+ * Opinions a Premarket administrator excluded (utils/opinionExclusion.js) are left out of every list and figure, and
+ * disclosed as `summary.excluded` ({ count, reasons, excludedAt } or null) for the report to state.
  */
 export function separateOpinions(docs, { buyers = {}, withIdentity = true } = {}) {
-  const opinions = (docs || []).filter((o) => o && o.type === 'opinion');
+  const excluded = exclusionSummary(docs);
+  const opinions = (docs || []).filter((o) => o && o.type === 'opinion' && !isExcludedOpinion(o));
   const serious = opinions.filter((o) => o.serious === true);
   const passive = opinions.filter((o) => o.serious !== true);
   const amounts = opinions.map(amountOf).filter((a) => a > 0);
@@ -134,6 +138,7 @@ export function separateOpinions(docs, { buyers = {}, withIdentity = true } = {}
       seriousnessLevels: levels,
       weekly,
       minGroup: MIN_GROUP,
+      excluded,
     },
   };
 }

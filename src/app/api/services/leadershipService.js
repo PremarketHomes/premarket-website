@@ -28,6 +28,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { redactLikesForTeam } from './teamRedaction';
 import { separateOpinions } from './opinionPrivacy';
 import { serializeForClient } from './propertyAccessService';
+import { isExcludedOpinion, exclusionSummary } from '../../utils/opinionExclusion';
 import { loadTestCampaignIds } from './testCampaigns';
 import {
   LEADERSHIP_TIMEZONE, propertyStatus, buildLeadershipData, buildAgentProfile, rankAgents, fullName, safeCount,
@@ -111,7 +112,7 @@ async function loadOpinions(db, propertyIds) {
     const snap = await db.collection('offers').where('propertyId', 'in', batch).get();
     snap.docs.forEach((d) => {
       const o = d.data();
-      if (o.type === 'opinion') byId.set(d.id, { id: d.id, ...o });
+      if (o.type === 'opinion' && !isExcludedOpinion(o)) byId.set(d.id, { id: d.id, ...o });
     });
   }));
   return [...byId.values()];
@@ -191,7 +192,10 @@ export async function getLeadershipPropertyReport(db, scope, propertyId) {
     db.collection('offers').where('propertyId', '==', propertyId).get(),
     db.collection('likes').where('propertyId', '==', propertyId).get(),
   ]);
-  const opinionDocs = offersSnap.docs.map((d) => d.data()).filter((o) => o.type === 'opinion');
+  const allOpinionDocs = offersSnap.docs.map((d) => d.data()).filter((o) => o.type === 'opinion');
+  // Excluded opinions never count; the report states how many were excluded (utils/opinionExclusion.js).
+  const excluded = exclusionSummary(allOpinionDocs);
+  const opinionDocs = allOpinionDocs.filter((o) => !isExcludedOpinion(o));
 
   const pick = {};
   for (const f of REPORT_PROPERTY_FIELDS) if (property[f] !== undefined) pick[f] = property[f];
@@ -214,6 +218,7 @@ export async function getLeadershipPropertyReport(db, scope, propertyId) {
     },
     // Anonymous amounts only, highest first: no buyer, date, interest or timeframe per price (opinionPrivacy.js).
     opinions: separateOpinions(opinionDocs, { withIdentity: false }).priceOpinions.map((o, i) => ({ id: `price-${i + 1}`, ...o })),
+    excluded,
     likes: redactLikesForTeam(likesSnap.docs.map((d) => d.data()), serializeForClient),
   };
 }

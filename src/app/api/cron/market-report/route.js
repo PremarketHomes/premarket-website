@@ -6,6 +6,7 @@ import { computeAllPHI, computeConfidence, getWeights, segmentProperties } from 
 import { sendEmail } from '../../services/resendService';
 import { wrapEmail } from '../../services/emailTemplates';
 import { buildMarketSummary } from '../../services/marketReportSummary';
+import { withoutExcluded } from '../../../utils/opinionExclusion';
 
 export const maxDuration = 300;
 
@@ -98,7 +99,7 @@ export async function GET(request) {
     ]);
 
     const properties = propertiesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const offers = offersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const offers = withoutExcluded(offersSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     const likes = likesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const engagement = engagementSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
 import { verifyAuth } from '../../middleware/auth';
+import { isExcludedOpinion } from '../../../utils/opinionExclusion';
 
 /**
  * GET /api/buyer/feed
@@ -130,6 +131,7 @@ export async function GET(request) {
 
         for (const doc of offersSnap.docs) {
           const o = { id: doc.id, ...doc.data() };
+          if (isExcludedOpinion(o)) continue; // excluded by Premarket (utils/opinionExclusion.js)
           const ms = tsToMs(o.createdAt);
           if (ms < since) continue;
           // Don't show the current user their own opinions

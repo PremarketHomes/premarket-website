@@ -10,6 +10,7 @@ import {
   wrapAddressLines,
 } from '../../services/propertyCardService';
 import { renderPropertyCardPng } from '../../services/propertyCardRenderer';
+import { withoutExcluded, exclusionSummary } from '../../../utils/opinionExclusion';
 
 export const maxDuration = 60;
 
@@ -60,7 +61,10 @@ export async function POST(request) {
     // Read-only: the exact same offers the Report reads for this property.
     // No Firestore writes anywhere in this route.
     const offersSnap = await adminDb.collection('offers').where('propertyId', '==', propertyId).get();
-    const offers = offersSnap.docs.map((d) => d.data());
+    // Opinions excluded by Premarket never count; the card says how many were excluded (utils/opinionExclusion.js).
+    const allOffers = offersSnap.docs.map((d) => d.data());
+    const excludedCount = exclusionSummary(allOffers)?.count || 0;
+    const offers = withoutExcluded(allOffers);
     const { opinionsCount, seriousBuyersCount, combinedMedian } = computeOpinionStats(offers);
     const viewsCount = property.stats?.views || 0;
     const medianDisplay = formatPriceShort(combinedMedian);
@@ -93,6 +97,7 @@ export async function POST(request) {
       opinionsCount,
       seriousBuyersCount,
       medianDisplay,
+      excludedCount,
     });
 
     return new NextResponse(cardBuffer, {
