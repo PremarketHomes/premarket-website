@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/nextjs';
 import { validateApiKey } from '../middleware';
 import { adminDb } from '../../../firebase/adminApp';
 import { getAllCachedScores } from '../scoreComputation';
+import { withoutExcluded } from '../../../utils/opinionExclusion';
 
 export async function GET(request) {
   const auth = await validateApiKey(request);
@@ -59,7 +60,7 @@ export async function GET(request) {
       adminDb.collection('likes').get(),
     ]);
 
-    const offers = offersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const offers = withoutExcluded(offersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     const likes = likesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
     const offersByProperty = groupBy(offers, 'propertyId');

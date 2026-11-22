@@ -8,6 +8,7 @@ import { sendCampaignLinkOnce } from './agentNotificationService';
 import { loadActiveOffice, isActiveBso, getBsoAccess, bsoUidsOf, isUsableAccount } from './bsoService';
 import { sellingAgentThemeLookup } from './teamThemes';
 import { managedTeamOf, isTeamManagerFor } from './teamAccess';
+import { isExcludedOpinion } from '../../utils/opinionExclusion';
 
 /**
  * Office-managed campaigns, built on the EXISTING property model (no second campaign system).
@@ -700,7 +701,7 @@ async function countOpinions(db, propertyIds) {
     const snap = await db.collection('offers').where('propertyId', 'in', ids).get();
     for (const d of snap.docs) {
       const o = d.data();
-      if (o.type === 'opinion') counts.set(o.propertyId, (counts.get(o.propertyId) || 0) + 1);
+      if (o.type === 'opinion' && !isExcludedOpinion(o)) counts.set(o.propertyId, (counts.get(o.propertyId) || 0) + 1);
     }
   }
   return counts;

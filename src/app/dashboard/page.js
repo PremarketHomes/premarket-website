@@ -58,6 +58,7 @@ import {
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 import PropertyThumb from '../components/PropertyThumb';
 import { DashboardSkeleton, PropertyCardsSkeleton, CampaignRowsSkeleton } from './components/PageSkeletons';
+import { isExcludedOpinion } from '../utils/opinionExclusion';
 
 // --- Shimmer Image Wrapper ---
 function ShimmerImage({ src, alt, ...props }) {
@@ -1205,7 +1206,7 @@ function DashboardPage() {
             const offersSnap = await getDocs(
               query(collection(db, 'offers'), where('propertyId', 'in', batch))
             );
-            totalOpinions += offersSnap.docs.filter(d => d.data().type === 'opinion').length;
+            totalOpinions += offersSnap.docs.filter(d => d.data().type === 'opinion' && !isExcludedOpinion(d.data())).length;
           }
           setOpinionsCount(totalOpinions);
         }

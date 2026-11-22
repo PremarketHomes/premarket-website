@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../firebase/adminApp';
+import { isExcludedOpinion } from '../../../utils/opinionExclusion';
 
 /**
  * Returns how many price opinions exist for a property — nothing else.
@@ -34,7 +35,7 @@ export async function GET(req) {
     }
 
     const snap = await adminDb.collection('offers').where('propertyId', '==', propertyId).get();
-    const count = snap.docs.filter((d) => d.data().type === 'opinion').length;
+    const count = snap.docs.filter((d) => d.data().type === 'opinion' && !isExcludedOpinion(d.data())).length;
 
     return NextResponse.json({ count });
   } catch (error) {

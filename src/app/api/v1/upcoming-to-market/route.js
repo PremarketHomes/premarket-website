@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { validateApiKey } from '../middleware';
 import { adminDb } from '../../../firebase/adminApp';
+import { withoutExcluded } from '../../../utils/opinionExclusion';
 
 const AU_STATES = ['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'];
 
@@ -93,7 +94,7 @@ export async function GET(request) {
     for (let i = 0; i < propertyIds.length; i += 30) {
       const batch = propertyIds.slice(i, i + 30);
       const snap = await adminDb.collection('offers').where('propertyId', 'in', batch).get();
-      allOffers.push(...snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      allOffers.push(...withoutExcluded(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
     }
 
     // Index offers by propertyId

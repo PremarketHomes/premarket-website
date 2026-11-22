@@ -1,5 +1,6 @@
 import { adminDb } from '../../firebase/adminApp';
 import { NORMALIZATION } from './phiScoring';
+import { withoutExcluded } from '../../utils/opinionExclusion';
 
 // ─── Geocoding ──────────────────────────────────────────────────────────────
 
@@ -118,7 +119,8 @@ export async function getOffersForProperties(propertyIds) {
       .get();
     results.push(...snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
   }
-  return results;
+  // Opinions excluded by Premarket never feed any score or insight (utils/opinionExclusion.js).
+  return withoutExcluded(results);
 }
 
 /**

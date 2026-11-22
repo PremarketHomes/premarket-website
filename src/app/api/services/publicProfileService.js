@@ -1,5 +1,6 @@
 import { isAgent } from '../../utils/roles';
 import { overlayProfessionalProfile, pickUnambiguousProfile } from '../../utils/professionalProfile';
+import { isExcludedOpinion } from '../../utils/opinionExclusion';
 
 /**
  * Server-side replacement for the public pages' direct reads of
@@ -124,7 +125,7 @@ export async function loadBuyerProfiles(db, propertyId) {
     ...new Set(
       offers.docs
         .map((d) => d.data())
-        .filter((o) => o.type === 'opinion' && o.serious === true && o.userId)
+        .filter((o) => o.type === 'opinion' && o.serious === true && o.userId && !isExcludedOpinion(o))
         .map((o) => o.userId),
     ),
   ];

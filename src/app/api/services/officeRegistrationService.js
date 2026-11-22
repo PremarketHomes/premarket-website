@@ -10,6 +10,8 @@
  * (This does not change how offers are stored; the underlying data linkage is tracked separately.)
  * Leadership accounts and ordinary agents/team members never reach this.
  */
+import { isExcludedOpinion } from '../../utils/opinionExclusion';
+
 const REGISTRATION_FIELDS = ['buyerName', 'buyerEmail', 'buyerPhone', 'nextAction', 'timeframe', 'buyerType', 'isFirstHomeBuyer', 'isInvestor'];
 const MAX_RESULTS = 300;
 const chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
@@ -48,6 +50,7 @@ export async function listRegistrations(db, scope) {
     for (const d of snap.docs) {
       const o = d.data();
       if (o.serious !== true) continue; // formal registrations only
+      if (isExcludedOpinion(o)) continue; // excluded by Premarket (utils/opinionExclusion.js)
       const p = props.get(o.propertyId);
       const owner = owners.get(p.userId);
       const reg = { id: d.id, propertyId: o.propertyId, address: p.formattedAddress || p.address || null, agentUid: p.userId, agentName: displayName(owner), createdAt: toDay(o.createdAt) };

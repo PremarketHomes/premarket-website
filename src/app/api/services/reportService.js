@@ -1,9 +1,12 @@
 import { separateOpinions } from './opinionPrivacy';
+import { isExcludedOpinion, exclusionSummary, exclusionNotice } from '../../utils/opinionExclusion';
 import { adminDb } from '../../firebase/adminApp';
 import { sendEmail } from './resendService';
 import { wrapEmail } from './emailTemplates';
 import PDFDocument from 'pdfkit';
 
+
+const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 function fmtMoney(v) {
   if (!v) return '$0';
@@ -73,8 +76,11 @@ export async function buildReport(propertyId) {
   const serious = [];
   const passive = [];
   const allOpinions = [];
+  // Opinions a Premarket administrator excluded never count here; the report states how many (utils/opinionExclusion.js).
+  const excluded = exclusionSummary(offersSnap.docs.map((d) => d.data()));
   for (const d of offersSnap.docs) {
     const data = d.data();
+    if (isExcludedOpinion(data)) continue;
     allOpinions.push(data);
     if (data.serious === true) serious.push(data);
     else passive.push(data);
@@ -152,6 +158,8 @@ export async function buildReport(propertyId) {
     listingVsMedianPct,
     seriousBuyerDetails,
     weekly, // weekly medians, only for weeks with 3+ price opinions (never single dated prices)
+    excluded,
+    exclusionNotice: exclusionNotice(excluded),
   };
 }
 
@@ -221,6 +229,10 @@ async function generateReportPDF(report) {
     const totalBuyers = report.seriousCount + report.passiveCount;
     doc.fontSize(10).fillColor(grey);
     doc.text(`Total Views: ${views}          Price Opinions: ${totalBuyers}          Serious Buyers: ${report.seriousCount}          Likes: ${report.likesCount}`);
+    if (report.exclusionNotice) {
+      doc.moveDown(0.4);
+      doc.fontSize(10).fillColor('#9A3412').text(`Note: ${report.exclusionNotice}`, { width: pageWidth });
+    }
     doc.moveDown(1);
 
     // --- Listing vs Median ---
@@ -548,6 +560,7 @@ export async function gatherReport(email, propertyId, name) {
           </td>
         </tr>
       </table>
+      ${report.exclusionNotice ? `<p style="margin:0 0 20px; padding:10px 12px; font-size:13px; color:#9A3412; background:#FFF7ED; border:1px solid #FED7AA; border-radius:8px;"><strong>Note:</strong> ${escapeHtml(report.exclusionNotice)}</p>` : ''}
 
       <h3 style="margin-top:20px; color:#111;">Confidence Score: <span style="color:${confidence.color};">${confidence.label}</span></h3>
 
