@@ -6,7 +6,6 @@ import {
   Eye,
   Users,
   ShieldCheck,
-  Sparkles,
   ClipboardCheck,
   Activity,
   Zap,
@@ -140,42 +139,8 @@ export default function AgentsClient() {
         </div>
       </section>
 
-      {/* Pricing — clean and quiet */}
-      <section className="max-w-5xl mx-auto px-4 sm:px-6 py-24 sm:py-32">
-        <div className="rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_60px_-30px_rgba(15,23,42,0.18)] p-10 sm:p-16 text-center">
-          <p className="text-[11px] font-bold text-[#c64500] uppercase tracking-[0.18em] mb-6">
-            Pricing
-          </p>
-          <p className="text-5xl sm:text-6xl font-bold tracking-tight text-slate-900">
-            $200{' '}
-            <span className="text-2xl sm:text-3xl font-semibold text-slate-400">
-              vendor-paid, per campaign
-            </span>
-          </p>
-          <p className="mt-6 text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            One flat, vendor-paid fee per property. No subscription. No setup. No per-buyer charges.
-            Run as many campaigns as you like — the vendor pays only for the ones you launch.
-          </p>
-          <div className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl mx-auto text-left">
-            {[
-              'Unlimited buyer opinions',
-              'Live vendor reports (PDF + in-app)',
-              'Price opinion median & range',
-              'Branded to your agency',
-              'No monthly commitment',
-              'Cancel any campaign, any time',
-            ].map((perk) => (
-              <div key={perk} className="flex items-start gap-2.5">
-                <Sparkles className="w-4 h-4 text-[#e48900] flex-shrink-0 mt-0.5" strokeWidth={2} />
-                <span className="text-sm text-slate-700 leading-snug">{perk}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* Trust + brand */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 pb-24 sm:pb-32">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 py-24 sm:py-32">
         <TwoColumn
           reverse
           left={
@@ -220,7 +185,7 @@ export default function AgentsClient() {
 
       <ClosingCTA
         title="Run your first campaign this week"
-        subtitle="No subscription. No commitment. $200 per listing, vendor-paid — only when you launch one."
+        subtitle="Walk into your next appraisal with live buyer evidence in hand."
         primaryHref="/join"
         primaryLabel="Start a campaign"
         secondaryHref="/contact"
