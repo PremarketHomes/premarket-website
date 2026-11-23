@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  isExcludedOpinion, withoutExcluded, exclusionSummary, exclusionNotice,
+  isExcludedOpinion, isTestExclusion, withoutExcluded, exclusionSummary, exclusionNotice,
 } from '../../src/app/utils/opinionExclusion';
 import { separateOpinions } from '../../src/app/api/services/opinionPrivacy';
 
@@ -96,6 +96,39 @@ describe('separateOpinions leaves excluded opinions out of every list and figure
     const s = separateOpinions([op('b', 980000, '2026-11-19T00:00:00Z')]);
     expect(s.summary.excluded).toBeNull();
     expect(s.priceOpinions).toEqual([{ offerAmount: 980000 }]);
+  });
+});
+
+describe('test submissions: excluded everywhere, never disclosed (like test campaigns)', () => {
+  const test = (extra = {}) => ex({ kind: 'test', reason: 'Test submissions', ...extra });
+  // The Glades Drive data as it is now: the four $900,000 opinions confirmed as tests.
+  const gladesTests = [
+    op('a', 900000, '2026-11-19T04:39:19Z', test()),
+    op('b', 980000, '2026-11-19T04:59:51Z'),
+    op('c', 900000, '2026-11-19T05:09:46Z', test()),
+    op('d', 900000, '2026-11-19T06:08:13Z', test()),
+    op('e', 900000, '2026-11-19T08:37:18Z', test()),
+  ];
+  it('isTestExclusion needs both excluded: true and kind: test', () => {
+    expect(isTestExclusion(op('x', 1, null, test()))).toBe(true);
+    expect(isTestExclusion(op('x', 1, null, ex()))).toBe(false);
+    expect(isTestExclusion(op('x', 1, null, { reportExclusion: { excluded: false, kind: 'test' } }))).toBe(false);
+  });
+  it('still excluded from every list and figure', () => {
+    expect(withoutExcluded(gladesTests).map((o) => o.id)).toEqual(['b']);
+    const r = separateOpinions(gladesTests);
+    expect(r.priceOpinions).toEqual([{ offerAmount: 980000 }]);
+    expect(r.summary).toMatchObject({ opinions: 1, priceCount: 1, combinedMedian: 980000, priceMin: 980000, priceMax: 980000 });
+  });
+  it('nothing to disclose: no summary, no notice', () => {
+    expect(exclusionSummary(gladesTests)).toBeNull();
+    expect(separateOpinions(gladesTests).summary.excluded).toBeNull();
+    expect(exclusionNotice(exclusionSummary(gladesTests))).toBeNull();
+  });
+  it('a genuine exclusion alongside tests is still disclosed, counting only the genuine one', () => {
+    const s = exclusionSummary([...gladesTests, op('f', 1200000, '2026-11-20T00:00:00Z', ex())]);
+    expect(s).toMatchObject({ count: 1, reasons: [] });
+    expect(exclusionNotice(s)).toMatch(/^1 buyer price opinion was excluded/);
   });
 });
 
