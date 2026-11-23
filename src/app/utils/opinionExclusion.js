@@ -9,13 +9,20 @@
  * copied into officeCampaignAudit (action 'opinion.excludedFromReports', server-only) at the time of exclusion.
  *
  * Every count, median, range, report and score leaves excluded opinions out (withoutExcluded), and every report that
- * shows this campaign's opinions states how many were excluded, when, and why (exclusionSummary / exclusionNotice),
- * so a smaller set of results is never presented as the complete picture.
+ * shows this campaign's opinions states how many genuine buyer opinions were excluded, when, and why
+ * (exclusionSummary / exclusionNotice), so a smaller set of results is never presented as the complete picture.
+ *
+ * Test submissions (reportExclusion.kind === 'test', e.g. the team trying a campaign's buyer page) are excluded the
+ * same way but are NOT disclosed, exactly like test campaigns: they were never buyer feedback. The audit trail still
+ * records who confirmed them as tests.
  *
  * Plain JS with no imports: shared by API services and client pages alike.
  */
 
 export const isExcludedOpinion = (o) => o?.reportExclusion?.excluded === true;
+
+/** An excluded opinion that was a test submission, not buyer feedback: left out everywhere, never disclosed. */
+export const isTestExclusion = (o) => isExcludedOpinion(o) && o.reportExclusion.kind === 'test';
 
 /** The opinions that count: everything except excluded ones. Non-arrays give []. */
 export const withoutExcluded = (list) => (Array.isArray(list) ? list.filter((o) => o && !isExcludedOpinion(o)) : []);
@@ -31,11 +38,12 @@ const toIso = (t) => {
 
 /**
  * What a report must disclose about excluded opinions among `docs` (opinion documents; other types ignored):
- * { count, reasons, excludedAt } with the latest exclusion time, or null when nothing was excluded.
- * Never any amount, buyer or per-opinion detail of the excluded opinions.
+ * { count, reasons, excludedAt } with the latest exclusion time, or null when no genuine opinion was excluded.
+ * Test submissions are not counted (isTestExclusion). Never any amount, buyer or per-opinion detail.
  */
 export function exclusionSummary(docs) {
-  const excluded = (Array.isArray(docs) ? docs : []).filter((o) => o && o.type === 'opinion' && isExcludedOpinion(o));
+  const excluded = (Array.isArray(docs) ? docs : [])
+    .filter((o) => o && o.type === 'opinion' && isExcludedOpinion(o) && !isTestExclusion(o));
   if (!excluded.length) return null;
   const reasons = [...new Set(excluded.map((o) => String(o.reportExclusion.reason || '').trim()).filter(Boolean))];
   const times = excluded.map((o) => toIso(o.reportExclusion.excludedAt)).filter(Boolean).sort();
