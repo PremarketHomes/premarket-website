@@ -218,6 +218,46 @@ describe('invoice preview support — dates, drafts, PDF', () => {
   });
 });
 
+describe('empty success responses (Xero\'s email endpoint answers 204 No Content)', () => {
+  beforeEach(() => {
+    fakeDb._seed('settings', 'xeroTokens', { access_token: 'tok', refresh_token: 'refresh', expires_at: Date.now() + 3600000, tenant_id: 'tenant1' });
+  });
+  const reply = (status, text) => ({ ok: status >= 200 && status < 300, status, text: async () => text, json: async () => JSON.parse(text) });
+
+  it('REGRESSION (HPH INV-0003): sendInvoice succeeds on 204 with an empty body instead of throwing "Unexpected end of JSON input"', async () => {
+    global.fetch = vi.fn().mockResolvedValue(reply(204, ''));
+    const { sendInvoice } = await import('../../src/app/api/services/xeroService.js');
+    await expect(sendInvoice('inv1')).resolves.toBeNull();
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(url).toBe('https://api.xero.com/api.xro/2.0/Invoices/inv1/Email');
+    expect(options.method).toBe('POST');
+    expect(global.fetch).toHaveBeenCalledTimes(1); // one email request, never repeated
+  });
+
+  it('a 200 with an empty body is also success (null)', async () => {
+    global.fetch = vi.fn().mockResolvedValue(reply(200, '  '));
+    const { sendInvoice } = await import('../../src/app/api/services/xeroService.js');
+    await expect(sendInvoice('inv1')).resolves.toBeNull();
+  });
+
+  it('JSON bodies are still parsed, and failures still throw with the status', async () => {
+    const { makeXeroRequest, sendInvoice } = await import('../../src/app/api/services/xeroService.js');
+    global.fetch = vi.fn().mockResolvedValue(reply(200, '{"Invoices":[{"InvoiceID":"inv1"}]}'));
+    expect(await makeXeroRequest('GET', '/Invoices/inv1')).toEqual({ Invoices: [{ InvoiceID: 'inv1' }] });
+    global.fetch = vi.fn().mockResolvedValue(reply(400, '{"Message":"Invoice not of valid status for sending"}'));
+    await expect(sendInvoice('inv1')).rejects.toThrow(/failed \(400\).*valid status/);
+  });
+
+  it('getInvoiceHistory reads GET /Invoices/{id}/History', async () => {
+    global.fetch = vi.fn().mockResolvedValue(reply(200, '{"HistoryRecords":[{"Changes":"Approved","DateUTCString":"2026-11-23T04:13:25"}]}'));
+    const { getInvoiceHistory } = await import('../../src/app/api/services/xeroService.js');
+    expect(await getInvoiceHistory('inv1')).toEqual([{ Changes: 'Approved', DateUTCString: '2026-11-23T04:13:25' }]);
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(url).toBe('https://api.xero.com/api.xro/2.0/Invoices/inv1/History');
+    expect(options.method).toBe('GET');
+  });
+});
+
 describe('read-only Xero helpers — never create or modify anything', () => {
   beforeEach(() => {
     fakeDb._seed('settings', 'xeroTokens', {

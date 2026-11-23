@@ -25,21 +25,53 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
   // fire two retries for the same item at once.
   const [retryingItemId, setRetryingItemId] = useState(null);
   const [retryError, setRetryError] = useState(null);
+  // Read-only "what does Xero say?" for a failed-email item; kept after the item is corrected
+  // to sent, so the evidence stays on screen.
+  const [checkingItemId, setCheckingItemId] = useState(null);
+  const [delivery, setDelivery] = useState(null); // { invoiceNumber, ..., reconciled, alreadySent }
 
   const failedSendItems = (items || []).filter((item) => item.status === 'email_failed');
 
-  async function handleRetrySend(itemId) {
-    if (retryingItemId) return; // one retry in flight at a time, defence in depth alongside the disabled button below
-    setRetryingItemId(itemId);
+  async function handleCheckDelivery(itemId) {
+    if (checkingItemId || retryingItemId) return;
+    setCheckingItemId(itemId);
     setRetryError(null);
     try {
       const res = await authFetch(`/api/admin/invoicing/runs/${run.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'retrySend', itemId }),
+        body: JSON.stringify({ action: 'checkDelivery', itemId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not check the invoice in Xero');
+      setDelivery({ ...data.delivery, reconciled: data.reconciled });
+      if (data.reconciled) onRefresh?.();
+    } catch (err) {
+      setRetryError(err.message || 'Could not check the invoice in Xero');
+    } finally {
+      setCheckingItemId(null);
+    }
+  }
+
+  async function handleRetrySend(item) {
+    if (retryingItemId || checkingItemId) return; // one at a time, defence in depth alongside the disabled buttons below
+    const ok = window.confirm(
+      `Email ${item.xeroInvoiceNumber || 'this invoice'} to ${item.agentName || 'the billing contact'}${item.agentEmail ? ` (${item.agentEmail})` : ''}?\n\n`
+      + 'Premarket asks Xero first. If Xero shows this invoice was already sent, it is NOT emailed again. '
+      + 'Only continue if "Check delivery in Xero" shows it has not been sent.',
+    );
+    if (!ok) return;
+    setRetryingItemId(item.id);
+    setRetryError(null);
+    try {
+      const res = await authFetch(`/api/admin/invoicing/runs/${run.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'retrySend', itemId: item.id }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to retry sending this invoice');
+      if (data.alreadySent) setDelivery({ ...data.delivery, alreadySent: true });
       onRefresh?.();
     } catch (err) {
       console.error('Retry send failed:', err);
@@ -314,8 +346,16 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
                 </p>
               </div>
               <button
-                onClick={() => handleRetrySend(item.id)}
-                disabled={retryingItemId === item.id}
+                onClick={() => handleCheckDelivery(item.id)}
+                disabled={!!checkingItemId || !!retryingItemId}
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 bg-white text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-50 disabled:opacity-50 flex-shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${checkingItemId === item.id ? 'animate-spin' : ''}`} />
+                {checkingItemId === item.id ? 'Checking Xero…' : 'Check delivery in Xero'}
+              </button>
+              <button
+                onClick={() => handleRetrySend(item)}
+                disabled={!!retryingItemId || !!checkingItemId}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-50 flex-shrink-0"
               >
                 <Mail className={`w-3.5 h-3.5 ${retryingItemId === item.id ? 'animate-pulse' : ''}`} />
@@ -325,6 +365,38 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
           ))}
           {retryError && (
             <p className="text-xs text-red-700 pt-1">{retryError}</p>
+          )}
+        </div>
+      )}
+
+      {/* What Xero holds for the invoice (read-only check, or a retry that found it already sent). */}
+      {delivery && (
+        <div className={`rounded-xl p-4 space-y-2 border ${delivery.emailed ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`} data-testid="xero-delivery-result">
+          <p className={`text-sm font-semibold ${delivery.emailed ? 'text-emerald-800' : 'text-amber-800'}`}>
+            {delivery.found === false
+              ? 'Xero has no record of this invoice.'
+              : delivery.emailed
+                ? `Xero shows ${delivery.invoiceNumber || 'the invoice'} was sent to the contact.${delivery.alreadySent ? ' It was not emailed again.' : ''}${delivery.reconciled ? ' Premarket now records it as sent.' : ''}`
+                : `Xero has no record of ${delivery.invoiceNumber || 'the invoice'} being sent.`}
+          </p>
+          {delivery.found !== false && (
+            <p className="text-xs text-slate-700">
+              {delivery.invoiceNumber} · {delivery.status}
+              {delivery.contactName ? ` · ${delivery.contactName}` : ''}
+              {typeof delivery.total === 'number' ? ` · total $${delivery.total.toLocaleString('en-AU', { minimumFractionDigits: 2 })}` : ''}
+              {typeof delivery.totalTax === 'number' ? ` (GST $${delivery.totalTax.toLocaleString('en-AU', { minimumFractionDigits: 2 })})` : ''}
+              {typeof delivery.amountDue === 'number' ? ` · due $${delivery.amountDue.toLocaleString('en-AU', { minimumFractionDigits: 2 })}` : ''}
+              {delivery.date ? ` · dated ${delivery.date}` : ''}
+              {delivery.dueDate ? ` · due by ${delivery.dueDate}` : ''}
+            </p>
+          )}
+          {delivery.evidence && <p className="text-xs text-slate-600">{delivery.evidence}</p>}
+          {delivery.history?.length > 0 && (
+            <ul className="text-xs text-slate-600 list-disc pl-5">
+              {delivery.history.map((h, i) => (
+                <li key={i}>{[h.when, h.changes, h.details, h.user].filter(Boolean).join(' — ')}</li>
+              ))}
+            </ul>
           )}
         </div>
       )}

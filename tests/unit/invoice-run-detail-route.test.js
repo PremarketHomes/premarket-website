@@ -47,7 +47,17 @@ function makeFakeDb() {
       commit: async () => { ops.forEach((op) => op()); },
     };
   }
-  return { collection: col, batch, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
+  async function runTransaction(fn) {
+    const writes = [];
+    const tx = {
+      get: async (ref) => { const data = store[ref._col]?.[ref.id]; return { exists: !!data, id: ref.id, data: () => data }; },
+      update: (ref, patch) => writes.push(() => { store[ref._col][ref.id] = { ...(store[ref._col][ref.id] || {}), ...patch }; }),
+    };
+    const result = await fn(tx);
+    writes.forEach((w) => w());
+    return result;
+  }
+  return { collection: col, batch, runTransaction, _store: store, _seed: (name, id, data) => { store[name] = store[name] || {}; store[name][id] = data; } };
 }
 
 let fakeDb;
@@ -56,9 +66,21 @@ vi.mock('../../src/app/firebase/adminApp', () => ({
 }));
 
 const mockSendInvoice = vi.fn();
+const mockGetInvoiceById = vi.fn();
+const mockGetInvoiceHistory = vi.fn();
 vi.mock('../../src/app/api/services/xeroService', () => ({
   sendInvoice: (...args) => mockSendInvoice(...args),
+  getInvoiceById: (...args) => mockGetInvoiceById(...args),
+  getInvoiceHistory: (...args) => mockGetInvoiceHistory(...args),
+  deleteDraftInvoice: () => { throw new Error('unexpected deleteDraftInvoice'); },
 }));
+
+// What Xero holds for the invoice, by default: approved, $600, never sent.
+const xeroInvoice = (over = {}) => ({
+  InvoiceID: 'inv-existing', InvoiceNumber: 'INV-0003', Status: 'AUTHORISED', SentToContact: false,
+  Contact: { Name: 'Results Realty (QLD) Pty Ltd' }, Total: 600, TotalTax: 0, AmountDue: 600,
+  DateString: '2026-11-23T00:00:00', DueDateString: '2026-12-07T00:00:00', ...over,
+});
 
 function makeRequest(body) {
   const headers = new Headers({ authorization: 'Bearer t', 'Content-Type': 'application/json' });
@@ -71,6 +93,8 @@ beforeEach(() => {
   fakeDb._seed('users', 'admin1', { superAdmin: true });
   vi.clearAllMocks();
   mockVerifyIdToken.mockResolvedValue({ uid: 'admin1' });
+  mockGetInvoiceById.mockResolvedValue(xeroInvoice());
+  mockGetInvoiceHistory.mockResolvedValue([{ Changes: 'Approved', DateUTCString: '2026-11-23T04:13:25', Details: 'INV-0003 for 600.00' }]);
 });
 
 describe('PATCH .../runs/[runId] — cancel releases charges back to pending', () => {
@@ -238,5 +262,129 @@ describe('PATCH .../runs/[runId] — retrySend (resolving a failed email, Priori
     expect(res.status).toBe(500);
     expect(fakeDb._store.invoiceRunItems.item1.status).toBe('email_failed');
     expect(fakeDb._store.invoiceRunItems.item1.emailAttempts).toBe(2);
+  });
+});
+
+// HPH INV-0003 (23 Nov 2026): Xero accepted the email (204, empty body) but the old code failed to
+// parse the empty reply, so the item was recorded as a failed email. Retry must never email twice.
+describe('PATCH .../runs/[runId] — Retry Email never emails a customer twice', () => {
+  const seedFailed = (over = {}) => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'failed', errors: [{ agencyName: 'Harcourts Property Hub', error: 'Unexpected end of JSON input', stage: 'email' }] });
+    fakeDb._seed('invoiceRunItems', 'item1', {
+      runId: 'run1', status: 'email_failed', xeroInvoiceId: 'inv-existing', xeroInvoiceNumber: 'INV-0003',
+      lastEmailError: 'Unexpected end of JSON input', emailAttempts: 1, agencyName: 'Harcourts Property Hub', ...over,
+    });
+  };
+  const call = async (body) => {
+    const { PATCH } = await import('../../src/app/api/admin/invoicing/runs/[runId]/route.js');
+    const res = await PATCH(makeRequest(body), { params: Promise.resolve({ runId: 'run1' }) });
+    return { res, body: await res.json() };
+  };
+
+  it('if Xero marks the invoice as sent: NOT emailed again; item and run recorded as sent', async () => {
+    seedFailed();
+    mockGetInvoiceById.mockResolvedValue(xeroInvoice({ SentToContact: true }));
+    const { res, body } = await call({ action: 'retrySend', itemId: 'item1' });
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ status: 'sent', alreadySent: true, runStatus: 'sent' });
+    expect(mockSendInvoice).not.toHaveBeenCalled();
+    expect(fakeDb._store.invoiceRunItems.item1).toMatchObject({ status: 'sent', lastEmailError: null, emailInProgressAt: null, emailAttempts: 1 });
+    expect(fakeDb._store.invoiceRuns.run1).toMatchObject({ status: 'sent', errors: [], resolvedErrors: [{ agencyName: 'Harcourts Property Hub', error: 'Unexpected end of JSON input', stage: 'email' }] });
+  });
+
+  it('if Xero\'s history records an email (even without the flag): NOT emailed again', async () => {
+    seedFailed();
+    mockGetInvoiceHistory.mockResolvedValue([{ Changes: 'Sent', DateUTCString: '2026-11-23T04:13:29', Details: 'This invoice has been sent to Chris@propertyhubgc.com.au' }]);
+    const { body } = await call({ action: 'retrySend', itemId: 'item1' });
+    expect(body.alreadySent).toBe(true);
+    expect(mockSendInvoice).not.toHaveBeenCalled();
+  });
+
+  it('only when Xero shows no sign of sending is it emailed — exactly once — and an empty 204 reply counts as success', async () => {
+    seedFailed();
+    mockSendInvoice.mockResolvedValue(null); // what sendInvoice now returns for Xero's 204 No Content
+    const { body } = await call({ action: 'retrySend', itemId: 'item1' });
+    expect(body).toMatchObject({ status: 'sent', runStatus: 'sent' });
+    expect(mockSendInvoice).toHaveBeenCalledTimes(1);
+    expect(mockSendInvoice).toHaveBeenCalledWith('inv-existing');
+    expect(fakeDb._store.invoiceRunItems.item1).toMatchObject({ status: 'sent', emailAttempts: 2, emailInProgressAt: null });
+  });
+
+  it('a retry already in progress blocks a second one (a double-click cannot email twice)', async () => {
+    seedFailed({ emailInProgressAt: new Date() });
+    const { res } = await call({ action: 'retrySend', itemId: 'item1' });
+    expect(res.status).toBe(409);
+    expect(mockGetInvoiceById).not.toHaveBeenCalled();
+    expect(mockSendInvoice).not.toHaveBeenCalled();
+  });
+
+  it('if Xero cannot be asked, nothing is emailed', async () => {
+    seedFailed();
+    mockGetInvoiceById.mockRejectedValue(new Error('Xero API GET failed (503)'));
+    const { res, body } = await call({ action: 'retrySend', itemId: 'item1' });
+    expect(res.status).toBe(502);
+    expect(body.error).toMatch(/not emailed/);
+    expect(mockSendInvoice).not.toHaveBeenCalled();
+    expect(fakeDb._store.invoiceRunItems.item1.emailInProgressAt).toBeNull();
+  });
+
+  it('a voided, deleted or missing invoice is never emailed', async () => {
+    for (const inv of [xeroInvoice({ Status: 'VOIDED' }), xeroInvoice({ Status: 'DELETED' }), null]) {
+      seedFailed();
+      mockGetInvoiceById.mockResolvedValue(inv);
+      const { res } = await call({ action: 'retrySend', itemId: 'item1' });
+      expect(res.status).toBe(409);
+    }
+    expect(mockSendInvoice).not.toHaveBeenCalled();
+  });
+
+  it('Retry Email can never create an invoice: the route has no access to invoice creation', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync('src/app/api/admin/invoicing/runs/[runId]/route.js', 'utf-8');
+    const xeroImports = src.match(/import\s*\{[^}]*\}\s*from '..\/..\/..\/..\/services\/xeroService'/)[0];
+    expect(xeroImports).not.toMatch(/createInvoice|updateDraftInvoice/);
+    expect(src).not.toMatch(/\b(createInvoice|updateDraftInvoice)\(/);
+  });
+});
+
+describe('PATCH .../runs/[runId] — checkDelivery (read-only: what Xero says)', () => {
+  const seedFailed = () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'failed', errors: [{ error: 'Unexpected end of JSON input', stage: 'email' }] });
+    fakeDb._seed('invoiceRunItems', 'item1', { runId: 'run1', status: 'email_failed', xeroInvoiceId: 'inv-existing', xeroInvoiceNumber: 'INV-0003', lastEmailError: 'Unexpected end of JSON input' });
+  };
+  const check = async () => {
+    const { PATCH } = await import('../../src/app/api/admin/invoicing/runs/[runId]/route.js');
+    const res = await PATCH(makeRequest({ action: 'checkDelivery', itemId: 'item1' }), { params: Promise.resolve({ runId: 'run1' }) });
+    return { res, body: await res.json() };
+  };
+
+  it('Xero shows it was sent: reports Xero\'s record, corrects the item and run to sent, emails nothing', async () => {
+    seedFailed();
+    mockGetInvoiceById.mockResolvedValue(xeroInvoice({ SentToContact: true }));
+    const { res, body } = await check();
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ reconciled: true, runStatus: 'sent' });
+    expect(body.delivery).toMatchObject({ invoiceNumber: 'INV-0003', status: 'AUTHORISED', emailed: true, total: 600, totalTax: 0, date: '2026-11-23', dueDate: '2026-12-07' });
+    expect(mockSendInvoice).not.toHaveBeenCalled();
+    expect(fakeDb._store.invoiceRunItems.item1.status).toBe('sent');
+    expect(fakeDb._store.invoiceRuns.run1.status).toBe('sent');
+  });
+
+  it('Xero shows it was NOT sent: reports that, changes nothing, emails nothing', async () => {
+    seedFailed();
+    const { body } = await check();
+    expect(body).toMatchObject({ reconciled: false, runStatus: 'failed' });
+    expect(body.delivery.emailed).toBe(false);
+    expect(mockSendInvoice).not.toHaveBeenCalled();
+    expect(fakeDb._store.invoiceRunItems.item1.status).toBe('email_failed');
+    expect(fakeDb._store.invoiceRuns.run1.status).toBe('failed');
+  });
+
+  it('an item with no Xero invoice cannot be checked', async () => {
+    fakeDb._seed('invoiceRuns', 'run1', { status: 'failed' });
+    fakeDb._seed('invoiceRunItems', 'item1', { runId: 'run1', status: 'error' });
+    const { res } = await check();
+    expect(res.status).toBe(400);
+    expect(mockGetInvoiceById).not.toHaveBeenCalled();
   });
 });
