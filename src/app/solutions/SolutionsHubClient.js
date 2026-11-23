@@ -41,7 +41,7 @@ const solutions = [
     icon: Building2,
     title: 'Listing Agents',
     description:
-      'Walk into every appraisal with live buyer evidence. Win more listings, defend your price guide, and convert more vendors — for a $200 vendor-paid campaign fee, no subscription.',
+      'Walk into every appraisal with live buyer evidence. Win more listings, defend your price guide, and convert more vendors.',
     href: '/solutions/agents',
     accent: 'emerald',
   },

@@ -11,18 +11,21 @@ import EngageSection from './EngageSection';
 import OpinionSection from './OpinionSection';
 import InterestSection from './InterestSection';
 import IntelligenceSection from './IntelligenceSection';
-import PricingSection from './PricingSection';
 import FinalCtaSection from './FinalCtaSection';
 
 /**
  * Homepage — commercial rebuild on top of the original visual prototype.
  * Sequence: Hero -> Win the Listing -> Send -> Engage -> Opinion ->
- * Interest -> Intelligence -> Pricing -> Final CTA -> Footer.
+ * Interest -> Intelligence -> Final CTA -> Footer.
+ *
+ * No public pricing: the Pricing section ($200 flat) was removed because
+ * the fee differs by office (e.g. HPH's retail price). The real fee is
+ * shown to agents in-app at campaign submit.
  *
  * The original sequence (Hero -> Send -> Engage -> Opinion -> Interest ->
  * Intelligence -> Final CTA) was buyer-engagement-led — it explained the
  * mechanism well but never told a listing agent, in the first viewport,
- * that this is how you win the appraisal. Win the Listing and Pricing are
+ * that this is how you win the appraisal. Win the Listing is
  * new; everything else is the same component, lightly reworded where it
  * conflated a price opinion with a personal offer or missed a chance to
  * tie back to the commercial outcome. No "Proof" section — no real case
@@ -49,7 +52,6 @@ export default function HomepageStoryPrototype() {
       <OpinionSection />
       <InterestSection />
       <IntelligenceSection />
-      <PricingSection />
       <FinalCtaSection />
       <PublicSiteFooter />
     </div>

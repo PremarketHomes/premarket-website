@@ -40,10 +40,6 @@ const FAQ = [
     a: "Only if you choose. Premarket campaigns can stay completely private — visible only to qualified buyers and buyer's agents on the platform. You decide when (and if) you go public.",
   },
   {
-    q: 'How much does it cost an agent to list a property?',
-    a: "The campaign fee is $200 AUD, vendor-paid, per listing — not paid by the agent. There's no subscription, no monthly minimum, and buyers and buyer's agents are completely free.",
-  },
-  {
     q: "What's a 'price opinion'?",
     a: "A price opinion is a single number — what a real buyer says they'd genuinely pay for the property. It's anonymous, takes seconds to submit, and is aggregated with other opinions to form a clear, evidence-based picture of where the market sits.",
   },
