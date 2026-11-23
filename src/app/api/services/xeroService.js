@@ -112,7 +112,9 @@ export async function disconnectXero() {
 // XERO API: HTTP helper with auto-refresh
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function makeXeroRequest(method, path, body = null, retry = true, extraHeaders = {}) {
+// `responseType` 'buffer' returns the raw bytes (a Node Buffer) instead of parsed JSON —
+// used only for an invoice PDF (getInvoicePdf, with an Accept: application/pdf header).
+export async function makeXeroRequest(method, path, body = null, retry = true, extraHeaders = {}, responseType = 'json') {
   let tokens = await getXeroTokens();
   if (!tokens?.access_token) throw new Error('Xero not connected');
 
@@ -149,7 +151,7 @@ export async function makeXeroRequest(method, path, body = null, retry = true, e
   // request silently losing its dedup protection.
   if (res.status === 401 && retry) {
     await refreshXeroTokens();
-    return makeXeroRequest(method, path, body, false, extraHeaders);
+    return makeXeroRequest(method, path, body, false, extraHeaders, responseType);
   }
 
   if (!res.ok) {
@@ -157,6 +159,7 @@ export async function makeXeroRequest(method, path, body = null, retry = true, e
     throw new Error(`Xero API ${method} ${path} failed (${res.status}): ${errText}`);
   }
 
+  if (responseType === 'buffer') return Buffer.from(await res.arrayBuffer());
   return res.json();
 }
 
@@ -269,7 +272,9 @@ export async function getAccountByCode(code) {
 // XERO API: Invoices
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function createInvoice({ contactId, lineItems, reference, dueDate, accountCode, taxType, status, idempotencyKey }) {
+// The invoice body shared by createInvoice and updateDraftInvoice, so a draft that is later
+// approved is built exactly like a directly created invoice.
+function invoicePayload({ contactId, lineItems, reference, date, dueDate, accountCode, taxType, status }) {
   // ZERO_GST_TAX_TYPE ('BASEXCLUDED' — Premarket is not GST registered; see xeroTaxTypes.js) or
   // 'OUTPUT' (GST on income, 10%, if that ever changes). Each line item normally carries its own
   // taxType (send/route.js derives it per property, from that property's own snapshotted
@@ -278,7 +283,7 @@ export async function createInvoice({ contactId, lineItems, reference, dueDate, 
   // only a fallback default for a line item that doesn't specify its own — never a value this
   // function invents or defaults to GST on its own.
   const defaultTaxType = taxType || ZERO_GST_TAX_TYPE;
-  const invoice = {
+  return {
     Type: 'ACCREC',
     Contact: { ContactID: contactId },
     LineItems: lineItems.map((li) => ({
@@ -289,14 +294,21 @@ export async function createInvoice({ contactId, lineItems, reference, dueDate, 
       TaxType: li.taxType || defaultTaxType,
     })),
     Reference: reference || '',
+    // The invoice date, when given (see services/invoiceDates.js). Left out, Xero uses today
+    // on the organisation's calendar.
+    ...(date ? { Date: date } : {}),
     DueDate: dueDate || '',
     // Every real caller (send/route.js) relies on this defaulting to
-    // AUTHORISED — unchanged. Only the Xero connection diagnostic
-    // passes 'DRAFT' explicitly, specifically so it never becomes
+    // AUTHORISED — unchanged. Only the Xero connection diagnostic and the
+    // invoice preview pass 'DRAFT' explicitly, specifically so it never becomes
     // payable or reaches Xero's own invoice-reminder automation.
     Status: status || 'AUTHORISED',
     LineAmountTypes: 'Exclusive',
   };
+}
+
+export async function createInvoice({ contactId, lineItems, reference, date, dueDate, accountCode, taxType, status, idempotencyKey }) {
+  const invoice = invoicePayload({ contactId, lineItems, reference, date, dueDate, accountCode, taxType, status });
 
   // Optional, deliberately not set by every caller (default undefined
   // => no header => unchanged behaviour): a caller that passes one is
@@ -315,6 +327,55 @@ export async function createInvoice({ contactId, lineItems, reference, dueDate, 
     idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}
   );
   return result.Invoices?.[0] || null;
+}
+
+/**
+ * Rewrites an existing Xero DRAFT invoice (contact, every line, reference, dates) and sets its
+ * status: 'DRAFT' keeps it a draft (refreshing an invoice preview); 'AUTHORISED' approves it
+ * (the real Send, approving the previewed draft so its invoice number is kept). Any other
+ * status is refused. Callers must have confirmed the invoice is still a DRAFT: Xero itself
+ * also refuses to change the lines of an approved invoice.
+ */
+export async function updateDraftInvoice({ invoiceId, contactId, lineItems, reference, date, dueDate, accountCode, taxType, status, idempotencyKey }) {
+  if (!invoiceId) throw new Error('updateDraftInvoice needs the draft invoice id');
+  if (status !== 'DRAFT' && status !== 'AUTHORISED') throw new Error(`updateDraftInvoice refuses status ${status}`);
+  const invoice = { InvoiceID: invoiceId, ...invoicePayload({ contactId, lineItems, reference, date, dueDate, accountCode, taxType, status }) };
+  const result = await makeXeroRequest(
+    'POST',
+    '/Invoices',
+    { Invoices: [invoice] },
+    true,
+    idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}
+  );
+  return result.Invoices?.[0] || null;
+}
+
+/** Deletes a Xero DRAFT invoice (status DELETED). Xero refuses this for an approved invoice,
+ * which can only be voided, so this can never remove a real, payable invoice. */
+export async function deleteDraftInvoice(invoiceId) {
+  if (!invoiceId) throw new Error('deleteDraftInvoice needs the draft invoice id');
+  const result = await makeXeroRequest('POST', '/Invoices', { Invoices: [{ InvoiceID: invoiceId, Status: 'DELETED' }] });
+  return result.Invoices?.[0] || null;
+}
+
+/** Read-only. The invoice PDF exactly as Xero renders it (the organisation's own branding
+ * theme), as a Buffer. */
+export async function getInvoicePdf(invoiceId) {
+  if (!invoiceId) throw new Error('getInvoicePdf needs an invoice id');
+  return makeXeroRequest('GET', `/Invoices/${encodeURIComponent(invoiceId)}`, null, true, { Accept: 'application/pdf' }, 'buffer');
+}
+
+/** Read-only. One invoice by its Xero InvoiceID (with its lines), or null if Xero has no such
+ * invoice (404). Any other failure throws. */
+export async function getInvoiceById(invoiceId) {
+  if (!invoiceId) return null;
+  try {
+    const result = await makeXeroRequest('GET', `/Invoices/${encodeURIComponent(invoiceId)}`);
+    return result.Invoices?.[0] || null;
+  } catch (err) {
+    if (/\(404\)/.test(err?.message || '')) return null;
+    throw err;
+  }
 }
 
 export async function sendInvoice(invoiceId) {
@@ -340,11 +401,15 @@ export async function sendInvoice(invoiceId) {
  * either one creates anything — the Idempotency-Key is what closes
  * that specific gap, atomically, at the moment of the write itself.
  */
+//
+// A DELETED invoice is skipped: in Xero only a draft (never an approved invoice) can be
+// deleted, so it never billed anyone. It is typically a discarded invoice preview for
+// the same run item, and must not stand in the way of creating the real invoice.
 export async function findInvoiceByReference(reference) {
   const safeReference = String(reference || '').replace(/"/g, '\\"');
   const whereClause = `Reference=="${safeReference}"`;
   const result = await makeXeroRequest('GET', `/Invoices?where=${encodeURIComponent(whereClause)}`);
-  return result.Invoices?.[0] || null;
+  return (result.Invoices || []).find((inv) => inv?.Status !== 'DELETED') || null;
 }
 
 export async function getInvoiceStatus(invoiceId) {

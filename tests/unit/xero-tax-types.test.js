@@ -26,17 +26,28 @@ describe('the invoice-sending code never uses the placeholder "NONE" tax type', 
   const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   const read = (p) => strip(fs.readFileSync(p, 'utf-8'));
 
-  it('the send route takes the tax type from the shared function', () => {
-    const src = read('src/app/api/admin/invoicing/runs/[runId]/send/route.js');
-    expect(src).toContain('taxTypeForGstAmount(prop.gstAmount)');
-    expect(src).not.toMatch(/['"]NONE['"]/);
-    expect(src).not.toMatch(/['"]OUTPUT['"]/);            // the literal lives in ONE place only
+  it('the send route (and the invoice preview) take the tax type from the shared function', () => {
+    // The lines are built in ONE place, used by both Send and Preview (services/runItemInvoice.js).
+    const builder = read('src/app/api/services/runItemInvoice.js');
+    expect(builder).toContain('taxTypeForGstAmount(prop.gstAmount)');
+    for (const p of [
+      'src/app/api/services/runItemInvoice.js',
+      'src/app/api/admin/invoicing/runs/[runId]/send/route.js',
+      'src/app/api/admin/invoicing/runs/[runId]/preview/route.js',
+    ]) {
+      const src = read(p);
+      expect(src).not.toMatch(/['"]NONE['"]/);
+      expect(src).not.toMatch(/['"]OUTPUT['"]/);          // the literal lives in ONE place only
+    }
+    expect(read('src/app/api/admin/invoicing/runs/[runId]/send/route.js')).toContain('buildRunItemInvoice(');
   });
 
-  it('createInvoice\'s fallback default is the shared constant', () => {
+  it('createInvoice\'s (and updateDraftInvoice\'s) fallback default is the shared constant', () => {
     const src = read('src/app/api/services/xeroService.js');
-    const body = src.slice(src.indexOf('export async function createInvoice'), src.indexOf('export async function sendInvoice'));
+    const body = src.slice(src.indexOf('function invoicePayload'), src.indexOf('export async function sendInvoice'));
     expect(body).toContain('taxType || ZERO_GST_TAX_TYPE');
+    expect(body).toContain('export async function createInvoice');
+    expect(body).toContain('export async function updateDraftInvoice');
     expect(body).not.toMatch(/['"]NONE['"]/);
   });
 
