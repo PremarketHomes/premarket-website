@@ -32,8 +32,10 @@ export default function InvoiceRunsPanel({ user, pricePerListing }) {
     fetchRuns();
   }, [fetchRuns]);
 
-  const fetchRunDetail = useCallback(async (runId) => {
-    setDetailLoading(true);
+  // `quiet`: refresh the open run in place (after an action on it) without swapping the page for
+  // a spinner, which would unmount the run view and lose state such as an open invoice preview.
+  const fetchRunDetail = useCallback(async (runId, { quiet = false } = {}) => {
+    if (!quiet) setDetailLoading(true);
     try {
       const res = await authFetch(`/api/admin/invoicing/runs/${runId}`);
       const data = await res.json();
@@ -79,7 +81,10 @@ export default function InvoiceRunsPanel({ user, pricePerListing }) {
     e.stopPropagation();
     if (!confirm('Delete this draft run?')) return;
     try {
-      await authFetch(`/api/admin/invoicing/runs/${runId}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/admin/invoicing/runs/${runId}`, { method: 'DELETE' });
+      // Deleting a run also deletes its preview drafts in Xero; say if one could not be.
+      const data = await res.json().catch(() => ({}));
+      if (data?.warnings?.length) alert(data.warnings.join('\n\n'));
       if (selectedRunId === runId) {
         setSelectedRunId(null);
         setSelectedRun(null);
@@ -92,7 +97,7 @@ export default function InvoiceRunsPanel({ user, pricePerListing }) {
   }
 
   function handleRefresh() {
-    if (selectedRunId) fetchRunDetail(selectedRunId);
+    if (selectedRunId) fetchRunDetail(selectedRunId, { quiet: true });
     fetchRuns();
   }
 

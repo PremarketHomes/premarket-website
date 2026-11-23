@@ -3,7 +3,15 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, ExternalLink, Send, RefreshCw, XCircle, CheckCircle, Trash2, Pencil, AlertTriangle, Mail } from 'lucide-react';
 import InvoiceStatusBadge from './InvoiceStatusBadge';
+import InvoicePreviewPanel from './InvoicePreviewPanel';
 import { authFetch } from '../../../../utils/authFetch';
+
+// Cancelling or removing deletes any preview drafts in Xero; if Xero could not be reached, say
+// which draft to delete by hand.
+async function alertWarnings(res) {
+  const data = await res?.json?.().catch(() => ({}));
+  if (data?.warnings?.length) alert(data.warnings.join('\n\n'));
+}
 import { formatChargeDate } from '../../../../utils/chargeLine';
 
 export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
@@ -62,11 +70,12 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
     setActionLoading(action);
     try {
       if (action === 'approve' || action === 'cancel') {
-        await authFetch(`/api/admin/invoicing/runs/${run.id}`, {
+        const res = await authFetch(`/api/admin/invoicing/runs/${run.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action }),
         });
+        await alertWarnings(res);
       } else if (action === 'send') {
         await authFetch(`/api/admin/invoicing/runs/${run.id}/send`, {
           method: 'POST',
@@ -90,11 +99,12 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
     if (!confirm(`Remove ${agencyName} from this run?`)) return;
     setRemovingItem(itemId);
     try {
-      await authFetch(`/api/admin/invoicing/runs/${run.id}`, {
+      const res = await authFetch(`/api/admin/invoicing/runs/${run.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'removeItems', itemIds: [itemId] }),
       });
+      await alertWarnings(res);
       onRefresh?.();
     } catch (err) {
       console.error('Remove agency error:', err);
@@ -274,6 +284,14 @@ export default function InvoiceRunDetail({ run, items, user, onRefresh }) {
           <div className="text-center py-8 text-sm text-slate-400">No items in this run</div>
         )}
       </div>
+
+      {/* Invoice preview — the real Xero invoice, saved in Xero as a DRAFT (never approved or
+          emailed from here), for each agency that has no Xero invoice yet. */}
+      {['draft', 'approved'].includes(run.status) && (items || [])
+        .filter((item) => !item.xeroInvoiceId)
+        .map((item) => (
+          <InvoicePreviewPanel key={`preview-${item.id}`} runId={run.id} item={item} onRefresh={onRefresh} />
+        ))}
 
       {/* Failed sends — invoice exists in Xero, email delivery failed.
           Retrying here only ever re-sends the existing invoice (see

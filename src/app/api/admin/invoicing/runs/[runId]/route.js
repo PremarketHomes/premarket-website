@@ -4,7 +4,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { verifyAdmin } from '../../../../middleware/auth';
 import { withChargeDetails } from '../../../../services/chargeDetails';
 import { releaseCharges } from '../../../../services/billingService';
-import { sendInvoice } from '../../../../services/xeroService';
+import { sendInvoice, getInvoiceById, deleteDraftInvoice } from '../../../../services/xeroService';
 
 /** Every propertyId currently attached to a run, across all its items —
  * used to release the right charges back to 'pending' whenever the run
@@ -12,6 +12,35 @@ import { sendInvoice } from '../../../../services/xeroService';
 async function getAllPropertyIdsForRun(runId) {
   const itemsSnap = await adminDb.collection('invoiceRunItems').where('runId', '==', runId).get();
   return itemsSnap.docs.flatMap((d) => (d.data().properties || []).map((p) => p.propertyId)).filter(Boolean);
+}
+
+/**
+ * When a run (or one agency's item) is cancelled, deleted or removed, the DRAFT invoices its
+ * "Preview invoice" created in Xero are deleted too, so a draft for charges that are no longer
+ * in this run can never be approved in Xero by mistake. Only a still-DRAFT preview is ever
+ * touched (Xero refuses to delete an approved invoice anyway); items without a preview make no
+ * Xero call at all. Best-effort: a Xero failure never blocks the cancel or delete. It is
+ * returned as a warning naming the draft to delete by hand.
+ */
+async function discardPreviewDrafts(items) {
+  const warnings = [];
+  for (const item of items) {
+    if (!item?.previewXeroInvoiceId || item.xeroInvoiceId) continue;
+    const label = `draft invoice ${item.previewXeroInvoiceNumber || item.previewXeroInvoiceId} for ${item.agencyName || 'this agency'}`;
+    try {
+      const invoice = await getInvoiceById(item.previewXeroInvoiceId);
+      if (invoice?.Status === 'DRAFT') await deleteDraftInvoice(invoice.InvoiceID);
+    } catch (err) {
+      console.error(`Could not delete the preview ${label} in Xero:`, err);
+      warnings.push(`The preview ${label} could not be deleted in Xero (${err.message}). Delete it in Xero.`);
+    }
+  }
+  return warnings;
+}
+
+async function getAllItemsForRun(runId) {
+  const itemsSnap = await adminDb.collection('invoiceRunItems').where('runId', '==', runId).get();
+  return itemsSnap.docs.map((d) => d.data());
 }
 
 /**
@@ -126,7 +155,8 @@ export async function PATCH(request, { params }) {
       const propertyIds = await getAllPropertyIdsForRun(runId);
       await releaseCharges(propertyIds);
       await runRef.update({ status: 'cancelled', cancelledAt: FieldValue.serverTimestamp(), cancelledBy: auth.uid });
-      return NextResponse.json({ success: true, status: 'cancelled' });
+      const warnings = await discardPreviewDrafts(await getAllItemsForRun(runId));
+      return NextResponse.json({ success: true, status: 'cancelled', ...(warnings.length ? { warnings } : {}) });
     }
 
     // Lets an admin see and resolve a failed send without re-sending
@@ -196,6 +226,7 @@ export async function PATCH(request, { params }) {
       const itemDocs = await Promise.all(itemIds.map((id) => adminDb.collection('invoiceRunItems').doc(id).get()));
       const propertyIdsToRelease = itemDocs.flatMap((d) => (d.exists ? (d.data().properties || []).map((p) => p.propertyId) : [])).filter(Boolean);
       await releaseCharges(propertyIdsToRelease);
+      const warnings = await discardPreviewDrafts(itemDocs.filter((d) => d.exists && d.data().runId === runId).map((d) => d.data()));
 
       const batch = adminDb.batch();
       for (const itemId of itemIds) {
@@ -204,7 +235,7 @@ export async function PATCH(request, { params }) {
       await batch.commit();
       await recalculateRunTotals(runId, runRef);
 
-      return NextResponse.json({ success: true, removed: itemIds.length });
+      return NextResponse.json({ success: true, removed: itemIds.length, ...(warnings.length ? { warnings } : {}) });
     }
 
     // Remove individual properties from an agency item, recalculating its totals
@@ -298,6 +329,7 @@ export async function DELETE(request, { params }) {
       .collection('invoiceRunItems')
       .where('runId', '==', runId)
       .get();
+    const warnings = await discardPreviewDrafts(itemsSnap.docs.map((d) => d.data()));
 
     const batch = adminDb.batch();
     for (const doc of itemsSnap.docs) {
@@ -306,7 +338,7 @@ export async function DELETE(request, { params }) {
     batch.delete(runRef);
     await batch.commit();
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, ...(warnings.length ? { warnings } : {}) });
   } catch (err) {
     console.error('Invoice run DELETE error:', err);
     return NextResponse.json({ error: 'Failed to delete run' }, { status: 500 });

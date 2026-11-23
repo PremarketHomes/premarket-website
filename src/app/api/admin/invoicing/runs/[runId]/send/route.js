@@ -1,45 +1,33 @@
 import { NextResponse } from 'next/server';
-import { createHash } from 'crypto';
 import { adminDb } from '../../../../../../firebase/adminApp';
 import { FieldValue } from 'firebase-admin/firestore';
 import {
-  findOrCreateContact,
-  getContactById,
-  searchContactByName,
   createInvoice,
+  updateDraftInvoice,
   sendInvoice,
   isXeroConnected,
-  findInvoiceByReference,
 } from '../../../../../services/xeroService';
 import {
-  buildInvoiceReference,
   expectedInvoiceTotal,
   invoiceMatchesItem,
   InvoiceReferenceConflictError,
-  resolveXeroContact,
 } from '../../../../../services/xeroInvoiceIdentity';
 import { markChargesInvoiced, markChargesFailed, resolveBillingContact } from '../../../../../services/billingService';
-import { taxTypeForGstAmount } from '../../../../../services/xeroTaxTypes';
-import { withChargeDetails } from '../../../../../services/chargeDetails';
-import { chargeLineDescription } from '../../../../../../utils/chargeLine';
+import {
+  buildRunItemInvoice,
+  findExistingRunItemInvoice,
+  stableInvoiceIdempotencyKey,
+  approveDraftIdempotencyKey,
+} from '../../../../../services/runItemInvoice';
 import { verifyAdmin } from '../../../../../middleware/auth';
 
-/**
- * Deterministic, not random — the same invoiceRunItem always produces
- * the same key, forever (derived from its own Firestore doc ID, which
- * never changes). Attached to the one real createInvoice call below
- * as Xero's documented Idempotency-Key header: if a request carrying
- * this exact key already succeeded — including a prior attempt whose
- * HTTP response this process never received (a timeout, a dropped
- * connection) — Xero hands back that SAME invoice instead of creating
- * a second one. This is what makes it safe to simply retry invoice
- * creation for an item that has no stored xeroInvoiceId yet, without
- * first having to prove whether an earlier attempt actually reached
- * Xero or not.
- */
-function stableInvoiceIdempotencyKey(itemId) {
-  return createHash('sha256').update(`premarket-invoice-run-item:${itemId}`).digest('hex');
-}
+// stableInvoiceIdempotencyKey (services/runItemInvoice.js) is deterministic, not random: the
+// same invoiceRunItem always produces the same key, forever. Attached to the one real
+// createInvoice call below as Xero's documented Idempotency-Key header: if a request carrying
+// this exact key already succeeded — including a prior attempt whose HTTP response this process
+// never received (a timeout, a dropped connection) — Xero hands back that SAME invoice instead
+// of creating a second one. This is what makes it safe to simply retry invoice creation for an
+// item that has no stored xeroInvoiceId yet.
 
 /**
  * POST /api/admin/invoicing/runs/[runId]/send
@@ -103,12 +91,9 @@ export async function POST(request, { params }) {
       throw err;
     }
 
-    // Get settings for account code and invoice prefix
+    // Account code, invoice prefix and payment terms (applied in services/runItemInvoice.js)
     const settingsDoc = await adminDb.collection('settings').doc('invoicing').get();
     const settings = settingsDoc.exists ? settingsDoc.data() : {};
-    const accountCode = settings.xeroAccountCode || '200';
-    const invoicePrefix = settings.invoicePrefix || 'PM-';
-    const paymentTermsDays = settings.paymentTermsDays || 14;
 
     // Get all items for this run
     const itemsSnap = await adminDb
@@ -155,65 +140,23 @@ export async function POST(request, { params }) {
             await markChargesFailed(item.properties.map((p) => p.propertyId).filter(Boolean), { runId });
             continue;
           }
-          // The Xero contact is the confirmed LEGAL billing name (no technical suffix on the
-          // customer-facing name). The entity -> contact link is remembered by id in a server-only
-          // `xeroContacts` record, so later runs never depend on name matching; see
-          // xeroInvoiceIdentity.resolveXeroContact for the (rare) same-name-different-entity case.
-          const contactLinkRef = adminDb.collection('xeroContacts').doc(item.billingEntityKey);
-          const storedLink = (await contactLinkRef.get()).data();
-          const { contact } = await resolveXeroContact({
-            item,
-            confirmed,
-            storedContactId: storedLink?.xeroContactId || null,
-            xero: { getContactById, searchContactByName, findOrCreateContact },
-          });
-
-          if (!contact?.ContactID) {
-            throw new Error(`Failed to create Xero contact for ${item.agencyName}`);
-          }
-          if (storedLink?.xeroContactId !== contact.ContactID) {
-            await contactLinkRef.set({
-              billingEntityKey: item.billingEntityKey,
-              xeroContactId: contact.ContactID,
-              xeroContactName: contact.Name || null,
-              linkedAt: FieldValue.serverTimestamp(),
-            }, { merge: true });
-          }
-
-          // Build line items — one per property, using THAT property's
-          // own already ex-GST subtotalEx and already-computed gstAmount
-          // (both snapshotted onto the charge at charge-creation time,
-          // see billingService.js). Deliberately never derives a single
-          // run-wide unit amount or tax rate from the item or the run —
-          // neither carries a pricePerListing/gstRate field at all
-          // (an item consolidates possibly-differently-priced charges),
-          // so each property's own numbers are the only source of truth,
-          // same principle runs/[runId]/route.js's removeProperties
-          // already follows when recalculating a run's totals.
-          // One line per property: "full address — selling agent —
-          // submission date", read from each linked property record (so
-          // runs drafted earlier get it too). Description text only:
-          // amounts, tax and line count are unchanged.
-          const lineProperties = await withChargeDetails(item.properties, 'address');
-          const lineItems = lineProperties.map((prop) => ({
-            description: chargeLineDescription(prop),
-            quantity: 1,
-            unitAmount: prop.subtotalEx,
-            taxType: taxTypeForGstAmount(prop.gstAmount),
-          }));
-
-          const dueDate = new Date();
-          dueDate.setDate(dueDate.getDate() + paymentTermsDays);
-          const dueDateStr = dueDate.toISOString().split('T')[0];
-
-          // A unique, stable reference per run item (see xeroInvoiceIdentity.js): two runs or billing
-          // periods for the same office can never share one, and a retry of THIS item gets the same
-          // reference back, so it finds the invoice its own earlier attempt created.
-          const reference = buildInvoiceReference({
-            prefix: invoicePrefix,
-            periodStart: runData.periodStart,
+          // Contact (confirmed legal billing name), one line per property ("full address —
+          // selling agent — submission date", each property's own snapshotted ex-GST amount and
+          // tax type), the item's unique reference, and the dates (today in Brisbane, due exactly
+          // paymentTermsDays later). Built by the same function "Preview invoice" uses, so the
+          // preview and the sent invoice can never differ (services/runItemInvoice.js).
+          const { contact, lineItems, reference, accountCode, date, dueDate } = await buildRunItemInvoice({
             itemId: itemDoc.id,
+            item,
+            runData,
+            confirmed,
+            settings,
           });
+          const expected = {
+            contactId: contact.ContactID,
+            total: expectedInvoiceTotal(item.properties),
+            lineCount: lineItems.length,
+          };
 
           // Pre-flight reconciliation — never assume a reference or an idempotency key alone is
           // enough. Guards the case where a prior attempt's request reached Xero and succeeded but
@@ -221,13 +164,31 @@ export async function POST(request, { params }) {
           // BEFORE calling createInvoice. An invoice found by reference is only reused after it is
           // verified to be this item's (same contact, same total); otherwise nothing is created or
           // marked invoiced and the item is flagged for a human to resolve.
-          const existing = await findInvoiceByReference(reference);
-          if (existing?.InvoiceID) {
-            const verdict = invoiceMatchesItem(existing, {
+          const { draft, existing } = await findExistingRunItemInvoice({ item, reference });
+          if (draft) {
+            // The DRAFT that "Preview invoice" created for this run item. Approve THAT invoice,
+            // rewritten from the run as it stands now (contact, lines, today's date and due date),
+            // so the invoice number that was previewed is the one sent, and no second invoice is
+            // ever created. If Xero does not approve it, it is still only a draft: the error below
+            // releases the charges exactly like a failed create.
+            invoice = await updateDraftInvoice({
+              invoiceId: draft.InvoiceID,
               contactId: contact.ContactID,
-              total: expectedInvoiceTotal(item.properties),
-              lineCount: lineItems.length,
+              lineItems,
+              reference,
+              date,
+              dueDate,
+              accountCode,
+              status: 'AUTHORISED',
+              idempotencyKey: approveDraftIdempotencyKey(itemDoc.id),
             });
+            if (invoice?.Status !== 'AUTHORISED') {
+              throw new Error(`Xero did not approve the previewed draft invoice ${draft.InvoiceNumber || draft.InvoiceID}`);
+            }
+            const verdict = invoiceMatchesItem(invoice, expected);
+            if (!verdict.ok) throw new InvoiceReferenceConflictError(reference, verdict.reason);
+          } else if (existing) {
+            const verdict = invoiceMatchesItem(existing, expected);
             if (!verdict.ok) throw new InvoiceReferenceConflictError(reference, verdict.reason);
             invoice = existing;
           } else {
@@ -235,7 +196,8 @@ export async function POST(request, { params }) {
               contactId: contact.ContactID,
               lineItems,
               reference,
-              dueDate: dueDateStr,
+              date,
+              dueDate,
               accountCode,
               idempotencyKey: stableInvoiceIdempotencyKey(itemDoc.id),
             });

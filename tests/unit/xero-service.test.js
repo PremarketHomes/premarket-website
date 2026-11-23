@@ -137,6 +137,87 @@ describe('createInvoice — tax type is never assumed', () => {
   });
 });
 
+describe('invoice preview support — dates, drafts, PDF', () => {
+  beforeEach(() => {
+    fakeDb._seed('settings', 'xeroTokens', { access_token: 'tok', refresh_token: 'refresh', expires_at: Date.now() + 3600000, tenant_id: 'tenant1' });
+  });
+  const body = () => JSON.parse(global.fetch.mock.calls[0][1].body).Invoices[0];
+  const line = [{ description: '1 Greenwich Avenue — Phil Chillemi — 24 Oct 2026', quantity: 1, unitAmount: 200, taxType: 'BASEXCLUDED' }];
+
+  it('createInvoice sends the invoice date when given, and leaves it out (Xero default) when not', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Invoices: [{ InvoiceID: 'inv1' }] }) });
+    const { createInvoice } = await import('../../src/app/api/services/xeroService.js');
+    await createInvoice({ contactId: 'c1', lineItems: line, date: '2026-11-24', dueDate: '2026-12-08' });
+    expect(body()).toMatchObject({ Date: '2026-11-24', DueDate: '2026-12-08', Status: 'AUTHORISED' });
+    global.fetch.mockClear();
+    await createInvoice({ contactId: 'c1', lineItems: line, dueDate: '2026-12-08' });
+    expect(body()).not.toHaveProperty('Date');
+  });
+
+  it('updateDraftInvoice rewrites the draft (id, contact, every line, reference, dates) with the requested status', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Invoices: [{ InvoiceID: 'inv1', Status: 'AUTHORISED' }] }) });
+    const { updateDraftInvoice } = await import('../../src/app/api/services/xeroService.js');
+    const res = await updateDraftInvoice({ invoiceId: 'inv1', contactId: 'c1', lineItems: line, reference: 'PM-October 2026 - ABC', date: '2026-11-24', dueDate: '2026-12-08', accountCode: '200', status: 'AUTHORISED', idempotencyKey: 'k1' });
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(url).toBe('https://api.xero.com/api.xro/2.0/Invoices');
+    expect(options.method).toBe('POST');
+    expect(options.headers['Idempotency-Key']).toBe('k1');
+    expect(body()).toEqual({
+      InvoiceID: 'inv1', Type: 'ACCREC', Contact: { ContactID: 'c1' },
+      LineItems: [{ Description: line[0].description, Quantity: 1, UnitAmount: 200, AccountCode: '200', TaxType: 'BASEXCLUDED' }],
+      Reference: 'PM-October 2026 - ABC', Date: '2026-11-24', DueDate: '2026-12-08', Status: 'AUTHORISED', LineAmountTypes: 'Exclusive',
+    });
+    expect(res).toEqual({ InvoiceID: 'inv1', Status: 'AUTHORISED' });
+  });
+
+  it('updateDraftInvoice only ever sets DRAFT or AUTHORISED', async () => {
+    global.fetch = vi.fn();
+    const { updateDraftInvoice } = await import('../../src/app/api/services/xeroService.js');
+    for (const status of ['DELETED', 'VOIDED', 'PAID', undefined]) {
+      await expect(updateDraftInvoice({ invoiceId: 'inv1', contactId: 'c1', lineItems: line, status })).rejects.toThrow(/refuses/);
+    }
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('deleteDraftInvoice sets only the status to DELETED', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Invoices: [{ InvoiceID: 'inv1', Status: 'DELETED' }] }) });
+    const { deleteDraftInvoice } = await import('../../src/app/api/services/xeroService.js');
+    await deleteDraftInvoice('inv1');
+    expect(body()).toEqual({ InvoiceID: 'inv1', Status: 'DELETED' });
+  });
+
+  it('getInvoicePdf asks Xero for application/pdf and returns the raw bytes', async () => {
+    const bytes = new TextEncoder().encode('%PDF-1.4 test');
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => bytes.buffer, json: async () => { throw new Error('not json'); } });
+    const { getInvoicePdf } = await import('../../src/app/api/services/xeroService.js');
+    const pdf = await getInvoicePdf('inv1');
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(url).toBe('https://api.xero.com/api.xro/2.0/Invoices/inv1');
+    expect(options.method).toBe('GET');
+    expect(options.headers.Accept).toBe('application/pdf');
+    expect(Buffer.isBuffer(pdf)).toBe(true);
+    expect(pdf.toString()).toBe('%PDF-1.4 test');
+  });
+
+  it('getInvoiceById returns null for a 404, the invoice otherwise', async () => {
+    const { getInvoiceById } = await import('../../src/app/api/services/xeroService.js');
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404, text: async () => 'not found' });
+    expect(await getInvoiceById('gone')).toBeNull();
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Invoices: [{ InvoiceID: 'inv1', Status: 'DRAFT' }] }) });
+    expect(await getInvoiceById('inv1')).toEqual({ InvoiceID: 'inv1', Status: 'DRAFT' });
+  });
+
+  it('findInvoiceByReference skips DELETED invoices (a discarded preview draft) but still returns a VOIDED one', async () => {
+    const { findInvoiceByReference } = await import('../../src/app/api/services/xeroService.js');
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Invoices: [{ InvoiceID: 'old', Status: 'DELETED' }] }) });
+    expect(await findInvoiceByReference('R')).toBeNull();
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Invoices: [{ InvoiceID: 'old', Status: 'DELETED' }, { InvoiceID: 'new', Status: 'DRAFT' }] }) });
+    expect((await findInvoiceByReference('R')).InvoiceID).toBe('new');
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ Invoices: [{ InvoiceID: 'v', Status: 'VOIDED' }] }) });
+    expect((await findInvoiceByReference('R')).InvoiceID).toBe('v');
+  });
+});
+
 describe('read-only Xero helpers — never create or modify anything', () => {
   beforeEach(() => {
     fakeDb._seed('settings', 'xeroTokens', {

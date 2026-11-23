@@ -94,6 +94,10 @@ vi.mock('../../src/app/api/services/xeroService', () => ({
   sendInvoice: (...args) => mockSendInvoice(...args),
   isXeroConnected: (...args) => mockIsXeroConnected(...args),
   findInvoiceByReference: (...args) => mockFindInvoiceByReference(...args),
+  // Only reached for an item that has an invoice preview (see invoice-preview-route.test.js);
+  // these tests never create one, so they must never be called here.
+  updateDraftInvoice: (...args) => { throw new Error(`unexpected updateDraftInvoice ${JSON.stringify(args)}`); },
+  getInvoiceById: (...args) => { throw new Error(`unexpected getInvoiceById ${JSON.stringify(args)}`); },
 }));
 
 const mockMarkChargesInvoiced = vi.fn();
@@ -870,15 +874,22 @@ describe('POST .../send — HPH consolidated invoices: unique references, verifi
   it('PRESERVED: one invoice per office, a $200 ex-GST line per property naming the agent, zero GST, 14-day terms', async () => {
     seedContact();
     seedRun('run1', 'item1', '2026-11-23', ['p1', 'p2']);
-    await send('run1');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 08:30 on 24 Nov in Brisbane (still 23 Nov in UTC): dated the Brisbane day, due exactly 14 days later.
+      vi.setSystemTime(new Date('2026-11-23T22:30:00Z'));
+      await send('run1');
+    } finally {
+      vi.useRealTimers();
+    }
     expect(mockCreateInvoice).toHaveBeenCalledTimes(1);
     const call = mockCreateInvoice.mock.calls[0][0];
     expect(call.lineItems).toEqual([
       { description: '1 Test St', quantity: 1, unitAmount: 200, taxType: ZERO_GST_TAX_TYPE },
       { description: '2 Test St', quantity: 1, unitAmount: 200, taxType: ZERO_GST_TAX_TYPE },
     ]);
-    const due = new Date(); due.setDate(due.getDate() + 14);
-    expect(call.dueDate).toBe(due.toISOString().split('T')[0]);
+    expect(call.date).toBe('2026-11-24');
+    expect(call.dueDate).toBe('2026-12-08');
     expect(call.idempotencyKey).toMatch(/^[a-f0-9]{64}$/);
     expect(call.reference).toMatch(/^PM-November 2026 - [A-F0-9]{10}$/);
     expect(xero.invoices[0].Total).toBe(400);
