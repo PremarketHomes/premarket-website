@@ -160,7 +160,18 @@ export async function makeXeroRequest(method, path, body = null, retry = true, e
   }
 
   if (responseType === 'buffer') return Buffer.from(await res.arrayBuffer());
-  return res.json();
+  return parseXeroBody(res);
+}
+
+// Some Xero endpoints answer SUCCESS with an empty body. POST /Invoices/{id}/Email returns
+// 204 No Content once Xero has accepted the email. Parsing that as JSON threw "Unexpected end
+// of JSON input" AFTER Xero had accepted the email, so a delivered invoice was recorded as an
+// email failure (HPH INV-0003, 23 Nov 2026). An empty success body is returned as null.
+async function parseXeroBody(res) {
+  if (res.status === 204 || res.status === 205) return null;
+  if (typeof res.text !== 'function') return res.json(); // minimal fetch stand-ins without text()
+  const text = await res.text();
+  return text.trim() ? JSON.parse(text) : null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -378,6 +389,16 @@ export async function getInvoiceById(invoiceId) {
   }
 }
 
+/** Read-only. Xero's own history for one invoice (created, approved, sent/emailed, paid…), as
+ * Xero recorded it: [{ Changes, DateUTCString, DateUTC, User, Details }]. */
+export async function getInvoiceHistory(invoiceId) {
+  if (!invoiceId) return [];
+  const result = await makeXeroRequest('GET', `/Invoices/${encodeURIComponent(invoiceId)}/History`);
+  return result?.HistoryRecords || [];
+}
+
+// Emails the invoice to its contact. Xero answers 204 No Content when it accepts the email,
+// so a successful call resolves to null (see parseXeroBody); any failure throws.
 export async function sendInvoice(invoiceId) {
   return makeXeroRequest('POST', `/Invoices/${invoiceId}/Email`);
 }

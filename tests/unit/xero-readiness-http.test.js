@@ -110,9 +110,11 @@ describe('readiness check on the wire (real service, fake Xero server)', () => {
 
   it('finds leftover drafts through the real list helpers, still GET-only', async () => {
     const draft = { InvoiceID: 'd1', InvoiceNumber: 'INV-1', Status: 'DRAFT', Reference: 'TEST ONLY — DO NOT AUTHORISE OR SEND', Total: 200 };
+    // Like a real response, text() and json() return the same body.
+    const ok = (data) => () => ({ ok: true, status: 200, json: async () => data, text: async () => JSON.stringify(data) });
     vi.stubGlobal('fetch', fakeXero({
-      [`${API}/Contacts?where=${encodeURIComponent('Name=="PREMARKET DIAGNOSTIC TEST — DO NOT USE"')}`]: () => ({ ok: true, status: 200, json: async () => ({ Contacts: [{ ContactID: 'tc1', Name: 'PREMARKET DIAGNOSTIC TEST — DO NOT USE' }] }), text: async () => '' }),
-      [`${API}/Invoices?ContactIDs=tc1`]: () => ({ ok: true, status: 200, json: async () => ({ Invoices: [draft] }), text: async () => '' }),
+      [`${API}/Contacts?where=${encodeURIComponent('Name=="PREMARKET DIAGNOSTIC TEST — DO NOT USE"')}`]: ok({ Contacts: [{ ContactID: 'tc1', Name: 'PREMARKET DIAGNOSTIC TEST — DO NOT USE' }] }),
+      [`${API}/Invoices?ContactIDs=tc1`]: ok({ Invoices: [draft] }),
     }));
     const result = await runXeroReadinessCheck({ xero: readers(), accountCode: '200', officeContacts: [] });
     const l = result.checks.find((c) => c.id === 'leftovers');
@@ -160,7 +162,10 @@ describe('readiness check on the wire (real service, fake Xero server)', () => {
 
   it('findOrCreateContact (existing-contact path) also searches with the encoded name', async () => {
     vi.stubGlobal('fetch', fakeXero({
-      [`${API}/Contacts?where=${encodeURIComponent('Name=="Evolve Sales & Management"')}`]: () => ({ ok: true, status: 200, json: async () => ({ Contacts: [{ ContactID: 'existing1', Name: 'Evolve Sales & Management' }] }), text: async () => '' }),
+      [`${API}/Contacts?where=${encodeURIComponent('Name=="Evolve Sales & Management"')}`]: () => {
+        const data = { Contacts: [{ ContactID: 'existing1', Name: 'Evolve Sales & Management' }] };
+        return { ok: true, status: 200, json: async () => data, text: async () => JSON.stringify(data) };
+      },
     }));
     const c = await xeroService.findOrCreateContact({ name: 'Evolve Sales & Management', email: 'a@b.c' });
     expect(c.ContactID).toBe('existing1');                                       // found, so no duplicate is created
@@ -180,7 +185,7 @@ describe('readiness check on the wire (real service, fake Xero server)', () => {
     expect(realRates.some((r) => r.TaxType === 'NONE')).toBe(false);          // exactly what the live org returned
     const TEST_CONTACT = 'PREMARKET DIAGNOSTIC TEST — DO NOT USE';
     const del = (n, ref, total) => ({ InvoiceID: n, InvoiceNumber: n, Status: 'DELETED', Reference: ref, Total: total });
-    const j = (data) => () => ({ ok: true, status: 200, json: async () => data, text: async () => '' });
+    const j = (data) => () => ({ ok: true, status: 200, json: async () => data, text: async () => JSON.stringify(data) });
     vi.stubGlobal('fetch', fakeXero({
       [`${API}/TaxRates`]: j({ TaxRates: realRates }),
       [`${API}/Contacts?where=${encodeURIComponent(`Name=="${TEST_CONTACT}"`)}`]: j({ Contacts: [{ ContactID: 'tc1', Name: TEST_CONTACT, ContactStatus: 'ACTIVE', EmailAddress: 'xero-diagnostic-test@premarket.homes' }] }),

@@ -5,6 +5,55 @@ import { verifyAdmin } from '../../../../middleware/auth';
 import { withChargeDetails } from '../../../../services/chargeDetails';
 import { releaseCharges } from '../../../../services/billingService';
 import { sendInvoice, getInvoiceById, deleteDraftInvoice } from '../../../../services/xeroService';
+import { checkInvoiceDelivery } from '../../../../services/invoiceDelivery';
+
+const EMAIL_CLAIM_MS = 2 * 60 * 1000; // a retry in progress blocks another for up to 2 minutes
+
+/** Loads one item of this run that has a real Xero invoice, or returns an error response. */
+async function loadInvoicedItem(runId, itemId) {
+  if (!itemId) return { error: NextResponse.json({ error: 'itemId is required' }, { status: 400 }) };
+  const itemRef = adminDb.collection('invoiceRunItems').doc(itemId);
+  const itemDoc = await itemRef.get();
+  if (!itemDoc.exists) return { error: NextResponse.json({ error: 'Item not found' }, { status: 404 }) };
+  const item = itemDoc.data();
+  if (item.runId !== runId) {
+    return { error: NextResponse.json({ error: 'Item does not belong to this run' }, { status: 400 }) };
+  }
+  if (!item.xeroInvoiceId) {
+    return { error: NextResponse.json({ error: 'This item has no Xero invoice to retry sending — it was never successfully created' }, { status: 400 }) };
+  }
+  return { itemRef, item };
+}
+
+/** Xero shows the invoice was emailed: record it as sent locally. No email, no Xero write. */
+async function recordSentFromXero(itemRef, delivery) {
+  await itemRef.update({
+    status: 'sent',
+    lastEmailError: null,
+    emailConfirmedFromXeroAt: FieldValue.serverTimestamp(),
+    emailConfirmation: delivery.evidence,
+  });
+}
+
+/**
+ * Once every item of a failed or partial run has been sent (or paid), the run itself is sent.
+ * The original errors are kept as resolvedErrors.
+ */
+async function settleRunAfterEmail(runId, runRef) {
+  const runDoc = await runRef.get();
+  const run = runDoc.data() || {};
+  if (!['failed', 'partial'].includes(run.status)) return run.status;
+  const itemsSnap = await adminDb.collection('invoiceRunItems').where('runId', '==', runId).get();
+  const allSent = itemsSnap.size > 0 && itemsSnap.docs.every((d) => ['sent', 'paid'].includes(d.data().status));
+  if (!allSent) return run.status;
+  await runRef.update({
+    status: 'sent',
+    resolvedErrors: run.errors || [],
+    errors: [],
+    emailResolvedAt: FieldValue.serverTimestamp(),
+  });
+  return 'sent';
+}
 
 /** Every propertyId currently attached to a run, across all its items —
  * used to release the right charges back to 'pending' whenever the run
@@ -173,41 +222,103 @@ export async function PATCH(request, { params }) {
     // route's own approval requirement — there is no way to reach
     // 'email_failed' with a stored xeroInvoiceId except by having
     // already gone through POST .../send on an approved run.
+    //
+    // Never emails a customer twice: before sending, it asks Xero whether this invoice has
+    // already been emailed (services/invoiceDelivery.js). If Xero shows it was, nothing is sent
+    // and the item is recorded as sent. One retry at a time per item, so a double-click cannot
+    // send twice either.
     if (action === 'retrySend') {
-      const { itemId } = body;
-      if (!itemId) {
-        return NextResponse.json({ error: 'itemId is required' }, { status: 400 });
-      }
-
-      const itemRef = adminDb.collection('invoiceRunItems').doc(itemId);
-      const itemDoc = await itemRef.get();
-      if (!itemDoc.exists) {
-        return NextResponse.json({ error: 'Item not found' }, { status: 404 });
-      }
-
-      const item = itemDoc.data();
-      if (item.runId !== runId) {
-        return NextResponse.json({ error: 'Item does not belong to this run' }, { status: 400 });
-      }
-      if (!item.xeroInvoiceId) {
-        return NextResponse.json({ error: 'This item has no Xero invoice to retry sending — it was never successfully created' }, { status: 400 });
-      }
+      const loaded = await loadInvoicedItem(runId, body.itemId);
+      if (loaded.error) return loaded.error;
+      const { itemRef, item } = loaded;
       if (item.status === 'sent') {
         return NextResponse.json({ error: 'This item has already been sent' }, { status: 400 });
       }
 
       try {
+        await adminDb.runTransaction(async (tx) => {
+          const snap = await tx.get(itemRef);
+          const startedAt = snap.data()?.emailInProgressAt;
+          const startedMs = startedAt?.toMillis?.() ?? (startedAt ? new Date(startedAt).getTime() : null);
+          if (startedMs && Date.now() - startedMs < EMAIL_CLAIM_MS) {
+            throw Object.assign(new Error('An email for this invoice is already being sent'), { status: 409 });
+          }
+          if (snap.data()?.status === 'sent') {
+            throw Object.assign(new Error('This item has already been sent'), { status: 400 });
+          }
+          tx.update(itemRef, { emailInProgressAt: new Date() });
+        });
+      } catch (err) {
+        if (err.status) return NextResponse.json({ error: err.message }, { status: err.status });
+        throw err;
+      }
+
+      let delivery;
+      try {
+        delivery = await checkInvoiceDelivery(item.xeroInvoiceId);
+      } catch (err) {
+        await itemRef.update({ emailInProgressAt: null });
+        return NextResponse.json({ error: `Could not check with Xero whether the invoice was already sent, so it was not emailed: ${err.message}` }, { status: 502 });
+      }
+      if (!delivery.found) {
+        await itemRef.update({ emailInProgressAt: null });
+        return NextResponse.json({ error: 'Xero has no record of this invoice, so it was not emailed' }, { status: 409 });
+      }
+      if (!['AUTHORISED', 'PAID'].includes(delivery.status)) {
+        await itemRef.update({ emailInProgressAt: null });
+        return NextResponse.json({ error: `The invoice is ${delivery.status} in Xero, so it was not emailed`, delivery }, { status: 409 });
+      }
+      if (delivery.emailed) {
+        await recordSentFromXero(itemRef, delivery);
+        await itemRef.update({ emailInProgressAt: null });
+        const runStatus = await settleRunAfterEmail(runId, runRef);
+        return NextResponse.json({ success: true, status: 'sent', alreadySent: true, runStatus, delivery });
+      }
+
+      try {
         await sendInvoice(item.xeroInvoiceId);
-        await itemRef.update({ status: 'sent', emailSentAt: FieldValue.serverTimestamp(), lastEmailError: null });
-        return NextResponse.json({ success: true, status: 'sent' });
+        await itemRef.update({
+          status: 'sent',
+          emailSentAt: FieldValue.serverTimestamp(),
+          lastEmailError: null,
+          emailAttempts: (item.emailAttempts || 0) + 1,
+          emailInProgressAt: null,
+        });
+        const runStatus = await settleRunAfterEmail(runId, runRef);
+        return NextResponse.json({ success: true, status: 'sent', runStatus });
       } catch (err) {
         await itemRef.update({
           status: 'email_failed',
           lastEmailError: err.message,
           emailAttempts: (item.emailAttempts || 0) + 1,
+          emailInProgressAt: null,
         });
         return NextResponse.json({ error: err.message || 'Failed to send invoice' }, { status: 500 });
       }
+    }
+
+    // Read-only: what Xero holds for this item's invoice now (status, amounts, dates, contact)
+    // and whether Xero has emailed it, from Xero's own records. Emails nothing and writes
+    // nothing to Xero. If Xero shows the invoice was emailed but the item is still recorded as
+    // a failed email, the item (and, once every item is sent, the run) is corrected to sent.
+    if (action === 'checkDelivery') {
+      const loaded = await loadInvoicedItem(runId, body.itemId);
+      if (loaded.error) return loaded.error;
+      const { itemRef, item } = loaded;
+      let delivery;
+      try {
+        delivery = await checkInvoiceDelivery(item.xeroInvoiceId);
+      } catch (err) {
+        return NextResponse.json({ error: `Could not read the invoice from Xero: ${err.message}` }, { status: 502 });
+      }
+      let reconciled = false;
+      let runStatus = currentStatus;
+      if (delivery.found && delivery.emailed && item.status === 'email_failed') {
+        await recordSentFromXero(itemRef, delivery);
+        runStatus = await settleRunAfterEmail(runId, runRef);
+        reconciled = true;
+      }
+      return NextResponse.json({ success: true, delivery, reconciled, runStatus }, { headers: { 'Cache-Control': 'private, no-store' } });
     }
 
     // Remove entire agency items from a draft run
