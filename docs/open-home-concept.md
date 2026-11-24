@@ -17,10 +17,34 @@ or touches a campaign, the iPad kiosk, billing or permissions.
 | `/concepts/open-home/sign` | Entrance QR sign: A4, A3, A-frame (600×900 mm), iPad screen; dark or light; print / PDF | Private* |
 | `/concepts/open-home/visit?property=…&session=…` | The buyer's phone page the QR opens | Open (demo only) |
 
-\* Private: on production (`VERCEL_ENV=production`) only a signed-in platform admin (`users.superAdmin`) can open
-them. On Vercel previews and local dev they open directly; previews sit behind Vercel's own login. The buyer page is
-open so any phone can scan a demo sign. Everything typed there stays in that phone's browser. Every page is `noindex`
-and none is linked from navigation.
+\* Private. On production (`VERCEL_ENV=production`) they open for:
+- a signed-in platform admin (`users.superAdmin`), or
+- anyone who opened the **private share link** `https://premarket.homes/concepts/open-home/share/<token>`. No
+  Premarket account is needed.
+
+On Vercel previews and local dev they open directly; previews sit behind Vercel's own login.
+
+The buyer page is open so any phone can scan a demo sign. Everything typed there stays in that phone's browser.
+
+Every page is `noindex` and none is linked from navigation.
+
+### Private share link (`_lib/shareAccess.js`, `share/[token]/route.js`)
+- **How it works:**
+  - Opening the link checks the token, stores it in an HttpOnly, SameSite=Lax cookie (Secure on https) for
+    `/concepts/open-home` only, lasting 90 days.
+  - It then redirects (303) to the pitch at its clean address, so the token leaves the address bar.
+  - An optional `?for=<names>` on the share link carries through to the pitch's "Prepared for" line.
+  - The presenter pages re-check the cookie on every load. A wrong token gets the same redirect with no cookie, so it
+    lands on the neutral private page.
+- **Security:**
+  - The token is 192 random bits.
+  - Only its SHA-256 is in the code, because the repo is public. Comparison is constant-time.
+  - The response isn't cached. The site's Referrer-Policy never sends the path, and so the token, to other sites.
+  - The cookie is not read anywhere else in the app, and grants nothing outside the concept. The concept itself is
+    demo data only.
+- **Add a link:** add `{ id, sha256 }` to `SHARE_LINKS`, or put the hash in the `OPEN_HOME_SHARE_SHA256`
+  environment variable (comma-separated).
+- **Revoke a link:** remove its hash and deploy. Browsers that opened it lose access on their next page load.
 
 ## What is reused
 
