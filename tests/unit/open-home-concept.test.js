@@ -206,7 +206,8 @@ describe('safe by construction', () => {
 
   it('presenter pages are gated on production; the buyer page is not; nothing is indexed', () => {
     for (const p of ['page.js', 'demo/page.js', 'agent/page.js', 'sign/page.js']) {
-      expect(read(p)).toMatch(/<ConceptGate requireAdmin=\{process\.env\.VERCEL_ENV === 'production'\}>/);
+      // production: admin sign-in unless the browser opened the private share link (see open-home-share-link.test.js)
+      expect(read(p)).toMatch(/<ConceptGate requireAdmin=\{await requireAdminSignIn\(\)\}>/);
     }
     expect(read('visit/page.js')).not.toMatch(/ConceptGate/);
     expect(read('layout.js')).toMatch(/robots: \{ index: false, follow: false/);

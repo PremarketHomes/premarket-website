@@ -8,8 +8,9 @@ import BrandLockup from './BrandLockup';
 /**
  * Keeps the concept's presenter pages (pitch, demo, agent dashboard, sign) private.
  *
- * - Production (`requireAdmin`, from VERCEL_ENV on the server): only a signed-in Premarket platform admin
- *   (users.superAdmin, the same flag the admin console uses) sees them. Everyone else gets a neutral private page.
+ * - Production: `requireAdmin` comes from the server (_lib/shareAccess.js requireAdminSignIn). A browser that opened
+ *   the private share link sees the pages without any account. Otherwise only a signed-in Premarket platform admin
+ *   (users.superAdmin, the same flag the admin console uses) does. Everyone else gets a neutral private page.
  * - Vercel preview deployments and local development: shown without sign-in, because previews already sit behind
  *   Vercel's own login (Deployment Protection).
  *
@@ -36,7 +37,7 @@ export default function ConceptGate({ requireAdmin, children }) {
         <span className="mx-auto mt-6 grid h-12 w-12 place-items-center rounded-full bg-slate-100 text-slate-600"><Lock className="h-6 w-6" aria-hidden="true" /></span>
         <h1 className="mt-4 text-xl font-semibold text-slate-900">This page is private</h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-600">
-          {user ? 'It isn’t available for this account.' : 'Sign in with an authorised Premarket account to view it.'}
+          {user ? 'It isn’t available for this account.' : 'If you were sent a private link to it, please open that link again.'}
         </p>
         {!user && (
           <a href={loginUrlForCurrentPage()} className="mt-6 inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-6 text-sm font-semibold text-white hover:bg-slate-800">
