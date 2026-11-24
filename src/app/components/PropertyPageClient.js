@@ -75,9 +75,10 @@ const FINANCE_OPTIONS = [
   { value: 'not_yet', label: 'Not Yet' },
 ];
 
-export default function PropertyPageClient({ previewBrand, previewPropertyId, initialProperty } = {}) {
+export default function PropertyPageClient({ previewBrand, previewPropertyId, propertyId: campaignId, initialProperty } = {}) {
   const searchParams = useSearchParams();
-  const propertyId = previewPropertyId || searchParams.get('propertyId');
+  // campaignId: the short link /p/{code} (its address has no ?propertyId=). The full link reads it from the URL.
+  const propertyId = campaignId || previewPropertyId || searchParams.get('propertyId');
   const initialMode = searchParams.get('mode');
   const auth = getAuth();
   const { user: currentAuthUser } = useAuth();

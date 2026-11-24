@@ -9,6 +9,7 @@ import { useRequireAgent } from '../../hooks/useRequireAgent';
 import { authFetch } from '../../utils/authFetch';
 import { db } from '../../firebase/clientApp';
 import PropertyThumb from '../../components/PropertyThumb';
+import { CampaignPageLink } from '../../components/CampaignLinks';
 import { knownTeamTheme, teamAccentStyle, campaignAccentStyle } from '../../utils/teamTheme';
 import { fetchCampaignThemes } from '../../utils/fetchCampaignThemes';
 
@@ -409,9 +410,9 @@ export default function MyTeamPage() {
                           <Link href={`/dashboard/property/${p.id}`} className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-semibold">
                             {tab === 'team' ? 'View report (read-only)' : 'View report'} <BarChart3 className="w-3 h-3" />
                           </Link>
-                          <Link href={`/find-property?propertyId=${p.id}`} target="_blank" className="inline-flex items-center gap-1 text-[var(--team-accent-text,var(--color-orange-600))] hover:text-[var(--team-accent-text,var(--color-orange-700))] font-semibold">
+                          <CampaignPageLink propertyId={p.id} className="inline-flex items-center gap-1 text-[var(--team-accent-text,var(--color-orange-600))] hover:text-[var(--team-accent-text,var(--color-orange-700))] font-semibold">
                             View page <ExternalLink className="w-3 h-3" />
-                          </Link>
+                          </CampaignPageLink>
                         </span>
                       </div>
                     </div>

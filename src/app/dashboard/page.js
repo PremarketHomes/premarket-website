@@ -57,7 +57,8 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
-import { useShortCode, campaignLink, displayLink, copyText } from '../utils/useShortLinks';
+import { useShortCode, campaignLink, campaignPath, displayLink, copyCampaignLink } from '../utils/useShortLinks';
+import { LinkCopiedToast } from '../components/CampaignLinks';
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 import PropertyThumb from '../components/PropertyThumb';
 import { DashboardSkeleton, PropertyCardsSkeleton, CampaignRowsSkeleton } from './components/PageSkeletons';
@@ -321,20 +322,27 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
   // A teammate's listing is a read-only copy: it can be previewed and its (redacted)
   // report opened, but never edited, archived or hidden from here.
   const isTeamListing = property.isTeamListing === true;
-  // Live campaigns get a one-click Copy link with the SMS-friendly short link (the full link until it has loaded).
+  // Every card links to the campaign's SMS-friendly short link (/p/...); live campaigns also get a one-click Copy link,
+  // which waits for the short link rather than copying the full one.
   const shareable = !isArchived && !isSold;
-  const shortCode = useShortCode(shareable ? property.id : null);
+  const shortCode = useShortCode(property.id);
+  const pageHref = campaignPath(property.id, shortCode);
   const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(null);
   const copyLink = async () => {
-    const link = campaignLink(property.id, shortCode);
-    if (await copyText(link)) {
+    const link = await copyCampaignLink(property.id, shortCode);
+    if (link) {
       setCopied(true);
+      setCopiedLink(link);
       setTimeout(() => setCopied(false), 2000);
     } else {
-      window.prompt('Copy this campaign link:', link);
+      window.prompt('Copy this campaign link:', campaignLink(property.id, shortCode));
     }
   };
   return (
+    <>
+    {/* Outside the card: the card clips its contents and is animated, which would trap a fixed-position toast. */}
+    <LinkCopiedToast link={copiedLink} onDone={() => setCopiedLink(null)} />
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
@@ -345,7 +353,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
     >
       {/* Image — clickable to preview listing */}
       <a
-        href={`/find-property?propertyId=${property.id}`}
+        href={pageHref}
         target="_blank"
         rel="noopener noreferrer"
         className="block relative aspect-[4/3] bg-stone-100 cursor-pointer group"
@@ -426,7 +434,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           </p>
         )}
         <a
-          href={`/find-property?propertyId=${property.id}`}
+          href={pageHref}
           target="_blank"
           rel="noopener noreferrer"
           className="font-medium text-stone-900 text-sm truncate mb-1 block hover:text-[var(--team-accent-text,#c64500)] transition-colors"
@@ -504,6 +512,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
         </div>
       </div>
     </motion.div>
+    </>
   );
 }
 
