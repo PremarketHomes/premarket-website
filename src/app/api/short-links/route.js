@@ -6,6 +6,9 @@ import { getOrCreateShortCodes, MAX_SHORT_LINK_BATCH } from '../services/shortLi
 /**
  * POST /api/short-links  { propertyIds: string[] }  ->  { codes: { [propertyId]: code | null } }
  *
+ * LEGACY (premarket.homes/p/{code}). Current share screens use POST /api/prop-links. This stays so that a dashboard
+ * tab opened before the prop format was deployed keeps working until it is refreshed; it can be removed later.
+ *
  * Signed-in users only. Returns each campaign's short-link code, creating it the first time it is asked for (see
  * services/shortLinkService.js for why any signed-in user may do that). Returns codes only; the page builds the link
  * from its own origin. A null code means "use the full link".

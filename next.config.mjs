@@ -67,11 +67,16 @@ const nextConfig = {
     ];
   },
 
-  // Mitch Harrop Team's vendor page is shared as /Harropteam; the route lives at /harropteam (one page, both URLs).
   async rewrites() {
     return [
+      // Mitch Harrop Team's vendor page is shared as /Harropteam; the route lives at /harropteam (one page, both URLs).
       { source: '/Harropteam', destination: '/harropteam' },
       { source: '/HarropTeam', destination: '/harropteam' },
+      // A campaign's link, premarket.homes/prop4827319056 (see src/app/utils/shortLinks.js). Rewritten, never
+      // redirected, so the prop link stays in the address bar. Strictly "prop" + 10 digits (first digit 1-9), optionally
+      // capitalised or followed by a full stop the way phones paste links; nothing else at the root can match it, and no
+      // page or folder may be named like this. Anything else (e.g. /property) is untouched.
+      { source: '/:slug([Pp][Rr][Oo][Pp][1-9]\\d{9}\\.?)', destination: '/p/:slug' },
     ];
   },
 

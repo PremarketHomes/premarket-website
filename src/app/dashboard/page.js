@@ -57,8 +57,8 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
-import { useShortCode, campaignLink, campaignPath, displayLink, copyCampaignLink } from '../utils/useShortLinks';
-import { LinkCopiedToast } from '../components/CampaignLinks';
+import { useCampaignLink, campaignLink, displayLink } from '../utils/useShortLinks';
+import { CampaignPageLink, useCampaignLinkCopy } from '../components/CampaignLinks';
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 import PropertyThumb from '../components/PropertyThumb';
 import { DashboardSkeleton, PropertyCardsSkeleton, CampaignRowsSkeleton } from './components/PageSkeletons';
@@ -322,27 +322,15 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
   // A teammate's listing is a read-only copy: it can be previewed and its (redacted)
   // report opened, but never edited, archived or hidden from here.
   const isTeamListing = property.isTeamListing === true;
-  // Every card links to the campaign's SMS-friendly short link (/p/...); live campaigns also get a one-click Copy link,
-  // which waits for the short link rather than copying the full one.
+  // Every card opens the campaign's link (premarket.homes/prop...); live campaigns also get a one-click Copy link,
+  // which waits for the link rather than ever copying the full one.
   const shareable = !isArchived && !isSold;
-  const shortCode = useShortCode(property.id);
-  const pageHref = campaignPath(property.id, shortCode);
-  const [copied, setCopied] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(null);
-  const copyLink = async () => {
-    const link = await copyCampaignLink(property.id, shortCode);
-    if (link) {
-      setCopied(true);
-      setCopiedLink(link);
-      setTimeout(() => setCopied(false), 2000);
-    } else {
-      window.prompt('Copy this campaign link:', campaignLink(property.id, shortCode));
-    }
-  };
+  const propNumber = useCampaignLink(property.id);
+  const { copy, copiedId, toast } = useCampaignLinkCopy();
+  const copied = copiedId === property.id;
   return (
     <>
-    {/* Outside the card: the card clips its contents and is animated, which would trap a fixed-position toast. */}
-    <LinkCopiedToast link={copiedLink} onDone={() => setCopiedLink(null)} />
+    {toast}
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
@@ -352,10 +340,8 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
       style={campaignAccentStyle(campaignTheme)}
     >
       {/* Image — clickable to preview listing */}
-      <a
-        href={pageHref}
-        target="_blank"
-        rel="noopener noreferrer"
+      <CampaignPageLink
+        propertyId={property.id}
         className="block relative aspect-[4/3] bg-stone-100 cursor-pointer group"
       >
         {campaignTheme && <span className="absolute inset-x-0 top-0 z-10 h-[3px] bg-[var(--team-accent)]" aria-hidden="true" />}
@@ -424,7 +410,7 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
             </div>
           </div>
         )}
-      </a>
+      </CampaignPageLink>
 
       {/* Details — address clickable to preview listing */}
       <div className="p-5 flex flex-col flex-1">
@@ -433,14 +419,12 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
             Listed by {isTeamListing ? property.listedBy : 'you'}
           </p>
         )}
-        <a
-          href={pageHref}
-          target="_blank"
-          rel="noopener noreferrer"
+        <CampaignPageLink
+          propertyId={property.id}
           className="font-medium text-stone-900 text-sm truncate mb-1 block hover:text-[var(--team-accent-text,#c64500)] transition-colors"
         >
           {property.formattedAddress || property.address || 'No address'}
-        </a>
+        </CampaignPageLink>
         {property.agentId && teamAgents?.length > 0 && (() => {
           const agent = teamAgents.find(a => a.id === property.agentId);
           return agent ? <p className="text-xs text-stone-500 mb-0.5">{agent.name}</p> : null;
@@ -481,8 +465,8 @@ function PropertyCard({ property, onToggleVisibility, toggling, onArchive, archi
           </Link>
           {shareable && (
             <button
-              onClick={copyLink}
-              title={`Copy ${displayLink(campaignLink(property.id, shortCode))}`}
+              onClick={() => copy(property.id)}
+              title={propNumber ? `Copy ${displayLink(campaignLink(property.id, propNumber))}` : 'Copy campaign link'}
               aria-label="Copy campaign link"
               data-testid="card-copy-link"
               className="px-2 py-2 text-xs font-medium whitespace-nowrap text-stone-500 hover:text-stone-900 rounded-md transition-colors flex items-center gap-1"

@@ -68,7 +68,7 @@ export async function sendCampaignLinkOnce({ propertyId, recipientUid, seq = 1, 
     await sendCampaignLinkToAgentEmail({
       to: user.email, firstName: user.firstName,
       propertyAddress: property.formattedAddress || property.address || 'your property',
-      // Short link when it can be had; buyerShareLink never throws and falls back to the full link.
+      // The campaign's prop link (created if needed); buyerShareLink never throws: an email always carries a working link.
       propertyId, link: await buyerShareLink(adminDb, propertyId), createdByName, resend: seq > 1, idempotencyKey: key,
     });
     await logRef.update({ status: 'sent', sentAt: FieldValue.serverTimestamp() });
