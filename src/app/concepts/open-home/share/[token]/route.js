@@ -13,7 +13,10 @@ export async function GET(request, { params }) {
   const { token } = await params;
   const target = request.nextUrl.clone();
   target.pathname = SHARE_COOKIE_PATH;
+  // Keep only the pitch's optional "Prepared for …" line (?for=), as plain text the pitch page sanitises again.
+  const preparedFor = (request.nextUrl.searchParams.get('for') || '').slice(0, 60);
   target.search = '';
+  if (preparedFor && isValidShareToken(token)) target.searchParams.set('for', preparedFor);
   const res = NextResponse.redirect(target, 303);
   // (The site-wide Referrer-Policy, strict-origin-when-cross-origin, already keeps the path, and so the token, from
   // ever being sent to another site.)

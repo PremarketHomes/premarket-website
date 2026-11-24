@@ -75,6 +75,14 @@ describe('opening the share link', () => {
     }
   });
 
+  it('carries the pitch’s optional “Prepared for” line (?for=), and nothing else, through a valid link', async () => {
+    const t = `${TOKEN}?for=${encodeURIComponent('Phil & Co')}&x=1`;
+    const res = await GET(new NextRequest(`https://premarket.homes/concepts/open-home/share/${t}`), { params: Promise.resolve({ token: TOKEN }) });
+    expect(res.headers.get('location')).toBe('https://premarket.homes/concepts/open-home?for=Phil+%26+Co');
+    const bad = await GET(new NextRequest('https://premarket.homes/concepts/open-home/share/wrong?for=Phil'), { params: Promise.resolve({ token: 'wrong' }) });
+    expect(bad.headers.get('location')).toBe('https://premarket.homes/concepts/open-home');
+  });
+
   it('works on a local http server too (cookie without Secure)', async () => {
     const res = await open(TOKEN, 'http://localhost:3400');
     expect(res.headers.get('location')).toBe('http://localhost:3400/concepts/open-home');

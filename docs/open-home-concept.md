@@ -33,6 +33,7 @@ Every page is `noindex` and none is linked from navigation.
   - Opening the link checks the token, stores it in an HttpOnly, SameSite=Lax cookie (Secure on https) for
     `/concepts/open-home` only, lasting 90 days.
   - It then redirects (303) to the pitch at its clean address, so the token leaves the address bar.
+  - An optional `?for=<names>` on the share link carries through to the pitch's "Prepared for" line.
   - The presenter pages re-check the cookie on every load. A wrong token gets the same redirect with no cookie, so it
     lands on the neutral private page.
 - **Security:**
