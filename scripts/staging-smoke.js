@@ -204,7 +204,7 @@ const prodCounts = async () => 'skipped';
     await new Promise((r) => setTimeout(r, 1500)); const m = resend().map((x) => x.body);
     const links = m.filter((x) => /campaign link/i.test(x.subject)); ok(links.length === 1, 'campaign emails ' + links.length + ' of ' + m.length);
     const to = links.map((x) => [].concat(x.to).join()).sort(); ok(to.join() === [E('invited')].join(), 'recipients ' + to);
-    for (const x of links) { ok(/find-property\?propertyId=m_/.test(x.html), 'link'); ok(!/offerAmount|buyer@|fake\.buyer|0400 000 00\d|\$\s?\d|1,250,000|880000|987654/.test(x.html + (x.text || '')), 'buyer or price data in email'); }
+    for (const x of links) { ok(/\/prop[1-9]\d{9}"/.test(x.html), 'prop link'); ok(!/offerAmount|buyer@|fake\.buyer|0400 000 00\d|\$\s?\d|1,250,000|880000|987654/.test(x.html + (x.text || '')), 'buyer or price data in email'); }
     ok(!m.some((x) => /ivy\.pro@/.test(JSON.stringify(x.to))), 'sent to professional email');
     ok(!m.some((x) => /Property Added to Your Dashboard/.test(x.subject)), 'legacy-style email');
     return 'recipient: qa+invited (test domain; captured, not sent)';

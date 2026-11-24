@@ -45,6 +45,8 @@ const SERVER_ONLY_COLLECTIONS = [
   'xeroContacts',   // billing entity -> Xero contact id link (written only by the invoice send route)
   'shortLinks',         // premarket.homes/p/{code} -> campaign (read and written only by the server)
   'propertyShortLinks', // campaign -> its short-link code (server only)
+  'propLinks',          // premarket.homes/prop{number} -> campaign (read and written only by the server)
+  'propertyPropLinks',  // campaign -> its prop number (server only)
 ];
 
 describe.each(

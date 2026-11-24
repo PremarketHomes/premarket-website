@@ -258,7 +258,7 @@ const ids = {};
     const want = [EMAIL.stg_bso_chloe, EMAIL.stg_bso_chloe, EMAIL.stg_bso_brett, EMAIL.stg_bso_ivan, EMAIL.stg_bso_iris, E('member')].sort();
     ok(JSON.stringify(to) === JSON.stringify(want), 'recipients ' + to.join(','));
     ok(!to.some((x) => x === EMAIL.stg_bso_penny || x === EMAIL.stg_bso_bella), 'BSO emailed');
-    ok(mails.every((m) => /find-property\?propertyId=m_/.test(m.html) && !/880000|0400 000 009|\$\s?950,000/.test(m.html + (m.text || ''))), 'content');
+    ok(mails.every((m) => /\/prop[1-9]\d{9}"/.test(m.html) && !/880000|0400 000 009|\$\s?950,000/.test(m.html + (m.text || ''))), 'content');
     ok(mails.some((m) => /Penny Bso-Manager at your office/.test(m.html)), 'creator named');
     const before = linkEmails().length;
     ok((await api(P('penny'), `/api/properties/${ids.riverside}/campaign-link/resend`, 'POST')).body.sent === true, 'resend');

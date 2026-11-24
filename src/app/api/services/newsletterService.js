@@ -4,6 +4,7 @@ import { wrapEmail, greeting, p, signature, BASE_URL } from './emailTemplates';
 import { Timestamp } from 'firebase-admin/firestore';
 import { formatPriceShort } from '../../utils/formatters';
 import { isExcludedOpinion } from '../../utils/opinionExclusion';
+import { buyerShareLinks } from './shortLinkService';
 
 export async function fetchBuyersWithPreferences() {
   const usersSnapshot = await adminDb
@@ -158,7 +159,8 @@ export function matchPropertiesToBuyer(buyer, properties) {
   });
 }
 
-function propertyCardHTML(property) {
+// `link` is the property's premarket.homes/prop... link when the sender has it; otherwise the full link (always valid).
+function propertyCardHTML(property, link = `${BASE_URL}/find-property?propertyId=${property.id}`) {
   const specs = [
     property.bedrooms ? `${property.bedrooms} Bed` : '',
     property.bathrooms ? `${property.bathrooms} Bath` : '',
@@ -180,7 +182,7 @@ function propertyCardHTML(property) {
         <table width="100%" cellpadding="0" cellspacing="0" border="0">
           <tr><td>
             <h3 style="margin:0 0 6px 0; font-size:17px; font-weight:700; color:#1a1a2e;">
-              <a href="${BASE_URL}/find-property?propertyId=${property.id}" style="color:#1a1a2e; text-decoration:none;">${property.title}</a>
+              <a href="${link}" style="color:#1a1a2e; text-decoration:none;">${property.title}</a>
             </h3>
           </td></tr>
           <tr><td style="padding:2px 0;">
@@ -191,7 +193,7 @@ function propertyCardHTML(property) {
             <table width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td><span style="font-size:18px; font-weight:800; color:#f97316;">${formatPrice(property.price)}</span></td>
-                <td align="right"><a href="${BASE_URL}/find-property?propertyId=${property.id}" style="display:inline-block; padding:8px 18px; background-color:#1a1a2e; color:#ffffff; text-decoration:none; border-radius:8px; font-size:12px; font-weight:600;">View</a></td>
+                <td align="right"><a href="${link}" style="display:inline-block; padding:8px 18px; background-color:#1a1a2e; color:#ffffff; text-decoration:none; border-radius:8px; font-size:12px; font-weight:600;">View</a></td>
               </tr>
             </table>
           </td></tr>
@@ -201,7 +203,8 @@ function propertyCardHTML(property) {
   </td></tr>`;
 }
 
-export function generateNewsletterHTML(buyer, properties, hottest = []) {
+// `links` ({ [propertyId]: url }) carries each property's prop link; a property without one gets its full link.
+export function generateNewsletterHTML(buyer, properties, hottest = [], links = {}) {
   // A property already shown under Latest Listings is not repeated under Hottest.
   const shown = new Set(properties.map((prop) => prop.id));
   const hot = hottest.filter((prop) => !shown.has(prop.id));
@@ -217,7 +220,7 @@ export function generateNewsletterHTML(buyer, properties, hottest = []) {
         <h2 style="margin:0; font-size:20px; font-weight:700; color:#1a1a2e;">${title}</h2>
         <p style="margin:4px 0 0 0; font-size:13px; color:#6b7280;">${subtitle}</p>
       </td></tr>
-      ${list.map((prop) => propertyCardHTML(prop)).join('')}
+      ${list.map((prop) => propertyCardHTML(prop, links[prop.id])).join('')}
     </table>`;
 
   const bodyHTML = `
@@ -237,8 +240,8 @@ export function generateNewsletterHTML(buyer, properties, hottest = []) {
   });
 }
 
-async function sendNewsletterEmail(buyer, properties, hottest = []) {
-  const html = generateNewsletterHTML(buyer, properties, hottest);
+async function sendNewsletterEmail(buyer, properties, hottest = [], links = {}) {
+  const html = generateNewsletterHTML(buyer, properties, hottest, links);
   // Unchanged subject when there is no hottest section; otherwise the total shown.
   const shown = new Set(properties.map((prop) => prop.id));
   const total = properties.length + hottest.filter((prop) => !shown.has(prop.id)).length;
@@ -260,6 +263,8 @@ export async function sendWeeklyBuyerNewsletters() {
   }
 
   const results = { sent: 0, skipped: 0, errors: 0 };
+  // Each property's premarket.homes/prop... link, once for the whole send (never throws: full links if this fails).
+  const links = await buyerShareLinks(adminDb, [...newestProperties, ...hottestProperties].map((prop) => prop.id), BASE_URL);
 
   for (const buyer of buyers) {
     try {
@@ -274,7 +279,7 @@ export async function sendWeeklyBuyerNewsletters() {
         continue;
       }
 
-      await sendNewsletterEmail(buyer, buyerNewest, buyerHottest);
+      await sendNewsletterEmail(buyer, buyerNewest, buyerHottest, links);
       results.sent++;
     } catch (error) {
       console.error(`Failed to send newsletter to ${buyer.email}:`, error);

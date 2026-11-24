@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ExternalLink, Eye, EyeOff, Archive, Send, Copy, Pencil, BarChart3, CheckCircle } from 'lucide-react';
 import { authFetch } from '../../utils/authFetch';
-import { useShortCodes, campaignLink, campaignPath, copyCampaignLink } from '../../utils/useShortLinks';
-import { LinkCopiedToast } from '../../components/CampaignLinks';
+import { useCampaignLinks } from '../../utils/useShortLinks';
+import { CampaignPageLink, useCampaignLinkCopy } from '../../components/CampaignLinks';
 import { BSO_TAB_FILTERS } from '../../utils/bsoDashboard';
 import PropertyThumb from '../../components/PropertyThumb';
 import { teamRowStyle, TeamAccentRule, TeamLabel } from '../../components/TeamCampaignMarker';
@@ -116,8 +116,8 @@ export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
   const [filter, setFilter] = useState('active');
   const [notice, setNotice] = useState('');
   const inTab = useMemo(() => campaigns.filter(BSO_TAB_FILTERS[tab] || BSO_TAB_FILTERS.overview), [campaigns, tab]);
-  // SMS-friendly short links (premarket.homes/p/...) for this tab's campaigns; the full link until one is known.
-  const shortCodes = useShortCodes(inTab.map((c) => c.id));
+  // Every campaign's link (premarket.homes/prop...) for this tab, fetched in one request as the list opens.
+  useCampaignLinks(inTab.map((c) => c.id));
 
   // The agent dropdown is built from the campaigns themselves: no team or agent list to maintain.
   const agents = useMemo(() => {
@@ -152,19 +152,18 @@ export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
     if (!res.ok) return setNotice(body.error || 'The link could not be sent.');
     setNotice(body.sent ? `Buyer link emailed to ${c.sellingAgent?.name || 'the agent'}.` : 'The email was not sent (the agent may be unsubscribed or unreachable).');
   };
-  const [copiedLink, setCopiedLink] = useState(null);
-  const copyLink = async (c) => {
-    // Always the short link: waits for it if this row's link is still loading.
-    const link = await copyCampaignLink(c.id, shortCodes[c.id]);
-    setCopiedLink(link);
-    setNotice(link ? `Buyer link copied: ${link}` : `Copy this buyer link: ${campaignLink(c.id, shortCodes[c.id])}`);
+  // Always the prop link: waits for it if this row's link is still loading; never the full link.
+  const { copy, toast } = useCampaignLinkCopy();
+  const copyLink = (c) => {
+    setNotice('');
+    copy(c.id).then((r) => { if (r.status === 'copied') setNotice(`Buyer link copied: ${r.link}`); });
   };
 
   const emptyText = tab === 'sold' ? 'No sold campaigns yet' : tab === 'archived' ? 'No archived campaigns' : 'No campaigns match.';
   return (
     <div data-testid="bso-campaigns">
       {notice && <p className="mb-3 text-sm text-slate-600 break-all" role="status">{notice}</p>}
-      <LinkCopiedToast link={copiedLink} onDone={() => setCopiedLink(null)} />
+      {toast}
       {inTab.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <label htmlFor="agent-filter" className="text-sm font-semibold text-slate-700 shrink-0">Filter by agent</label>
@@ -218,7 +217,7 @@ export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
               </div>
               <div className="flex flex-wrap gap-2 sm:justify-end sm:max-w-md">
                 <button onClick={() => copyLink(c)} className={`${btn} text-orange-600 hover:bg-orange-50`}><Copy className="w-3.5 h-3.5" /> Copy buyer link</button>
-                <a href={campaignPath(c.id, shortCodes[c.id])} target="_blank" rel="noopener noreferrer" className={`${btn} text-slate-600 hover:bg-slate-100`}><ExternalLink className="w-3.5 h-3.5" /> Open</a>
+                <CampaignPageLink propertyId={c.id} className={`${btn} text-slate-600 hover:bg-slate-100`}><ExternalLink className="w-3.5 h-3.5" /> Open</CampaignPageLink>
                 {/* Office admins may edit only campaigns the office manages (same rule as Office → Campaigns). */}
                 {(c.access !== 'officeAdmin' || c.officeManaged) && <Link href={`/dashboard/edit/${c.id}`} className={`${btn} text-slate-700 border border-slate-200 hover:bg-slate-50`}><Pencil className="w-3.5 h-3.5" /> Edit</Link>}
                 <Link href={`/dashboard/property/${c.id}`} className={`${btn} text-slate-700 border border-slate-200 hover:bg-slate-50`}><BarChart3 className="w-3.5 h-3.5" /> Feedback &amp; report</Link>

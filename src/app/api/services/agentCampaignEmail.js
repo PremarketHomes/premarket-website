@@ -9,7 +9,7 @@ export const buyerLinkFor = (propertyId) => `${BASE_URL}/find-property?propertyI
  * the agent's campaign link and how to share it. Contains no buyer data and no price information.
  */
 export async function sendCampaignLinkToAgentEmail({ to, firstName, propertyAddress, propertyId, link: shareLink, createdByName, resend = false, idempotencyKey }) {
-  // The campaign's short link (premarket.homes/p/...) when the caller has it, so the agent can paste it into an SMS.
+  // The campaign's link (premarket.homes/prop...) from the caller (agentNotificationService), ready to paste into an SMS.
   const link = shareLink || buyerLinkFor(propertyId);
   const by = createdByName ? `${esc(createdByName)} at your office has` : 'Your office has';
   const bodyHTML = `

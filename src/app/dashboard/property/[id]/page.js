@@ -69,8 +69,8 @@ import {
 import { formatPrice, formatDate } from '../../../utils/formatters';
 import { ReportSkeleton } from '../../components/PageSkeletons';
 import { exclusionNotice } from '../../../utils/opinionExclusion';
-import { useShortCode, campaignLink, campaignPath, displayLink, copyCampaignLink } from '../../../utils/useShortLinks';
-import { LinkCopiedToast } from '../../../components/CampaignLinks';
+import { useCampaignLink, campaignLink, displayLink } from '../../../utils/useShortLinks';
+import { CampaignPageLink, useCampaignLinkCopy } from '../../../components/CampaignLinks';
 
 
 // --- Engagement Stat Card ---
@@ -764,11 +764,11 @@ export default function PropertyReportPage() {
   const [toggling, setToggling] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(null);
-  // SMS-friendly short link (premarket.homes/p/...), requested as soon as the page opens (alongside the report, not
-  // after it), so it is ready before the agent can click. Copy link waits for it rather than copying the full link.
-  const shortCode = useShortCode(propertyId);
+  // The campaign's link (premarket.homes/prop...), requested as soon as the page opens (alongside the report, not
+  // after it), so it is ready before the agent can click. Copy link waits for it; it never copies the full link.
+  const propNumber = useCampaignLink(propertyId);
+  const { copy: copyCampaign, copiedId, toast: copyToast } = useCampaignLinkCopy();
+  const copied = copiedId === propertyId;
   const [archiving, setArchiving] = useState(false);
   const [showSoldConfirm, setShowSoldConfirm] = useState(false);
   const [markingSold, setMarkingSold] = useState(false);
@@ -1077,19 +1077,9 @@ export default function PropertyReportPage() {
 
   if (!property) return null;
 
-  // What agents paste into SMS, email and CRMs, and what Preview Listing opens: the short link (full link until known).
-  const shareUrl = campaignLink(property.id, shortCode);
-
-  const copyLink = async () => {
-    const link = await copyCampaignLink(property.id, shortCode);
-    if (link) {
-      setCopied(true);
-      setCopiedLink(link);
-      setTimeout(() => setCopied(false), 2000);
-    } else {
-      window.prompt('Copy this campaign link:', campaignLink(property.id, shortCode));
-    }
-  };
+  // What agents paste into SMS, email and CRMs, and what Preview Listing opens: the prop link (null until known).
+  const shareUrl = campaignLink(property.id, propNumber);
+  const copyLink = () => copyCampaign(property.id);
 
   // Computed data
   // Figures from the server's separated report (opinionPrivacy.js): counts and medians that never reduce to one
@@ -1105,7 +1095,7 @@ export default function PropertyReportPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <LinkCopiedToast link={copiedLink} onDone={() => setCopiedLink(null)} />
+      {copyToast}
       {/* Header */}
       <div className="bg-white border-b border-slate-200 sticky top-0 z-20">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3">
@@ -1148,11 +1138,11 @@ export default function PropertyReportPage() {
                 )}
               </VisibilityTag>
 
-              {/* Copy link: one click, the SMS-friendly short link (anyone who can open this report may share the
+              {/* Copy link: one click, the campaign's prop link (anyone who can open this report may share the
                   campaign's buyer link, which is the same link buyers already receive) */}
               <button
                 onClick={copyLink}
-                title={`Copy ${displayLink(shareUrl)}`}
+                title={shareUrl ? `Copy ${displayLink(shareUrl)}` : 'Copy campaign link'}
                 aria-label="Copy campaign link"
                 data-testid="copy-campaign-link"
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
@@ -1198,20 +1188,19 @@ export default function PropertyReportPage() {
                         {copied ? <Check className="w-4 h-4 text-green-500 shrink-0" /> : <Copy className="w-4 h-4 text-slate-400 shrink-0" />}
                         <span className="flex flex-col items-start min-w-0">
                           <span>{copied ? 'Copied!' : 'Copy Link'}</span>
-                          <span className="text-[11px] text-slate-400 truncate max-w-full">{displayLink(shareUrl)}</span>
+                          <span className="text-[11px] text-slate-400 truncate max-w-full" data-testid="campaign-link-text">{shareUrl ? displayLink(shareUrl) : 'Getting link…'}</span>
                         </span>
                       </button>
-                      {/* Preview */}
-                      <a
-                        href={campaignPath(property.id, shortCode)}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      {/* Preview: opens the buyer page at its prop link */}
+                      <CampaignPageLink
+                        propertyId={property.id}
                         onClick={() => setShowMoreMenu(false)}
+                        data-testid="preview-listing"
                         className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                       >
                         <ExternalLink className="w-4 h-4 text-slate-400" />
                         Preview Listing
-                      </a>
+                      </CampaignPageLink>
                       {!readOnly && (
                         <>
                       {/* iPad mode */}

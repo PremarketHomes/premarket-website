@@ -1,9 +1,10 @@
 import { parseFields } from '../utils/firestoreRest';
 
 /**
- * Server-side data for a campaign's buyer page. Shared by its two addresses, which render exactly the same page:
+ * Server-side data for a campaign's buyer page. Shared by all its addresses, which render exactly the same page:
+ *   /prop{number}                   the campaign's link (rewritten to p/[code]/page.js)
+ *   /p/{code}                       legacy short links (p/[code]/page.js)
  *   /find-property?propertyId=...   the full link (unchanged, valid forever)
- *   /p/{code}                       the short link (see p/[code]/page.js)
  */
 
 // Fetch the full property document server-side, via the same public,
@@ -39,13 +40,23 @@ export async function getProperty(propertyId) {
   }
 }
 
+// A campaign search engines must not list: private (link only), archived or hidden. Its page still works for anyone
+// with the link, exactly as before; this only keeps it out of search results.
+const keepOutOfSearch = (property) => property.visibility !== true || property.archived === true || property.hidden === true;
+
 // Page title and link-preview card (SMS, iMessage, email, social). `absolute` because the root layout's title
 // template would otherwise add a second "| Premarket".
-export function propertyMetadata(property) {
+//
+// `canonical` (the campaign's premarket.homes/prop... link, when the page knows it) is declared as the page's canonical
+// address and the preview card's URL, so browsers that share the canonical address (e.g. Chrome on Android) and link
+// previews use the prop link too.
+export function propertyMetadata(property, { canonical = null } = {}) {
+  const canonicalMeta = canonical ? { alternates: { canonical } } : {};
   if (!property) {
     return {
       title: { absolute: 'Property | Premarket' },
       description: 'View this property on Premarket — validate prices with real buyer feedback.',
+      ...canonicalMeta,
     };
   }
 
@@ -60,7 +71,10 @@ export function propertyMetadata(property) {
   return {
     title: { absolute: `${title} | Premarket` },
     description,
+    ...canonicalMeta,
+    ...(keepOutOfSearch(property) ? { robots: { index: false, follow: false } } : {}),
     openGraph: {
+      ...(canonical ? { url: canonical } : {}),
       title: `${title} | Premarket`,
       description,
       images: [
