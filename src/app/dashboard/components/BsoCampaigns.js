@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ExternalLink, Eye, EyeOff, Archive, Send, Copy, Pencil, BarChart3, CheckCircle } from 'lucide-react';
 import { authFetch } from '../../utils/authFetch';
+import { useShortCodes, campaignLink, copyText } from '../../utils/useShortLinks';
 import { BSO_TAB_FILTERS } from '../../utils/bsoDashboard';
 import PropertyThumb from '../../components/PropertyThumb';
 import { teamRowStyle, TeamAccentRule, TeamLabel } from '../../components/TeamCampaignMarker';
@@ -107,7 +108,6 @@ const STATUS = {
 };
 const OVERVIEW_FILTERS = [['active', 'All'], ['live', 'Link live'], ['hidden', 'Link hidden']];
 const ALL = '__all__';
-const buyerLink = (id) => `${typeof window !== 'undefined' ? window.location.origin : 'https://premarket.homes'}/find-property?propertyId=${encodeURIComponent(id)}`;
 const btn = 'inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold';
 
 export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
@@ -115,6 +115,8 @@ export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
   const [filter, setFilter] = useState('active');
   const [notice, setNotice] = useState('');
   const inTab = useMemo(() => campaigns.filter(BSO_TAB_FILTERS[tab] || BSO_TAB_FILTERS.overview), [campaigns, tab]);
+  // SMS-friendly short links (premarket.homes/p/...) for this tab's campaigns; the full link until one is known.
+  const shortCodes = useShortCodes(inTab.map((c) => c.id));
 
   // The agent dropdown is built from the campaigns themselves: no team or agent list to maintain.
   const agents = useMemo(() => {
@@ -150,8 +152,8 @@ export function BsoCampaignList({ campaigns, tab = 'overview', onChanged }) {
     setNotice(body.sent ? `Buyer link emailed to ${c.sellingAgent?.name || 'the agent'}.` : 'The email was not sent (the agent may be unsubscribed or unreachable).');
   };
   const copyLink = async (c) => {
-    const link = buyerLink(c.id);
-    try { await navigator.clipboard.writeText(link); setNotice(`Buyer link copied: ${link}`); } catch { setNotice(`Copy this buyer link: ${link}`); }
+    const link = campaignLink(c.id, shortCodes[c.id]);
+    setNotice(await copyText(link) ? `Buyer link copied: ${link}` : `Copy this buyer link: ${link}`);
   };
 
   const emptyText = tab === 'sold' ? 'No sold campaigns yet' : tab === 'archived' ? 'No archived campaigns' : 'No campaigns match.';
