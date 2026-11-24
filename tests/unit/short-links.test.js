@@ -89,9 +89,11 @@ describe('prop link format: premarket.homes/prop + 10 digits', () => {
     for (let pos = 1; pos < 10; pos += 1) expect(seen[pos].size).toBe(10);
   });
 
-  it('20,000 fresh numbers are all different (9 billion possibilities)', () => {
+  it('20,000 fresh numbers are (almost always) all different (9 billion possibilities)', () => {
+    // Truly random draws: a repeat among 20,000 happens by chance about 2% of the time (and is re-drawn in real use,
+    // see the collision tests). Three or more would be a broken generator (chance about 1 in 500,000).
     const numbers = new Set(Array.from({ length: 20000 }, () => generatePropNumber()));
-    expect(numbers.size).toBe(20000);
+    expect(numbers.size).toBeGreaterThanOrEqual(19998);
   });
 
   it('the link is 38 characters (30 without https://) and says nothing about the property', () => {

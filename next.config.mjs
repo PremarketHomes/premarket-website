@@ -84,6 +84,11 @@ const nextConfig = {
   async headers() {
     return [
       {
+        // Open Home Experience concept (demo only): never indexed.
+        source: '/concepts/:path*',
+        headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
+      },
+      {
         source: '/rex-embed/:path*',
         headers: [
           {
