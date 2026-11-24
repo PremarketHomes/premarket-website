@@ -3,6 +3,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '../../firebase/adminApp';
 import { claim, finish } from './notificationService';
 import { sendCampaignLinkToAgentEmail } from './agentCampaignEmail';
+import { buyerShareLink } from './shortLinkService';
 
 /**
  * Campaign-link email to the agent a campaign was created FOR. Same durable once-only machinery as every
@@ -67,7 +68,8 @@ export async function sendCampaignLinkOnce({ propertyId, recipientUid, seq = 1, 
     await sendCampaignLinkToAgentEmail({
       to: user.email, firstName: user.firstName,
       propertyAddress: property.formattedAddress || property.address || 'your property',
-      propertyId, createdByName, resend: seq > 1, idempotencyKey: key,
+      // Short link when it can be had; buyerShareLink never throws and falls back to the full link.
+      propertyId, link: await buyerShareLink(adminDb, propertyId), createdByName, resend: seq > 1, idempotencyKey: key,
     });
     await logRef.update({ status: 'sent', sentAt: FieldValue.serverTimestamp() });
     return { sent: true };

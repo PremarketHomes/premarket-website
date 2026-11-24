@@ -69,6 +69,7 @@ import {
 import { formatPrice, formatDate } from '../../../utils/formatters';
 import { ReportSkeleton } from '../../components/PageSkeletons';
 import { exclusionNotice } from '../../../utils/opinionExclusion';
+import { useShortCode, campaignLink, displayLink, copyText } from '../../../utils/useShortLinks';
 
 
 // --- Engagement Stat Card ---
@@ -763,6 +764,9 @@ export default function PropertyReportPage() {
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
+  // SMS-friendly short link (premarket.homes/p/...), asked for once the report has loaded. Until it arrives, or if it
+  // can't be had, Copy link copies the full buyer link, which always works.
+  const shortCode = useShortCode(property?.id || null);
   const [archiving, setArchiving] = useState(false);
   const [showSoldConfirm, setShowSoldConfirm] = useState(false);
   const [markingSold, setMarkingSold] = useState(false);
@@ -1072,22 +1076,15 @@ export default function PropertyReportPage() {
   if (!property) return null;
 
   const propertyUrl = `https://premarket.homes/find-property?propertyId=${property.id}`;
+  // What agents paste into SMS, email and CRMs: the short link when known, else the full link.
+  const shareUrl = campaignLink(property.id, shortCode);
 
   const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(propertyUrl);
+    if (await copyText(shareUrl)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback for older browsers
-      const input = document.createElement('input');
-      input.value = propertyUrl;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand('copy');
-      document.body.removeChild(input);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    } else {
+      window.prompt('Copy this campaign link:', shareUrl);
     }
   };
 
@@ -1147,6 +1144,19 @@ export default function PropertyReportPage() {
                 )}
               </VisibilityTag>
 
+              {/* Copy link: one click, the SMS-friendly short link (anyone who can open this report may share the
+                  campaign's buyer link, which is the same link buyers already receive) */}
+              <button
+                onClick={copyLink}
+                title={`Copy ${displayLink(shareUrl)}`}
+                aria-label="Copy campaign link"
+                data-testid="copy-campaign-link"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                <span className="hidden sm:inline">{copied ? 'Copied!' : 'Copy link'}</span>
+              </button>
+
               {/* Send Report - primary action (hidden for read-only office admins; a team manager may send it to the
                   selling agent or themself, see reportRecipients) */}
               {(!readOnly || reportRecipients.length > 0) && (
@@ -1181,8 +1191,11 @@ export default function PropertyReportPage() {
                         onClick={() => { copyLink(); setShowMoreMenu(false); }}
                         className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                       >
-                        {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-slate-400" />}
-                        {copied ? 'Copied!' : 'Copy Link'}
+                        {copied ? <Check className="w-4 h-4 text-green-500 shrink-0" /> : <Copy className="w-4 h-4 text-slate-400 shrink-0" />}
+                        <span className="flex flex-col items-start min-w-0">
+                          <span>{copied ? 'Copied!' : 'Copy Link'}</span>
+                          <span className="text-[11px] text-slate-400 truncate max-w-full">{displayLink(shareUrl)}</span>
+                        </span>
                       </button>
                       {/* Preview */}
                       <a
