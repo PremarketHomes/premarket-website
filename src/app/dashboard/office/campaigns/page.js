@@ -3,7 +3,9 @@
 import { Suspense, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, Plus, Search, ExternalLink, Eye, EyeOff, Archive, Send, Pencil, BarChart3 } from 'lucide-react';
+import { Loader2, Plus, Search, ExternalLink, Eye, EyeOff, Archive, Send, Pencil, BarChart3, Copy } from 'lucide-react';
+import { useShortCodes, campaignLink, campaignPath, copyCampaignLink } from '../../../utils/useShortLinks';
+import { LinkCopiedToast } from '../../../components/CampaignLinks';
 import { useAuth } from '../../../context/AuthContext';
 import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
@@ -108,6 +110,14 @@ function CampaignsInner() {
       return true;
     });
   }, [state.campaigns, query, filter, bsoFilter, agentFilter]);
+  // SMS-friendly short links (premarket.homes/p/...) for the campaigns shown: Buyer link opens it, Copy link copies it.
+  const shortCodes = useShortCodes(shown.map((c) => c.id));
+  const [copiedLink, setCopiedLink] = useState(null);
+  const copyLink = async (c) => {
+    const link = await copyCampaignLink(c.id, shortCodes[c.id]);
+    setCopiedLink(link);
+    setNotice(link ? `Buyer link copied: ${link}` : `Copy this buyer link: ${campaignLink(c.id, shortCodes[c.id])}`);
+  };
 
   if (state.status === 'loading') return <OfficePageSkeleton />;
   if (state.status !== 'ready') {
@@ -128,6 +138,7 @@ function CampaignsInner() {
           <Link href="/dashboard/add?as=officeAdmin" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"><Plus className="w-4 h-4" /> Create campaign</Link>
         </div>
         {notice && <p className="mt-3 text-sm text-slate-600" role="status">{notice}</p>}
+        <LinkCopiedToast link={copiedLink} onDone={() => setCopiedLink(null)} />
 
         <div className="relative mt-5">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -182,7 +193,8 @@ function CampaignsInner() {
               </div>
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:justify-end border-t border-slate-100 pt-3">
-                <Link href={`/find-property?propertyId=${c.id}`} target="_blank" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-orange-600 hover:bg-orange-50"><ExternalLink className="w-3.5 h-3.5" /> Buyer link</Link>
+                <button onClick={() => copyLink(c)} data-testid="office-copy-link" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-orange-600 hover:bg-orange-50"><Copy className="w-3.5 h-3.5" /> Copy link</button>
+                <a href={campaignPath(c.id, shortCodes[c.id])} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-orange-600 hover:bg-orange-50"><ExternalLink className="w-3.5 h-3.5" /> Buyer link</a>
                 {c.officeManaged && <Link href={`/dashboard/edit/${c.id}`} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Pencil className="w-3.5 h-3.5" /> Edit</Link>}
                 <Link href={`/dashboard/property/${c.id}`} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"><BarChart3 className="w-3.5 h-3.5" /> Feedback &amp; report</Link>
                 {!c.archived && state.managers.length > 0 && (

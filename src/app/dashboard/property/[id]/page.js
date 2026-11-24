@@ -69,7 +69,8 @@ import {
 import { formatPrice, formatDate } from '../../../utils/formatters';
 import { ReportSkeleton } from '../../components/PageSkeletons';
 import { exclusionNotice } from '../../../utils/opinionExclusion';
-import { useShortCode, campaignLink, displayLink, copyText } from '../../../utils/useShortLinks';
+import { useShortCode, campaignLink, campaignPath, displayLink, copyCampaignLink } from '../../../utils/useShortLinks';
+import { LinkCopiedToast } from '../../../components/CampaignLinks';
 
 
 // --- Engagement Stat Card ---
@@ -764,9 +765,10 @@ export default function PropertyReportPage() {
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
-  // SMS-friendly short link (premarket.homes/p/...), asked for once the report has loaded. Until it arrives, or if it
-  // can't be had, Copy link copies the full buyer link, which always works.
-  const shortCode = useShortCode(property?.id || null);
+  const [copiedLink, setCopiedLink] = useState(null);
+  // SMS-friendly short link (premarket.homes/p/...), requested as soon as the page opens (alongside the report, not
+  // after it), so it is ready before the agent can click. Copy link waits for it rather than copying the full link.
+  const shortCode = useShortCode(propertyId);
   const [archiving, setArchiving] = useState(false);
   const [showSoldConfirm, setShowSoldConfirm] = useState(false);
   const [markingSold, setMarkingSold] = useState(false);
@@ -1075,16 +1077,17 @@ export default function PropertyReportPage() {
 
   if (!property) return null;
 
-  const propertyUrl = `https://premarket.homes/find-property?propertyId=${property.id}`;
-  // What agents paste into SMS, email and CRMs: the short link when known, else the full link.
+  // What agents paste into SMS, email and CRMs, and what Preview Listing opens: the short link (full link until known).
   const shareUrl = campaignLink(property.id, shortCode);
 
   const copyLink = async () => {
-    if (await copyText(shareUrl)) {
+    const link = await copyCampaignLink(property.id, shortCode);
+    if (link) {
       setCopied(true);
+      setCopiedLink(link);
       setTimeout(() => setCopied(false), 2000);
     } else {
-      window.prompt('Copy this campaign link:', shareUrl);
+      window.prompt('Copy this campaign link:', campaignLink(property.id, shortCode));
     }
   };
 
@@ -1102,6 +1105,7 @@ export default function PropertyReportPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <LinkCopiedToast link={copiedLink} onDone={() => setCopiedLink(null)} />
       {/* Header */}
       <div className="bg-white border-b border-slate-200 sticky top-0 z-20">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3">
@@ -1199,7 +1203,7 @@ export default function PropertyReportPage() {
                       </button>
                       {/* Preview */}
                       <a
-                        href={propertyUrl}
+                        href={campaignPath(property.id, shortCode)}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={() => setShowMoreMenu(false)}

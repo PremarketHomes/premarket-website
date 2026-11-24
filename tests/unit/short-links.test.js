@@ -43,6 +43,8 @@ const sentEmails = [];
 vi.mock('../../src/app/api/services/resendService', () => ({ sendEmail: vi.fn(async (msg) => { sentEmails.push(msg); return { id: 'test' }; }) }));
 const authSpies = { verifyIdToken: vi.fn() };
 vi.mock('firebase-admin/auth', () => ({ getAuth: () => authSpies }));
+// The buyer page component itself is client-side; the /p/ page tests only check what it is given.
+vi.mock('../../src/app/components/PropertyPageClient', () => ({ default: function PropertyPageClient() { return null; } }));
 
 const utils = await import('../../src/app/utils/shortLinks');
 const service = await import('../../src/app/api/services/shortLinkService');
@@ -179,77 +181,63 @@ describe('buyerShareLink (campaign-link email)', () => {
   });
 });
 
-describe('GET /p/{code}', () => {
-  const call = async (path, method = 'GET') => {
-    const { GET, HEAD } = await import('../../src/app/p/[code]/route');
-    const url = new URL(path, 'https://premarket.homes');
-    const code = decodeURIComponent(url.pathname.split('/')[2] || '');
-    return (method === 'HEAD' ? HEAD : GET)(new Request(url, { method }), { params: Promise.resolve({ code }) });
-  };
+describe('/p/{code} renders the campaign page itself (no redirect)', () => {
+  const restFetch = vi.fn(async (url) => {
+    const id = decodeURIComponent(String(url).split('/properties/')[1].split('?')[0]);
+    const data = store.get(`properties/${id}`);
+    if (!data) return { ok: false, json: async () => ({}) };
+    return { ok: true, json: async () => ({ fields: { title: { stringValue: `Home ${id.slice(0, 4)}` }, address: { stringValue: data.address || '' } } }) };
+  });
+  beforeEach(() => { vi.stubGlobal('fetch', restFetch); restFetch.mockClear(); });
+  const page = async (code) => (await import('../../src/app/p/[code]/page')).default({ params: Promise.resolve({ code }) });
+  const metadata = async (code) => (await import('../../src/app/p/[code]/page')).generateMetadata({ params: Promise.resolve({ code }) });
   const codeFor = async (id) => (await getOrCreateShortCodes(fakeDb, [id], { allowCreate: true }))[id];
+  const clientProps = (el) => el.props.children.props;
+  const is404 = (p) => expect(p).rejects.toMatchObject({ digest: expect.stringContaining('404') });
 
-  it('one redirect, same site, straight to the existing buyer page', async () => {
+  it('renders the same buyer page component, for the right campaign, at the short address', async () => {
     const code = await codeFor(P1);
-    const res = await call(`/p/${code}`);
-    expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe(`https://premarket.homes/find-property?propertyId=${P1}`);
-    expect(res.headers.get('cache-control')).toContain('s-maxage=300');
+    const props = clientProps(await page(code));
+    expect(props.propertyId).toBe(P1);
+    expect(props.initialProperty).toMatchObject({ id: P1, title: 'Home AbCd' });
+  });
+
+  it('gives link previews (SMS, iMessage, email) the campaign title, with no doubled "| Premarket"', async () => {
+    const meta = await metadata(await codeFor(P1));
+    expect(meta.openGraph.title).toBe('Home AbCd | Premarket');
+    expect(meta.title).toEqual({ absolute: 'Home AbCd | Premarket' });
   });
 
   it('works for private and archived campaigns exactly like the full link (the buyer page decides)', async () => {
-    const privateCode = await codeFor(P1); // visibility false
-    const archivedCode = await codeFor(P2); // archived
-    expect((await call(`/p/${privateCode}`)).headers.get('location')).toContain(`propertyId=${P1}`);
-    expect((await call(`/p/${archivedCode}`)).headers.get('location')).toContain(`propertyId=${P2}`);
+    expect(clientProps(await page(await codeFor(P1))).propertyId).toBe(P1); // visibility false
+    expect(clientProps(await page(await codeFor(P2))).propertyId).toBe(P2); // archived
   });
 
   it('tolerates case changes and a trailing full stop', async () => {
     const code = await codeFor(P1);
-    expect((await call(`/p/${code.toUpperCase()}`)).status).toBe(302);
-    expect((await call(`/p/${code}.`)).status).toBe(302);
+    expect(clientProps(await page(code.toUpperCase())).propertyId).toBe(P1);
+    expect(clientProps(await page(`${code}.`)).propertyId).toBe(P1);
   });
 
-  it('passes extra parameters through (e.g. the iPad mode) but never lets them change the campaign', async () => {
-    const code = await codeFor(P1);
-    const loc = new URL((await call(`/p/${code}?mode=ipad&propertyId=${P2}`)).headers.get('location'));
-    expect(loc.searchParams.getAll('propertyId')).toEqual([P1]);
-    expect(loc.searchParams.get('mode')).toBe('ipad');
-  });
-
-  it('answers HEAD (link checkers) the same way', async () => {
-    const code = await codeFor(P1);
-    expect((await call(`/p/${code}`, 'HEAD')).status).toBe(302);
-  });
-
-  it('an unknown code gets a 404 page; a deleted campaign gets a 410 page; neither reveals anything', async () => {
-    const res = await call('/p/zzzzzzz');
-    expect(res.status).toBe(404);
-    expect(res.headers.get('content-type')).toContain('text/html');
-    expect(await res.text()).toContain('This link isn’t working');
-
+  it('an unknown code, a malformed one or a deleted campaign gets the not-found page (404)', async () => {
+    await is404(page('zzzzzzz'));
+    await is404(page('hello'));
+    await is404(page('%3Cscript%3E'));
     const code = await codeFor(P1);
     store.delete(`properties/${P1}`);
-    const gone = await call(`/p/${code}`);
-    expect(gone.status).toBe(410);
-    const html = await gone.text();
-    expect(html).toContain('no longer available');
-    expect(html).not.toContain(P1);
-    expect(html).not.toContain('1 Test St');
+    await is404(page(code));
+    expect((await metadata('zzzzzzz')).robots).toEqual({ index: false });
   });
 
-  it('rejects a malformed code without touching the database', async () => {
-    failReads = true; // any read would throw and turn into a 503
-    expect((await call('/p/hello')).status).toBe(404);
-    expect((await call('/p/%3Cscript%3E')).status).toBe(404);
+  it('the not-found page reveals nothing about the campaign', () => {
+    const src = fs.readFileSync(new URL('../../src/app/p/[code]/not-found.js', import.meta.url), 'utf-8');
+    expect(src).toContain('This link isn’t working');
+    expect(src).not.toMatch(/params|propertyId|code/);
   });
 
-  it('a database outage is a 503 that is never cached', async () => {
-    failReads = true;
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const res = await call('/p/zzzzzzz');
-    err.mockRestore();
-    expect(res.status).toBe(503);
-    expect(res.headers.get('cache-control')).toBe('no-store');
+  it('a malformed code never touches the database', async () => {
+    failReads = true; // any read would throw
+    await is404(page('hello'));
   });
 });
 
@@ -282,18 +270,36 @@ describe('POST /api/short-links', () => {
 describe('share screens and the campaign-link email use the short link', () => {
   const read = (p) => fs.readFileSync(new URL(`../../${p}`, import.meta.url), 'utf-8');
 
-  it('campaign report page: one-click Copy link in the header, menu shows the short link', () => {
+  it('campaign report page: Copy link (header + menu) copies the short link, Preview Listing opens it', () => {
     const src = read('src/app/dashboard/property/[id]/page.js');
     expect(src).toContain('data-testid="copy-campaign-link"');
-    expect(src).toContain('const shareUrl = campaignLink(property.id, shortCode)');
-    expect(src).toMatch(/copyText\(shareUrl\)/);
+    expect(src).toContain('copyCampaignLink(property.id, shortCode)');
+    expect(src).toContain('href={campaignPath(property.id, shortCode)}');
+    // requested as soon as the page opens (from the URL), not after the report has loaded
+    expect(src).toContain('useShortCode(propertyId)');
   });
 
-  it('agent dashboard cards and the BSO list copy the short link', () => {
-    expect(read('src/app/dashboard/page.js')).toContain('data-testid="card-copy-link"');
+  it('agent dashboard, BSO list and Office → Campaigns copy and open the short link', () => {
+    const dash = read('src/app/dashboard/page.js');
+    expect(dash).toContain('data-testid="card-copy-link"');
+    expect(dash).toContain('copyCampaignLink(property.id, shortCode)');
     const bso = read('src/app/dashboard/components/BsoCampaigns.js');
-    expect(bso).toContain('campaignLink(c.id, shortCodes[c.id])');
-    expect(bso).not.toContain('const buyerLink =');
+    expect(bso).toContain('copyCampaignLink(c.id, shortCodes[c.id])');
+    expect(bso).toContain('href={campaignPath(c.id, shortCodes[c.id])}');
+    const office = read('src/app/dashboard/office/campaigns/page.js');
+    expect(office).toContain('data-testid="office-copy-link"');
+    expect(office).toContain('href={campaignPath(c.id, shortCodes[c.id])}');
+  });
+
+  it('no agent, BSO, office or team screen links to the full buyer address any more (iPad open-home mode and admin aside)', () => {
+    const files = [
+      'src/app/dashboard/page.js', 'src/app/dashboard/components/BsoCampaigns.js', 'src/app/dashboard/office/campaigns/page.js',
+      'src/app/dashboard/office/team/page.js', 'src/app/dashboard/team/page.js', 'src/app/dashboard/property/[id]/page.js',
+    ];
+    for (const f of files) {
+      const leftovers = read(f).split('\n').filter((l) => l.includes('find-property') && !l.includes('mode=ipad'));
+      expect(leftovers, f).toEqual([]);
+    }
   });
 
   it('the campaign-link email carries the short link (and still works with only a campaign id)', async () => {
@@ -307,9 +313,11 @@ describe('share screens and the campaign-link email use the short link', () => {
     expect(sentEmails[1].html).toContain(fullBuyerLink(P1));
   });
 
-  it('the buyer page and its opinion/registration flow are not changed by this feature', () => {
-    for (const p of ['src/app/find-property/page.js', 'src/app/components/PropertyPageClient.js']) {
-      expect(read(p)).not.toMatch(/shortLink|\/p\//);
-    }
+  it('the full link still renders the buyer page from its ?propertyId= (unchanged); the component only gained an optional id', () => {
+    const find = read('src/app/find-property/page.js');
+    expect(find).toContain('<PropertyPageClient initialProperty={initialProperty} />');
+    expect(find).not.toMatch(/redirect|shortLink/);
+    const client = read('src/app/components/PropertyPageClient.js');
+    expect(client).toContain("const propertyId = campaignId || previewPropertyId || searchParams.get('propertyId');");
   });
 });

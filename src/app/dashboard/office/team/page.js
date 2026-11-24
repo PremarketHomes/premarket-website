@@ -8,6 +8,7 @@ import { useRequireAgent } from '../../../hooks/useRequireAgent';
 import { authFetch } from '../../../utils/authFetch';
 import BackToDashboard from '../../../components/BackToDashboard';
 import PropertyThumb from '../../../components/PropertyThumb';
+import { CampaignPageLink } from '../../../components/CampaignLinks';
 import { OfficePageSkeleton } from '../../components/PageSkeletons';
 
 const MEMBER_STATUS = {
@@ -237,9 +238,9 @@ export default function OfficeTeamPage() {
                                 <Link href={`/dashboard/property/${p.id}`} className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-semibold">
                                   View report <BarChart3 className="w-3 h-3" />
                                 </Link>
-                                <Link href={`/find-property?propertyId=${p.id}`} target="_blank" className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-700 font-semibold">
+                                <CampaignPageLink propertyId={p.id} className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-700 font-semibold">
                                   View page <ExternalLink className="w-3 h-3" />
-                                </Link>
+                                </CampaignPageLink>
                               </span>
                             </div>
                           </div>
