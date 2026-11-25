@@ -6,6 +6,7 @@ import { AlertCircle, Check, Copy, Loader2, X } from 'lucide-react';
 import {
   campaignLink, campaignPath, copyCampaignLink, copyText, displayLink, knownPropNumber, useCampaignLink, waitForPropNumber,
 } from '../utils/useShortLinks';
+import { channelLabel, isChannel } from '../utils/campaignChannels';
 
 /**
  * The share actions every agent/BSO/office screen uses, so they all behave the same:
@@ -38,7 +39,9 @@ export function CampaignLinkToast({ toast, onRetry, onClose }) {
     body = (
       <div role="status" data-testid="link-copied-toast" className={`${shell} bg-slate-900 text-white`}>
         <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-        <span className="truncate">Copied <span className="font-semibold">{displayLink(toast.link)}</span></span>
+        <span className="truncate">
+          Copied {isChannel(toast.channel) ? `the ${channelLabel(toast.channel)} link ` : ''}<span className="font-semibold">{displayLink(toast.link)}</span>
+        </span>
       </div>
     );
   } else if (toast.status === 'blocked') {
@@ -74,18 +77,27 @@ export function CampaignLinkToast({ toast, onRetry, onClose }) {
  * link was just copied (for a "Copied" tick on its button); `toast` is the feedback element to render once per screen.
  */
 export function useCampaignLinkCopy() {
-  const [state, setState] = useState(null); // { status, propertyId, link? }
-  const copy = useCallback((propertyId) => {
-    const copying = copyCampaignLink(propertyId); // starts inside the click (Safari needs that)
-    if (!knownPropNumber(propertyId)) setState({ status: 'working', propertyId });
+  const [state, setState] = useState(null); // { status, propertyId, channel?, link? }
+  // `channel` ('email' | 'sms', see utils/campaignChannels.js) copies that channel's link; leave it out for the general link.
+  const copy = useCallback((propertyId, channel) => {
+    const copying = copyCampaignLink(propertyId, channel); // starts inside the click (Safari needs that)
+    if (!knownPropNumber(propertyId)) setState({ status: 'working', propertyId, channel });
     return copying.then((outcome) => {
-      setState({ ...outcome, propertyId });
+      setState({ ...outcome, propertyId, channel });
       return outcome;
     });
   }, []);
   const close = useCallback(() => setState(null), []);
-  const toast = <CampaignLinkToast toast={state} onRetry={state ? () => copy(state.propertyId) : undefined} onClose={close} />;
-  return { copy, copiedId: state?.status === 'copied' ? state.propertyId : null, toast };
+  const toast = <CampaignLinkToast toast={state} onRetry={state ? () => copy(state.propertyId, state.channel) : undefined} onClose={close} />;
+  const copied = state?.status === 'copied';
+  return {
+    copy,
+    // The general link's "Copied" tick (unchanged): only for a copy of the general link.
+    copiedId: copied && !state.channel ? state.propertyId : null,
+    // Which link was just copied, for screens with one button per channel: `${propertyId}:${channel || 'general'}`.
+    copiedKey: copied ? `${state.propertyId}:${state.channel || 'general'}` : null,
+    toast,
+  };
 }
 
 /**

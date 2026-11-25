@@ -4,13 +4,15 @@ import { unstable_cache } from 'next/cache';
 import PropertyPageClient from '../../components/PropertyPageClient';
 import { adminDb } from '../../firebase/adminApp';
 import { existingPropNumber, linkedPropertyId } from '../../api/services/shortLinkService';
-import { normalizePropSlug, normalizeShortCode, propLinkUrl } from '../../utils/shortLinks';
+import { parsePropSlug, normalizeShortCode, propLinkUrl } from '../../utils/shortLinks';
 import { getProperty, propertyMetadata } from '../../find-property/propertyPage';
 
 /**
  * A campaign's buyer page at its short address (see utils/shortLinks.js):
  *   premarket.homes/prop4827319056   the campaign's link. next.config.mjs rewrites (never redirects) /prop{number} to
  *                                    this page, so /prop4827319056 is what stays in the address bar.
+ *   premarket.homes/prop4827319056s  the same link handed out for one marketing channel (e = Email, s = SMS; see
+ *                                    utils/campaignChannels.js). Same page; only the campaign's channel counts differ.
  *   premarket.homes/p/x7k2m9q        legacy short links, still valid.
  *
  * Renders the buyer page right here, with no redirect, so the short address is what stays in the address bar, in the
@@ -43,7 +45,12 @@ const orNull = (promise) => promise.catch((err) => { if (err instanceof NotLinke
 
 // One lookup per request, shared by the metadata and the page.
 const campaignFor = cache(async (slug) => {
-  const number = normalizePropSlug(slug);
+  // A prop link may end in a marketing-channel letter (premarket.homes/prop4827319056s = the SMS link,
+  // utils/campaignChannels.js): the same campaign and page; the letter is only handed to the page so its view and any
+  // new anonymous opinion are counted under that channel. The canonical link stays the plain prop link.
+  const prop = parsePropSlug(slug);
+  const number = prop?.number || null;
+  const channel = prop?.channel || null;
   const code = number ? null : normalizeShortCode(slug);
   if (!number && !code) return null; // malformed: no database read at all
 
@@ -56,7 +63,7 @@ const campaignFor = cache(async (slug) => {
   if (!property && !(await adminDb.collection('properties').doc(propertyId).get()).exists) return null;
 
   const propNumber = number || (await orNull(cachedPropNumber(propertyId)).catch(() => null));
-  return { propertyId, property, canonical: propNumber ? propLinkUrl(propNumber) : null };
+  return { propertyId, property, channel, canonical: propNumber ? propLinkUrl(propNumber) : null };
 });
 
 export async function generateMetadata({ params }) {
@@ -73,7 +80,7 @@ export default async function CampaignLinkPage({ params }) {
 
   return (
     <Suspense fallback={<div className="p-10 text-center">Loading property...</div>}>
-      <PropertyPageClient propertyId={campaign.propertyId} initialProperty={campaign.property} />
+      <PropertyPageClient propertyId={campaign.propertyId} initialProperty={campaign.property} channel={campaign.channel} />
     </Suspense>
   );
 }

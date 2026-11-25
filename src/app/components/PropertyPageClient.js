@@ -18,6 +18,7 @@ import { teamBrandColors } from '../utils/teamTheme';
 import { fetchCampaignThemes } from '../utils/fetchCampaignThemes';
 import { getMarketStatusCopy } from '../utils/marketStatusCopy';
 import { isPreviewDeployment } from '../utils/previewEnvironment';
+import { isChannel } from '../utils/campaignChannels';
 import { analyticsEvent } from '../utils/analyticsEvents';
 import { registrationRecord } from '../utils/opinionRecords';
 import { getSwipeDirection } from '../utils/swipeGesture';
@@ -77,11 +78,15 @@ const FINANCE_OPTIONS = [
   { value: 'not_yet', label: 'Not Yet' },
 ];
 
-export default function PropertyPageClient({ previewBrand, previewPropertyId, propertyId: campaignId, initialProperty } = {}) {
+export default function PropertyPageClient({ previewBrand, previewPropertyId, propertyId: campaignId, initialProperty, channel } = {}) {
   const searchParams = useSearchParams();
   // campaignId: the short link /p/{code} (its address has no ?propertyId=). The full link reads it from the URL.
   const propertyId = campaignId || previewPropertyId || searchParams.get('propertyId');
   const initialMode = searchParams.get('mode');
+  // The marketing channel of the link this page was opened with (premarket.homes/prop...e = Email, ...s = SMS; see
+  // utils/campaignChannels.js), or null for every other link. Used only to add this open, and a new anonymous opinion,
+  // to that channel's campaign totals. Never for the iPad (open-home) mode, and never stored with the opinion.
+  const linkChannel = initialMode !== 'ipad' && isChannel(channel) ? channel : null;
   const auth = getAuth();
   const { user: currentAuthUser } = useAuth();
 
@@ -413,7 +418,8 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, pr
       await fetch('/api/property-visit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ propertyId: propId, visitorId, isReturn }),
+        // `channel` only when the page was opened through a channel's link (the iPad never sends one).
+        body: JSON.stringify({ propertyId: propId, visitorId, isReturn, ...(linkChannel && !isIpadMode ? { channel: linkChannel } : {}) }),
       });
     } catch (error) {
       console.error('Error incrementing property views:', error);
@@ -488,16 +494,30 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, pr
   // own opinion, api/offers/session-lookup) - never a name, email, phone, account or the persistent device id, and
   // never anything that would tie it to a registration (utils/opinionRecords.js).
   const createAnonymousOpinion = async () => {
+    const sessionId = getSessionId();
     const docRef = await addDoc(collection(db, 'offers'), {
       type: 'opinion',
       propertyId,
-      sessionId: getSessionId(),
+      sessionId,
       offerAmount: Math.round(priceOpinion),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       fromWeb: true,
     });
     setSavedOfferId(docRef.id);
+
+    // Opened through a channel's link (e.g. the SMS link): add one to that channel's opinion total for the
+    // campaign. Only for a NEW opinion (an edit is never counted again), fire-and-forget (the buyer's save never
+    // waits on it), and nothing about the channel is written to the opinion itself. The server checks the opinion
+    // is this tab's own, new and anonymous before counting it (api/offers/opinion-channel).
+    if (linkChannel) {
+      fetch('/api/offers/opinion-channel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ propertyId, offerId: docRef.id, sessionId, channel: linkChannel }),
+        keepalive: true,
+      }).catch(() => {});
+    }
     return docRef.id;
   };
 

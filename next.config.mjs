@@ -76,7 +76,9 @@ const nextConfig = {
       // redirected, so the prop link stays in the address bar. Strictly "prop" + 10 digits (first digit 1-9), optionally
       // capitalised or followed by a full stop the way phones paste links; nothing else at the root can match it, and no
       // page or folder may be named like this. Anything else (e.g. /property) is untouched.
-      { source: '/:slug([Pp][Rr][Oo][Pp][1-9]\\d{9}\\.?)', destination: '/p/:slug' },
+      // The optional letter is a marketing channel link (e = Email, s = SMS; src/app/utils/campaignChannels.js): the
+      // same page, counted under that channel in the campaign report. Any other letter is not rewritten (404).
+      { source: '/:slug([Pp][Rr][Oo][Pp][1-9]\\d{9}[EeSs]?\\.?)', destination: '/p/:slug' },
     ];
   },
 

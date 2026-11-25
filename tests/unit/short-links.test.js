@@ -488,3 +488,79 @@ describe('every agent, BSO and office share action uses the prop link', () => {
     expect(read('src/app/api/services/newsletterService.js')).toContain('await buyerShareLinks(adminDb,');
   });
 });
+
+describe('marketing channel links: the same prop link plus one letter (e = Email, s = SMS)', () => {
+  const mod = () => import('../../src/app/p/[code]/page');
+  const page = async (code) => (await mod()).default({ params: Promise.resolve({ code }) });
+  const metadata = async (code) => (await mod()).generateMetadata({ params: Promise.resolve({ code }) });
+  const clientProps = (el) => el.props.children.props;
+  const is404 = (p) => expect(p).rejects.toMatchObject({ digest: expect.stringContaining('404') });
+  const { parsePropSlug, propPath } = utils;
+  const config = fs.readFileSync(new URL('../../next.config.mjs', import.meta.url), 'utf-8');
+  const rule = config.match(/\{ source: '(\/:slug\([^']+\))', destination: '([^']+)' \}/);
+  const { match } = createRequire(import.meta.url)('next/dist/compiled/path-to-regexp');
+  const matches = (p) => { const m = match(rule[1].replace(/\\\\/g, '\\'), { decode: decodeURIComponent })(p); return m ? m.params.slug : null; };
+  beforeEach(() => vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ fields: { title: { stringValue: 'Home' } } }) }))));
+
+  it('reads the channel letter, with the same tolerance as the plain link', () => {
+    expect(parsePropSlug('prop4827319056')).toEqual({ number: '4827319056', channel: null });
+    expect(parsePropSlug('prop4827319056e')).toEqual({ number: '4827319056', channel: 'email' });
+    expect(parsePropSlug('prop4827319056s')).toEqual({ number: '4827319056', channel: 'sms' });
+    expect(parsePropSlug('Prop4827319056S.')).toEqual({ number: '4827319056', channel: 'sms' });
+    for (const bad of ['prop4827319056x', 'prop4827319056se', 'prop0827319056s', 'prop482731905s', 'props4827319056', 's', '', null]) {
+      expect(parsePropSlug(bad), String(bad)).toBeNull();
+    }
+    // The plain-link reader is unchanged (a letter is not a plain prop link).
+    expect(normalizePropSlug('prop4827319056s')).toBeNull();
+  });
+
+  it('builds each channel link from the campaign\'s one number: short enough for SMS', () => {
+    expect(propLinkUrl('4827319056', undefined, 'email')).toBe('https://premarket.homes/prop4827319056e');
+    expect(propLinkUrl('4827319056', undefined, 'sms')).toBe('https://premarket.homes/prop4827319056s');
+    expect(propLinkUrl('4827319056')).toBe('https://premarket.homes/prop4827319056'); // the general link, unchanged
+    expect(propLinkUrl('4827319056', 'https://staging.example', 'sms')).toBe('https://staging.example/prop4827319056s');
+    expect(propPath('4827319056', 'general')).toBe('/prop4827319056');
+    expect('premarket.homes/prop4827319056s'.length).toBe(31); // one character more than the general link
+  });
+
+  it('the rewrite accepts e and s (any case, optional full stop) and nothing else', () => {
+    for (const ok of ['/prop4827319056e', '/prop4827319056s', '/Prop4827319056S', '/prop4827319056E.', '/prop4827319056s.']) {
+      expect(matches(ok), ok).toBe(ok.slice(1));
+    }
+    for (const bad of ['/prop4827319056x', '/prop4827319056es', '/prop4827319056/s', '/prop4827319056-s', '/prop0827319056s', '/props']) {
+      expect(matches(bad), bad).toBeNull();
+    }
+  });
+
+  it('opens the very same campaign and page, handing the page only the channel', async () => {
+    const number = (await create([P1]))[P1];
+    const plain = clientProps(await page(`prop${number}`));
+    const email = clientProps(await page(`prop${number}e`));
+    const sms = clientProps(await page(`PROP${number}S.`));
+    expect([plain.propertyId, email.propertyId, sms.propertyId]).toEqual([P1, P1, P1]);
+    expect([plain.channel, email.channel, sms.channel]).toEqual([null, 'email', 'sms']);
+    expect(email.initialProperty).toEqual(plain.initialProperty);
+  });
+
+  it('keeps the plain prop link as the canonical and link-preview address', async () => {
+    const number = (await create([P3]))[P3];
+    const meta = await metadata(`prop${number}s`);
+    expect(meta.alternates).toEqual({ canonical: `https://premarket.homes/prop${number}` });
+    expect(meta.openGraph.url).toBe(`https://premarket.homes/prop${number}`);
+  });
+
+  it('an unknown letter or an unknown number is not found; creates nothing', async () => {
+    const number = (await create([P1]))[P1];
+    writes.length = 0;
+    await is404(page(`prop${number}x`));
+    await is404(page('prop9999999999s'));
+    expect(writes).toHaveLength(0);
+  });
+
+  it('legacy /p/ links and the full link carry no channel (General / Unknown)', async () => {
+    const { [P3]: code } = await getOrCreateShortCodes(fakeDb, [P3], { allowCreate: true });
+    expect(clientProps(await page(code)).channel).toBeNull();
+    const find = fs.readFileSync(new URL('../../src/app/find-property/page.js', import.meta.url), 'utf-8');
+    expect(find).not.toMatch(/channel/);
+  });
+});
