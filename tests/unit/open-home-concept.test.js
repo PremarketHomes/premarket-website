@@ -108,8 +108,10 @@ describe('identity and opinion are stored apart', () => {
     expect(att).not.toMatch(/from '\.\/opinion/);
     expect(op).not.toMatch(/from '\.\/(attendance|visitState|sessionStore)/);
     const journey = read('_components/BuyerJourney.js');
-    expect(journey).toMatch(/await submitOpinion\(sessionId, value, range\)/);
+    // The journey sends the amount alone through its data service (demo stores here, the live API in the pilot).
+    expect(journey).toMatch(/await service\.submitOpinion\(value\)/);
     expect(journey).not.toMatch(/submitOpinion\([^)]*(ref|visit|firstName|fullName|Date)/);
+    expect(read('_lib/demoService.js')).toMatch(/submitOpinion: \(amount\) => submitOpinion\(sessionId, amount, range\)/);
     // The agent side never reads the buyer's own phone state.
     expect(read('_components/AgentDashboard.js')).not.toMatch(/visitState/);
     // The buyer's phone state never holds an amount.

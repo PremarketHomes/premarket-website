@@ -89,6 +89,11 @@ const nextConfig = {
         headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
       },
       {
+        // Open Home pilot check-in pages (from an agent's QR code): never indexed.
+        source: '/open-home/:path*',
+        headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
+      },
+      {
         source: '/rex-embed/:path*',
         headers: [
           {

@@ -22,6 +22,7 @@ import { formatPrice, formatDate } from '../utils/formatters';
 import { normalizeE164, formatDisplayPhone } from '../utils/phone';
 import { shouldShowMobilePrompt } from '../utils/mobileConfirmation';
 import {
+  QrCode,
   LayoutDashboard,
   Trophy,
   Users,
@@ -120,6 +121,17 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
       .catch(() => {});
     return () => { cancelled = true; };
   }, [userData?.id]);
+  // Open Home pilot: the server decides (allowlisted accounts only, see api/services/openHomePilot.js); this only
+  // decides whether to show the link. Every pilot page and API checks again on the server.
+  const [openHomePilot, setOpenHomePilot] = useState(false);
+  useEffect(() => {
+    if (!userData?.id) return undefined;
+    let cancelled = false;
+    rememberForSession(`open-home:${userData.id}`, () => authFetch('/api/open-home/pilot').then((r) => (r.ok ? r.json() : null)))
+      .then((b) => { if (!cancelled && b?.enabled === true) setOpenHomePilot(true); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [userData?.id]);
   // A BSO's Dashboard is their campaign workspace (the campaigns they manage), so they get no separate
   // "My Campaigns" link and no User Manual link. Everyone else's navigation is unchanged.
   const navItems = [
@@ -127,6 +139,7 @@ function Sidebar({ active, onNavigate, onSignOut, sidebarOpen, setSidebarOpen, u
     { id: 'sold', label: 'Sold', icon: CheckCircle },
     { id: 'archived', label: 'Archive', icon: Archive },
     { id: 'add', label: 'Add Property', icon: Plus, href: isBso ? '/dashboard/add?as=bso' : '/dashboard/add' },
+    ...(openHomePilot ? [{ id: 'open-home', label: 'Open Home', icon: QrCode, href: '/dashboard/open-home' }] : []),
     ...(isBso ? [] : [{ id: 'user-manual', label: 'User Manual', icon: BookOpen, href: '/dashboard/user-manual' }]),
     // Colleagues in the same verified office can share read-only sight of each
     // other's campaigns. Only offered to office-linked agents.
