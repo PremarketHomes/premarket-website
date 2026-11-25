@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'crypto';
 import { pointsAtLiveBackend, previewWritesBlocked } from './environmentGuard';
 import { validateCheckIn } from '../../utils/openHome/checkIn';
 import { summarizeOpinions } from '../../utils/openHome/opinionSummary';
+import { revealOpinions } from '../../utils/openHome/opinionReveal';
 import { computePriceOpinionRange } from '../../utils/priceOpinionRange';
 import { PRICE_OPINION_STEP } from '../../utils/priceOpinionStep';
 
@@ -17,8 +18,12 @@ import { PRICE_OPINION_STEP } from '../../utils/priceOpinionStep';
  *   openHomeOpinionGuards/{sessionId}  sorted hashes of random per-phone tokens, ONLY to stop accidental duplicates.
  *                                  Unrelated to attendance (the phone never sends its check-in reference with an
  *                                  opinion) and sorted independently of the amounts, so the two can't be aligned.
- *   Agents only ever receive summarizeOpinions() output: a stepped count while live, and after the open home ends the
- *   typical opinion / middle range / spread from 5 opinions up. Never an amount, never per-buyer status, never a time.
+ *   What agents receive depends on the notice the session's buyers were shown (session.noticeVersion):
+ *     NOTICE_VERSION (from 25 Nov 2026): revealOpinions(): NOTHING while live (no count, no price); after the open
+ *       home ends, every amount sorted low to high, with count, average and range, from one opinion.
+ *     LEGACY_NOTICE_VERSION: summarizeOpinions(): a stepped count while live; after the end the combined picture
+ *       only, from 5 opinions (what those buyers were told).
+ *   Never the order, time or giver of an opinion, never per-buyer opinion status.
  *   Nothing here touches `offers`, the campaign report or the iPad kiosk (whose registration-on-opinion-document design
  *   this pilot deliberately does not use).
  *
@@ -39,9 +44,20 @@ export const COLLECTIONS = Object.freeze({
   guards: 'openHomeOpinionGuards',
   active: 'openHomeActive', // {propertyId} -> { sessionId }: makes "one running open home per campaign" atomic
 });
-export const NOTICE_VERSION = 'open-home-pilot-2026-11';
+// The buyer notice a session shows, which also fixes what its agent may see of the opinions (see header). New sessions
+// always get NOTICE_VERSION; a session keeps its version for life, so changing the rule never re-labels opinions that
+// buyers gave under an earlier notice.
+export const NOTICE_VERSION = 'open-home-pilot-2026-11-25';
+export const LEGACY_NOTICE_VERSION = 'open-home-pilot-2026-11';
+const noticeVersionOf = (s) => s?.noticeVersion || LEGACY_NOTICE_VERSION;
+/** 'after-end': every amount once the open home ends. 'combined': the original aggregate-from-5 rule. */
+export const opinionRuleFor = (s) => (noticeVersionOf(s) === NOTICE_VERSION ? 'after-end' : 'combined');
 export const LIMITS = Object.freeze({ checkInsPerSession: 250, opinionSlack: 2, sessionHours: 12, interestHours: 48 });
 export const MODES = Object.freeze(['live', 'test']);
+// Buyers' check-ins and opinions all update the same few documents, so give their transactions more room to retry
+// when many phones submit at the same instant (Firestore's default of 5 attempts dropped ~1 in 25 of 49 simultaneous
+// opinions on staging).
+const BUSY_TRANSACTION = Object.freeze({ maxAttempts: 12 });
 const WANTS = new Set(['call', 'contract', 'inspection']);
 
 export class OpenHomeError extends Error {
@@ -218,18 +234,23 @@ async function ownSession(db, uid, sessionId) {
   return snap;
 }
 
-/** Everything the agent sees for one open home: the attendance register and the anonymous aggregate only. */
+/** Everything the agent sees for one open home: the attendance register and the anonymous opinions, per the session's rule. */
 export async function pilotSessionReport(db, { uid, sessionId, env = process.env, now = Date.now() }) {
   assertPilot(uid, env);
   const snap = await ownSession(db, uid, sessionId);
   const s = snap.data();
+  const summary = sessionSummary(snap.id, s, now);
+  const ended = summary.state === 'ended';
+  const rule = opinionRuleFor(s);
+  // A running 'after-end' open home shows no opinion data at all, so the opinions aren't even read.
+  const readOpinions = rule === 'combined' || ended;
   const [propSnap, attendance, opinions] = await Promise.all([
     db.collection('properties').doc(s.propertyId).get(),
     db.collection(COLLECTIONS.attendance).where('sessionId', '==', sessionId).get(),
-    db.collection(COLLECTIONS.opinions).doc(sessionId).get(),
+    readOpinions ? db.collection(COLLECTIONS.opinions).doc(sessionId).get() : null,
   ]);
   const p = propSnap.exists ? propSnap.data() : {};
-  const summary = sessionSummary(snap.id, s, now);
+  const amounts = opinions?.exists ? opinions.data().amounts : [];
   return {
     session: summary,
     property: { id: s.propertyId, ...publicAddress(p), imageUrl: Array.isArray(p.imageUrls) ? p.imageUrls[0] || null : null },
@@ -245,7 +266,9 @@ export async function pilotSessionReport(db, { uid, sessionId, env = process.env
         interest: a.interest ? { wants: Array.isArray(a.interest.wants) ? a.interest.wants : [] } : null,
       })),
     // The ONLY opinion data that leaves the server for an agent.
-    opinions: summarizeOpinions(opinions.exists ? opinions.data().amounts : [], { range: s.range, ended: summary.state === 'ended' }),
+    opinions: rule === 'after-end'
+      ? revealOpinions(amounts, { ended })
+      : { rule: 'combined', ...summarizeOpinions(amounts, { range: s.range, ended }) },
   };
 }
 
@@ -300,7 +323,8 @@ export async function publicVisit(db, { code, env = process.env, now = Date.now(
   return {
     state: sessionState(s, now),
     mode: s.mode,
-    noticeVersion: NOTICE_VERSION,
+    noticeVersion: noticeVersionOf(s),
+    opinionRule: opinionRuleFor(s), // which privacy wording the buyer's phone shows beside the slider
     property: { ...publicAddress(p), imageUrl: Array.isArray(p.imageUrls) ? p.imageUrls[0] || null : null, agentName: agentDisplayName(agent) },
     brand,
     range: { min: s.range.min, max: s.range.max },
@@ -326,18 +350,21 @@ export async function pilotCheckIn(db, { code, body, env = process.env, now = Da
       mobile: v.value.mobile,
       email: v.value.email,
       marketingConsent: (body || {}).updatesOptIn === true,
-      noticeVersion: NOTICE_VERSION,
+      noticeVersion: noticeVersionOf(s), // the notice this buyer's phone actually showed
       checkedInAt: toMinute(now),
       interest: null,
     });
     tx.update(sessionSnap.ref, { checkInCount: (fresh.data().checkInCount || 0) + 1 });
-  });
+  }, BUSY_TRANSACTION);
   return { ok: true, ref: ref.id };
 }
 
 /**
  * The anonymous opinion. Takes the session code, the amount and a random per-phone token (to ignore accidental
  * repeats) and NOTHING else: no check-in reference, name, cookie or account, and nothing is written with a time.
+ *
+ * The answer is the same `{ ok: true }` whether the opinion was recorded, was a repeat from this phone, or was over the
+ * cap, so nobody holding the QR link can probe how many opinions are in while the open home is running.
  */
 export async function pilotOpinion(db, { code, amount, device, env = process.env, now = Date.now() }) {
   assertWritable(env);
@@ -355,15 +382,13 @@ export async function pilotOpinion(db, { code, amount, device, env = process.env
     const [fresh, ops, guards] = await Promise.all([tx.get(sessionSnap.ref), tx.get(opinionsRef), tx.get(guardsRef)]);
     if (sessionState(fresh.data(), now) !== 'active') throw new OpenHomeError('This open home has finished.', 410, 'ended');
     const hashes = guards.exists ? guards.data().hashes || [] : [];
-    if (hashes.includes(hash)) return { ok: true, duplicate: true };
+    if (hashes.includes(hash)) return { ok: true }; // a repeat from this phone: ignored
     const count = ops.exists ? ops.data().count || 0 : 0;
-    if (count >= (fresh.data().checkInCount || 0) + LIMITS.opinionSlack) {
-      throw new OpenHomeError('Thanks, we have this open home’s opinions.', 429, 'limit');
-    }
+    if (count >= (fresh.data().checkInCount || 0) + LIMITS.opinionSlack) return { ok: true }; // over the cap: ignored
     tx.set(opinionsRef, { propertyId: s.propertyId, agentUid: s.agentUid, mode: s.mode, amounts: insertSorted(ops.exists ? ops.data().amounts : [], value), count: count + 1 });
     tx.set(guardsRef, { hashes: insertSorted(hashes, hash) });
     return { ok: true };
-  });
+  }, BUSY_TRANSACTION);
 }
 
 /** Register interest: identity side only (the buyer's own check-in record). Never carries an opinion. */

@@ -77,6 +77,7 @@ export default function OpenHomeVisitClient({ code }) {
         range={data.range}
         brandStyle={brandStyleFromBrand(data.brand)}
         ended={data.state === 'ended'}
+        opinionNotice={data.opinionRule}
       />
     </div>
   );

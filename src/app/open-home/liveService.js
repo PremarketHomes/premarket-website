@@ -49,10 +49,24 @@ async function post(code, path, body) {
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok) return { ok: true, ...data };
-    return { ok: false, code: data.code, message: data.error, errors: data.errors };
+    return { ok: false, code: data.code || (res.status >= 500 ? 'server' : undefined), message: data.error, errors: data.errors };
   } catch {
     return { ok: false, code: 'offline', message: 'No connection. Please check your signal and try again.' };
   }
+}
+
+/**
+ * The opinion is safe to resend: the server records at most one per phone (the device token), so a resend after a
+ * dropped connection or a busy-moment server error can never count twice. Check-in is NOT resent automatically.
+ */
+async function postOpinion(code, body, waits = [600, 1500]) {
+  let res = await post(code, '/opinion', body);
+  for (const ms of waits) {
+    if (res.ok || !(res.code === 'offline' || res.code === 'server')) break;
+    await new Promise((r) => { setTimeout(r, ms); });
+    res = await post(code, '/opinion', body);
+  }
+  return res;
 }
 
 export function createLiveService(code) {
@@ -61,7 +75,7 @@ export function createLiveService(code) {
     saveVisit: (visit) => write(`visit:${code}`, visit),
     isEnded: () => false,
     checkIn: (d) => post(code, '/check-in', { fullName: d.fullName, mobile: d.mobile, email: d.email, updatesOptIn: d.updatesOptIn === true }),
-    submitOpinion: (amount) => post(code, '/opinion', { amount, device: deviceToken(code) }),
+    submitOpinion: (amount) => postOpinion(code, { amount, device: deviceToken(code) }),
     registerInterest: (ref, wants) => post(code, '/interest', { ref, wants }),
   };
 }
