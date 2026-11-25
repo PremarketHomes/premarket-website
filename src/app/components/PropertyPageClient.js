@@ -19,6 +19,8 @@ import { fetchCampaignThemes } from '../utils/fetchCampaignThemes';
 import { getMarketStatusCopy } from '../utils/marketStatusCopy';
 import { isPreviewDeployment } from '../utils/previewEnvironment';
 import { isChannel } from '../utils/campaignChannels';
+import { analyticsEvent } from '../utils/analyticsEvents';
+import { registrationRecord } from '../utils/opinionRecords';
 import { getSwipeDirection } from '../utils/swipeGesture';
 import { computePriceOpinionRange } from '../utils/priceOpinionRange';
 import { shouldShowPersistentSlider } from '../utils/persistentSliderVisibility';
@@ -151,7 +153,9 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, pr
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [registerInterest, setRegisterInterest] = useState(false);
-  const [savedOfferId, setSavedOfferId] = useState(null);
+  const [savedOfferId, setSavedOfferId] = useState(null); // this tab's anonymous price opinion
+  // This tab's registration: a separate record that never holds a price (utils/opinionRecords.js).
+  const [savedRegistrationId, setSavedRegistrationId] = useState(null);
   // How many opinions (including this one) exist for this property —
   // fetched once, right after a successful save, to give the "Opinion
   // saved" modal a genuine, privacy-safe participation count instead of
@@ -194,12 +198,11 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, pr
     trackOpinionComplete,
   } = usePropertyEngagement(propertyId);
 
+  // Google Tag Manager events. Only campaign-level details pass (utils/analyticsEvents.js): never a buyer's price
+  // opinion, session or device id, name, email, phone or account, so analytics can never hold an individual opinion.
   const trackEvent = (eventName, eventParams = {}) => {
     if (typeof window !== 'undefined' && window.dataLayer) {
-      window.dataLayer.push({
-        event: eventName,
-        ...eventParams
-      });
+      window.dataLayer.push(analyticsEvent(eventName, eventParams));
     }
   };
 
@@ -486,15 +489,45 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, pr
     }
   };
 
+  // Saves the slider's price as a NEW anonymous opinion record and remembers its id (so this tab can re-save it).
+  // The record holds the amount and this tab's random session id (used only so the same tab can find and update its
+  // own opinion, api/offers/session-lookup) - never a name, email, phone, account or the persistent device id, and
+  // never anything that would tie it to a registration (utils/opinionRecords.js).
+  const createAnonymousOpinion = async () => {
+    const sessionId = getSessionId();
+    const docRef = await addDoc(collection(db, 'offers'), {
+      type: 'opinion',
+      propertyId,
+      sessionId,
+      offerAmount: Math.round(priceOpinion),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      fromWeb: true,
+    });
+    setSavedOfferId(docRef.id);
+
+    // Opened through a channel's link (e.g. the SMS link): add one to that channel's opinion total for the
+    // campaign. Only for a NEW opinion (an edit is never counted again), fire-and-forget (the buyer's save never
+    // waits on it), and nothing about the channel is written to the opinion itself. The server checks the opinion
+    // is this tab's own, new and anonymous before counting it (api/offers/opinion-channel).
+    if (linkChannel) {
+      fetch('/api/offers/opinion-channel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ propertyId, offerId: docRef.id, sessionId, channel: linkChannel }),
+        keepalive: true,
+      }).catch(() => {});
+    }
+    return docRef.id;
+  };
+
   const savePriceOpinion = async () => {
     // Fires the instant a submit is attempted, before the write resolves
     // — distinct from trackOpinionComplete below, so "attempted" and
     // "succeeded" can be told apart (see engagement-ping/route.js).
     trackSubmitAttempted();
-    trackEvent('opinion_submit_attempted', {
-      property_id: propertyId,
-      opinion_amount: Math.round(priceOpinion),
-    });
+    // Analytics never receive the amount or any per-visitor id (see trackEvent above).
+    trackEvent('opinion_submit_attempted', { property_id: propertyId });
 
     // Preview deployments connect to the real production Firestore project
     // (see utils/previewEnvironment.js) — simulate a successful save so the
@@ -508,57 +541,17 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, pr
       return;
     }
     try {
-      const sessionId = getSessionId();
-      // Same persistent, anonymous identifier already used for views and
-      // meaningful sessions (see incrementPropertyViews) — stamped onto
-      // the offer as an additive field so the opinion-conversion funnel
-      // can eventually be joined across those collections.
-      const visitorId = localStorage.getItem('pm_visitor_id') || null;
-
-      const offerData = {
-        type: 'opinion',
-        propertyId: propertyId,
-        sessionId: sessionId,
-        visitorId,
-        offerAmount: Math.round(priceOpinion),
-        updatedAt: serverTimestamp(),
-        fromWeb: true,
-      };
-
       if (savedOfferId) {
-        // Update existing offer
-        const offerRef = doc(db, 'offers', savedOfferId);
-        await updateDoc(offerRef, offerData);
-
-        trackEvent('price_opinion_updated', {
-          property_id: propertyId,
-          opinion_amount: Math.round(priceOpinion),
-          session_id: sessionId
+        // Update this tab's own anonymous opinion: only the amount changes.
+        await updateDoc(doc(db, 'offers', savedOfferId), {
+          offerAmount: Math.round(priceOpinion),
+          updatedAt: serverTimestamp(),
+          fromWeb: true,
         });
+        trackEvent('price_opinion_updated', { property_id: propertyId });
       } else {
-        // Create new offer
-        offerData.createdAt = serverTimestamp();
-        const docRef = await addDoc(collection(db, 'offers'), offerData);
-        setSavedOfferId(docRef.id);
-
-        // Opened through a channel's link (e.g. the SMS link): add one to that channel's opinion total for the
-        // campaign. Only for a NEW opinion (an edit is never counted again), fire-and-forget (the buyer's save never
-        // waits on it), and nothing about the channel is written to the opinion itself. The server checks the opinion
-        // is this tab's own, new and anonymous before counting it (api/offers/opinion-channel).
-        if (linkChannel) {
-          fetch('/api/offers/opinion-channel', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ propertyId, offerId: docRef.id, sessionId, channel: linkChannel }),
-            keepalive: true,
-          }).catch(() => {});
-        }
-
-        trackEvent('price_opinion_created', {
-          property_id: propertyId,
-          opinion_amount: Math.round(priceOpinion),
-          session_id: sessionId
-        });
+        await createAnonymousOpinion();
+        trackEvent('price_opinion_created', { property_id: propertyId });
       }
 
       trackOpinionComplete();
@@ -666,83 +659,65 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, pr
       && shouldLinkAccount({ typedEmail: email, accountEmail: currentAuthUser.email });
 
     try {
-      const interestFields = {
-        serious: registerInterest && hasAllContactFields ? true : false,
-        isFirstHomeBuyer: qualificationData.isFirstHomeBuyer,
-        isInvestor: qualificationData.isInvestor,
-        buyerType: qualificationData.buyerType || null,
-        nextAction: qualificationData.nextAction,
-        timeframe: qualificationData.timeframe || null,
-        buyerName: `${firstName.trim()} ${lastName.trim()}`.trim(),
-        buyerEmail: email.trim().toLowerCase() || null,
-        buyerPhone: phone.trim() || null,
-        // Link the signed-in account ONLY when the typed email is that account's
-        // own. An agent or office admin who is logged in while registering
-        // someone else's details must not have the registration attributed to
-        // them (their profile would replace the buyer in reports, dashboards
-        // and emails). Otherwise the typed details stand alone.
-        ...(linkAccount ? { userId: currentAuthUser.uid } : {}),
-        updatedAt: serverTimestamp(),
-      };
+      // The registration is its OWN record (utils/opinionRecords.js): the buyer's details and answers, with no price,
+      // no session or device id and no link to the buyer's price opinion. The opinion stays anonymous and untouched.
+      const registration = registrationRecord({
+        propertyId,
+        buyer: {
+          name: `${firstName.trim()} ${lastName.trim()}`,
+          email,
+          phone,
+          // Link the signed-in account ONLY when the typed email is that account's
+          // own. An agent or office admin who is logged in while registering
+          // someone else's details must not have the registration attributed to
+          // them (their profile would replace the buyer in reports, dashboards
+          // and emails). Otherwise the typed details stand alone.
+          userId: linkAccount ? currentAuthUser.uid : null,
+        },
+        answers: qualificationData,
+      });
 
-      let targetOfferId = savedOfferId;
+      let registrationId = savedRegistrationId;
 
       // Preview deployments share production Firestore (see
       // utils/previewEnvironment.js) — never write a real registered-interest
       // record, or notify a real agent, from a preview build.
       if (!isPreviewDeployment()) {
-        if (savedOfferId) {
-          await updateDoc(doc(db, 'offers', savedOfferId), {
-            ...interestFields,
-            // If this page session already linked the offer to the signed-in
-            // account (an earlier submit with their own email), unlink it now
-            // that different buyer details were entered.
+        // A price is recorded only when the buyer submits it (savePriceOpinion). A slider value they never submitted
+        // is NOT saved here: it used to be stored on the registration itself, and saving it now as an "anonymous"
+        // opinion in the same second as a named registration would tie the two together by time.
+        if (savedRegistrationId) {
+          // A second submit from this tab updates the same registration (never the opinion).
+          const { type, propertyId: _p, fromWeb, ...answers } = registration;
+          await updateDoc(doc(db, 'offers', savedRegistrationId), {
+            ...answers,
+            updatedAt: serverTimestamp(),
+            // If this tab already linked the registration to the signed-in account (an earlier submit with their own
+            // email), unlink it now that different buyer details were entered.
             ...(currentAuthUser && !linkAccount ? { userId: deleteField() } : {}),
           });
         } else {
-          // No prior price opinion exists for this visitor — this used to
-          // mean registering interest silently wrote nothing at all (the
-          // whole updateDoc call was skipped, with no fallback) while the
-          // UI still showed success. Registering interest must always
-          // create a genuine lead, whether or not this visitor ever
-          // touched the valuation slider. type stays 'opinion' so this
-          // flows through the existing dashboard/reporting pipeline
-          // unchanged; offerAmount is only ever included if this visitor
-          // actually gave a real opinion (hasInteracted) — never
-          // fabricated for someone who went straight to registering
-          // interest.
-          const sessionId = getSessionId();
-          const visitorId = localStorage.getItem('pm_visitor_id') || null;
           const docRef = await addDoc(collection(db, 'offers'), {
-            type: 'opinion',
-            propertyId,
-            sessionId,
-            visitorId,
-            fromWeb: true,
+            ...registration,
             createdAt: serverTimestamp(),
-            ...(hasInteracted ? { offerAmount: Math.round(priceOpinion) } : {}),
-            ...interestFields,
+            updatedAt: serverTimestamp(),
           });
-          targetOfferId = docRef.id;
-          setSavedOfferId(docRef.id);
+          registrationId = docRef.id;
+          setSavedRegistrationId(docRef.id);
         }
       }
 
-      trackEvent('registered_interest', {
-        property_id: propertyId,
-        registered_interest: registerInterest,
-        has_account: !!currentAuthUser,
-        had_prior_opinion: !!savedOfferId,
-      });
+      trackEvent('registered_interest', { property_id: propertyId });
 
       // Fire-and-forget — the agent notification is a nice-to-have on top
       // of a successful registration, never a reason to block or fail the
-      // buyer's own confirmation if it doesn't go through.
-      if (!isPreviewDeployment() && targetOfferId) {
+      // buyer's own confirmation if it doesn't go through. It is sent for the
+      // registration record, which holds no price.
+      if (!isPreviewDeployment() && registrationId) {
         fetch('/api/offers/notify-interest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ offerId: targetOfferId, propertyId }),
+          body: JSON.stringify({ offerId: registrationId, propertyId }),
         }).catch((err) => console.error('Error notifying agent of new interest:', err));
       }
 
@@ -888,7 +863,6 @@ export default function PropertyPageClient({ previewBrand, previewPropertyId, pr
         minPrice={minPrice}
         maxPrice={maxPrice}
         demoMode={isPreviewDeployment() || searchParams.get('demo') === '1'}
-        getVisitorId={() => { try { return localStorage.getItem('pm_visitor_id'); } catch { return null; } }}
         onExit={() => setIsIpadMode(false)}
         onOpinionPersisted={() => {
           incrementPropertyViews(propertyId);

@@ -150,11 +150,17 @@ describe('wiring (every reader of opinions honours exclusions)', () => {
     'api/v1/contactComputation.js',
     'api/cron/market-report/route.js',
     'api/buyer/feed/route.js',
-    'dashboard/page.js',
+    'api/offers/opinion-counts/route.js', // the agent dashboard's total (it no longer reads offers in the browser)
     'dashboard/admin/components/tabs/PropertiesTab.js',
   ];
   it.each(readers)('%s filters excluded opinions', (p) => {
-    expect(src(p)).toMatch(/isExcludedOpinion|withoutExcluded/);
+    // countsAsOpinion (utils/opinionRecords.js) applies the exclusion rule itself (checked below).
+    expect(src(p)).toMatch(/isExcludedOpinion|withoutExcluded|countsAsOpinion/);
+  });
+  it('countsAsOpinion never counts an excluded opinion', async () => {
+    const { countsAsOpinion } = await import('../../src/app/utils/opinionRecords');
+    expect(countsAsOpinion({ type: 'opinion', offerAmount: 1 })).toBe(true);
+    expect(countsAsOpinion({ type: 'opinion', offerAmount: 1, reportExclusion: { excluded: true, kind: 'test' } })).toBe(false);
   });
   it.each([
     'dashboard/property/[id]/page.js',

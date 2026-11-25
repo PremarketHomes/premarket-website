@@ -47,6 +47,12 @@ const interestFields = ({ link } = {}) => ({
   updatedAt: serverTimestamp(),
 });
 
+// A registration as its OWN record (utils/opinionRecords.registrationRecord): no price, session or device id.
+const separateRegistration = ({ link } = {}) => {
+  const { updatedAt, ...fields } = interestFields({ link });
+  return { type: 'opinion', propertyId: 'prop1', fromWeb: true, ...fields };
+};
+
 // Kiosk writeKioskItem: createdAtIso becomes a stable client Timestamp.
 const kioskWrite = (db, item) => {
   const { createdAtIso, ...fields } = item.data;
@@ -93,9 +99,11 @@ describe('offers: reads (buyer personal details)', () => {
     await assertSucceeds(getDoc(doc(getAuthedDb('buyer1'), 'offers', 'reg1')));
   });
 
-  it("allows the listing's agent to read an offer on their listing", async () => {
-    await seedRegistration();
-    await assertSucceeds(getDoc(doc(getAuthedDb('agent1'), 'offers', 'reg1')));
+  it("PRIVACY: the listing's agent cannot read raw offers (their report comes from the server, separated)", async () => {
+    await seedRegistration(); // an older record: the buyer's details next to their price
+    await assertFails(getDoc(doc(getAuthedDb('agent1'), 'offers', 'reg1')));
+    await seedOpinion();
+    await assertFails(getDoc(doc(getAuthedDb('agent1'), 'offers', 'op1')));
   });
 
   it('denies the agent of a different listing', async () => {
@@ -125,9 +133,9 @@ describe('offers: reads (buyer personal details)', () => {
     await assertFails(getDocs(query(collection(getAuthedDb('stranger'), 'offers'), where('propertyId', '==', 'prop1'))));
   });
 
-  it("supports the agent dashboard query (propertyId == their listing)", async () => {
+  it("PRIVACY: the agent's own listing query is refused (the dashboard gets counts from /api/offers/opinion-counts)", async () => {
     await seedRegistration();
-    await assertSucceeds(getDocs(query(collection(getAuthedDb('agent1'), 'offers'), where('propertyId', '==', 'prop1'))));
+    await assertFails(getDocs(query(collection(getAuthedDb('agent1'), 'offers'), where('propertyId', '==', 'prop1'))));
   });
 
   it("supports the buyer dashboard query (userId == own uid)", async () => {
@@ -151,109 +159,129 @@ describe('offers: legitimate property-page flows', () => {
     await assertSucceeds(addDoc(collection(getAuthedDb('buyer1'), 'offers'), { ...webOpinion(), createdAt: serverTimestamp() }));
   });
 
-  it('signed-out visitor re-saves their opinion (update)', async () => {
+  it('signed-out visitor re-saves their opinion (update: amount only)', async () => {
     await seedOpinion();
     await assertSucceeds(updateDoc(doc(getUnauthDb(), 'offers', 'op1'),
-      webOpinion({ sessionId: 'session_1_visitor', offerAmount: 950000 })));
+      { offerAmount: 950000, updatedAt: serverTimestamp(), fromWeb: true }));
   });
 
-  it('signed-out visitor registers interest after their opinion (update adds contact details)', async () => {
+  it('signed-out visitor registers interest after their opinion: a NEW, separate registration record', async () => {
     await seedOpinion();
-    await assertSucceeds(updateDoc(doc(getUnauthDb(), 'offers', 'op1'), interestFields()));
+    await assertSucceeds(addDoc(collection(getUnauthDb(), 'offers'), { ...separateRegistration(), createdAt: serverTimestamp() }));
   });
 
-  it('signed-out visitor registers interest with no prior opinion (create)', async () => {
-    await assertSucceeds(addDoc(collection(getUnauthDb(), 'offers'), {
-      type: 'opinion', propertyId: 'prop1', sessionId: 'session_2', visitorId: null, fromWeb: true,
-      createdAt: serverTimestamp(), ...interestFields(),
-    }));
+  it('signed-out visitor registers interest with no prior opinion (same separate record)', async () => {
+    await assertSucceeds(addDoc(collection(getUnauthDb(), 'offers'), { ...separateRegistration(), createdAt: serverTimestamp() }));
   });
 
-  it('signed-in buyer registers with their own email after an anonymous opinion (links userId)', async () => {
-    await seedOpinion();
-    await assertSucceeds(updateDoc(doc(getAuthedDb('buyer1'), 'offers', 'op1'), interestFields({ link: 'buyer1' })));
+  it('signed-in buyer registers with their own email: the registration carries their account, never the opinion', async () => {
+    await assertSucceeds(addDoc(collection(getAuthedDb('buyer1'), 'offers'),
+      { ...separateRegistration({ link: 'buyer1' }), createdAt: serverTimestamp() }));
   });
 
-  it('signed-in buyer registers with their own email and no prior opinion (create with own userId)', async () => {
-    await assertSucceeds(addDoc(collection(getAuthedDb('buyer1'), 'offers'), {
-      type: 'opinion', propertyId: 'prop1', sessionId: 'session_3', visitorId: 'v1', fromWeb: true,
-      createdAt: serverTimestamp(), offerAmount: 1000000, ...interestFields({ link: 'buyer1' }),
-    }));
+  it("signed-in agent registers someone else's details (separate record, no account link)", async () => {
+    await assertSucceeds(addDoc(collection(getAuthedDb('agent1'), 'offers'), { ...separateRegistration(), createdAt: serverTimestamp() }));
   });
 
-  it("signed-in agent registers someone else's details on an opinion (no link; deleteField on an absent userId)", async () => {
-    await seedOpinion();
-    await assertSucceeds(updateDoc(doc(getAuthedDb('agent1'), 'offers', 'op1'),
-      { ...interestFields(), userId: deleteField() }));
-  });
-
-  it('linked buyer changes to different buyer details, which unlinks their account', async () => {
-    await seedRegistration('reg1', { userId: 'buyer1', buyerEmail: 'buyer1@example.com' });
-    await assertSucceeds(updateDoc(doc(getAuthedDb('buyer1'), 'offers', 'reg1'),
-      { ...interestFields(), userId: deleteField() }));
-  });
-
-  it('linked buyer updates their own registration', async () => {
-    await seedRegistration('reg1', { userId: 'buyer1' });
-    await assertSucceeds(updateDoc(doc(getAuthedDb('buyer1'), 'offers', 'reg1'), interestFields({ link: 'buyer1' })));
-  });
-
-  it('visitor re-saves their opinion after registering (contact details untouched)', async () => {
-    await seedRegistration('reg1', { sessionId: 'session_1_visitor' });
-    await assertSucceeds(updateDoc(doc(getUnauthDb(), 'offers', 'reg1'),
-      webOpinion({ sessionId: 'session_1_visitor', offerAmount: 1150000 })));
+  it('a second submit from the same tab updates the registration (same details, new answers; unlinking allowed)', async () => {
+    await seedDoc('offers/r1', { ...separateRegistration({ link: 'buyer1' }), updatedAt: null });
+    const { type, propertyId, fromWeb, ...answers } = separateRegistration({ link: 'buyer1' });
+    await assertSucceeds(updateDoc(doc(getAuthedDb('buyer1'), 'offers', 'r1'), { ...answers, timeframe: '1_3_months' }));
+    await assertSucceeds(updateDoc(doc(getAuthedDb('buyer1'), 'offers', 'r1'), { userId: deleteField() }));
   });
 
   it('visitor submits the same registration twice (identical details)', async () => {
-    await seedOpinion();
+    await seedDoc('offers/r2', { ...separateRegistration(), updatedAt: null });
+    const { type, propertyId, fromWeb, ...answers } = separateRegistration();
     const db = getUnauthDb();
-    await assertSucceeds(updateDoc(doc(db, 'offers', 'op1'), interestFields()));
-    await assertSucceeds(updateDoc(doc(db, 'offers', 'op1'), interestFields()));
+    await assertSucceeds(updateDoc(doc(db, 'offers', 'r2'), answers));
+    await assertSucceeds(updateDoc(doc(db, 'offers', 'r2'), answers));
+  });
+});
+
+describe('offers: a buyer is never stored with a price (opinion / registration split)', () => {
+  it('PRIVACY: contact details or an account can never be added onto a price opinion', async () => {
+    await seedOpinion();
+    await assertFails(updateDoc(doc(getUnauthDb(), 'offers', 'op1'), interestFields()));
+    await assertFails(updateDoc(doc(getAuthedDb('buyer1'), 'offers', 'op1'), { userId: 'buyer1' }));
+    await assertFails(updateDoc(doc(getUnauthDb(), 'offers', 'op1'), { serious: true, buyerType: 'investor' }));
   });
 
-  it('a legacy opinion without visitorId can be re-saved with one', async () => {
-    await seedDoc('offers/old1', { type: 'opinion', propertyId: 'prop1', sessionId: 's_old', offerAmount: 1, fromWeb: true });
-    await assertSucceeds(updateDoc(doc(getUnauthDb(), 'offers', 'old1'), webOpinion({ sessionId: 's_old' })));
+  it('PRIVACY: an opinion cannot be created with buyer details, an account or the serious flag', async () => {
+    await assertFails(addDoc(collection(getUnauthDb(), 'offers'), { ...webOpinion(), ...interestFields() }));
+    await assertFails(addDoc(collection(getAuthedDb('buyer1'), 'offers'), { ...webOpinion(), userId: 'buyer1' }));
+    await assertFails(addDoc(collection(getUnauthDb(), 'offers'), { ...webOpinion(), serious: true }));
+  });
+
+  it('PRIVACY: a record with buyer details must be a (serious) registration', async () => {
+    await assertFails(addDoc(collection(getUnauthDb(), 'offers'), { ...separateRegistration(), serious: false }));
+  });
+
+  it('PRIVACY: a registration can never hold a price, the session id or the device id', async () => {
+    for (const extra of [{ offerAmount: 1000000 }, { sessionId: 'session_1_visitor' }, { visitorId: 'v_visitor1' }]) {
+      await assertFails(addDoc(collection(getUnauthDb(), 'offers'), { ...separateRegistration(), ...extra }));
+    }
+    await seedDoc('offers/r3', separateRegistration());
+    await assertFails(updateDoc(doc(getUnauthDb(), 'offers', 'r3'), { offerAmount: 1000000 }));
+    await assertFails(updateDoc(doc(getUnauthDb(), 'offers', 'r3'), { visitorId: 'v_visitor1' }));
+  });
+
+  it('PRIVACY: a registration cannot be turned into an opinion, nor an opinion into a registration', async () => {
+    await seedDoc('offers/r4', separateRegistration());
+    await assertFails(updateDoc(doc(getUnauthDb(), 'offers', 'r4'), { serious: false, offerAmount: 1000000 }));
+    await seedOpinion();
+    await assertFails(updateDoc(doc(getUnauthDb(), 'offers', 'op1'), { serious: true }));
+  });
+
+  it('PRIVACY: the old app\'s combined registration (with session and device ids) is refused', async () => {
+    await assertFails(addDoc(collection(getUnauthDb(), 'offers'), {
+      type: 'opinion', propertyId: 'prop1', sessionId: 'session_2', visitorId: 'v2', fromWeb: true, ...interestFields(),
+    }));
+  });
+
+  it('older combined records are left as they are: no client can edit one any more (not even the linked buyer)', async () => {
+    await seedRegistration('reg1', { userId: 'buyer1' });
+    await assertFails(updateDoc(doc(getAuthedDb('buyer1'), 'offers', 'reg1'), { offerAmount: 1150000 }));
+    await assertFails(updateDoc(doc(getUnauthDb(), 'offers', 'reg1'), { offerAmount: 1150000 }));
   });
 });
 
 describe('offers: legitimate iPad kiosk flows (real payload builders)', () => {
-  const opinionItem = () => buildOpinionItem({
-    propertyId: 'prop1', opinion: kioskOpinion, sessionId: 'ipad_1731000000000_abcdefg', visitorId: 'v_kiosk',
-  });
-  const registrationItem = (docId = kioskOpinion.id, amount = kioskOpinion.amount) => buildRegistrationItem({
-    propertyId: 'prop1', docId, sessionId: 'ipad_1731000000000_abcdefg', visitorId: 'v_kiosk',
-    amount, createdAtIso: new Date(kioskOpinion.at).toISOString(), buyer: kioskBuyer,
+  const opinionItem = () => buildOpinionItem({ propertyId: 'prop1', opinion: kioskOpinion, sessionId: 'ipad_1731000000000_abcdefg' });
+  const registrationItem = (docId = 'kioskReg1') => buildRegistrationItem({
+    propertyId: 'prop1', docId, createdAtIso: new Date(kioskOpinion.at).toISOString(), buyer: kioskBuyer,
   });
 
   for (const [label, db] of [['signed out', () => getUnauthDb()], ['signed in as the listing agent', () => getAuthedDb('agent1')]]) {
-    it(`${label}: opinion, retried opinion, registration on the same id, retried registration`, async () => {
+    it(`${label}: opinion, retried opinion, registration on its OWN id, retried registration`, async () => {
       await assertSucceeds(kioskWrite(db(), opinionItem()));
       await assertSucceeds(kioskWrite(db(), opinionItem()));
       await assertSucceeds(kioskWrite(db(), registrationItem()));
       await assertSucceeds(kioskWrite(db(), registrationItem()));
-      // A late retry of the opinion must not disturb the registration.
-      await assertSucceeds(kioskWrite(db(), opinionItem()));
+      await assertSucceeds(kioskWrite(db(), opinionItem())); // a late retry of the opinion: separate record, no effect
     });
 
-    it(`${label}: registration with no opinion (new id)`, async () => {
-      await assertSucceeds(kioskWrite(db(), registrationItem('kioskOffer2', undefined)));
+    it(`${label}: registration with no opinion`, async () => {
+      await assertSucceeds(kioskWrite(db(), registrationItem('kioskReg2')));
+    });
+
+    it(`PRIVACY ${label}: a registration written onto the opinion's id is refused`, async () => {
+      await assertSucceeds(kioskWrite(db(), opinionItem()));
+      await assertFails(kioskWrite(db(), registrationItem(kioskOpinion.id)));
     });
   }
 });
 
 describe('offers: legitimate TV display flow', () => {
-  it('opinion, qualification answers, then a new account links the offer', async () => {
-    const ref = await assertSucceeds(addDoc(collection(getUnauthDb(), 'offers'), {
+  it('anonymous opinion, then a new account creates its OWN registration (answers included, no price)', async () => {
+    await assertSucceeds(addDoc(collection(getUnauthDb(), 'offers'), {
       type: 'opinion', propertyId: 'prop1', sessionId: 'tv_1731000000000_abcdefg', offerAmount: 1000000,
       createdAt: serverTimestamp(), updatedAt: serverTimestamp(), fromWeb: true, fromTvDisplay: true, displayId: 'display1',
     }));
-    const qualification = {
-      serious: true, isFirstHomeBuyer: true, isInvestor: false, buyerType: 'owner-occupier',
-      seriousnessLevel: 'ready_to_buy', updatedAt: serverTimestamp(),
-    };
-    await assertSucceeds(updateDoc(doc(getUnauthDb(), 'offers', ref.id), qualification));
-    await assertSucceeds(updateDoc(doc(getAuthedDb('newTvBuyer'), 'offers', ref.id), { userId: 'newTvBuyer', ...qualification }));
+    await assertSucceeds(addDoc(collection(getAuthedDb('newTvBuyer'), 'offers'), {
+      ...separateRegistration({ link: 'newTvBuyer' }), buyerPhone: null, seriousnessLevel: 'ready_to_buy',
+      fromTvDisplay: true, displayId: 'display1', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    }));
   });
 });
 

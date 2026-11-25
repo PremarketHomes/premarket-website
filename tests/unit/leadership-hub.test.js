@@ -74,7 +74,10 @@ function seed() {
 
   // p1 (Ann): 3 opinions (1 registered). One is by Bob's teammate-linked account — still Ann's.
   fakeDb._seed('offers', 'o1', { propertyId: 'p1', type: 'opinion', offerAmount: 900000, createdAt: ts('2026-11-03T00:00:00Z') }); // this week
-  fakeDb._seed('offers', 'o2', { propertyId: 'p1', type: 'opinion', serious: true, userId: 'bob', buyerName: 'Real Buyer', buyerEmail: 'real@buyer.test', buyerPhone: '0400111222', createdAt: ts('2026-10-20T00:00:00Z') }); // this month? no: October
+  // An older registration record (they always carried the browser's session id), so it counts as an opinion as it
+  // always has; registrations stored on their own since the opinion/registration split are tested in
+  // buyer-privacy-separation.test.js.
+  fakeDb._seed('offers', 'o2', { propertyId: 'p1', type: 'opinion', sessionId: 'session_o2', serious: true, userId: 'bob', buyerName: 'Real Buyer', buyerEmail: 'real@buyer.test', buyerPhone: '0400111222', createdAt: ts('2026-10-20T00:00:00Z') }); // this month? no: October
   fakeDb._seed('offers', 'o3', { propertyId: 'p1', type: 'opinion', createdAt: ts('2026-11-01T20:00:00Z') }); // 2 Nov Sydney = this month, last week (Mon 2 Nov is the week start)
   fakeDb._seed('offers', 'o4', { propertyId: 'p1', type: 'comment' }); // not an opinion
   fakeDb._seed('offers', 'o5', { propertyId: 'p4', type: 'opinion' }); // removed campaign
@@ -348,7 +351,8 @@ describe('buildAgentProfile — coaching observations', () => {
     properties: [], opinions: [], lastSignIns: {},
   });
   const prop = (id, o = {}) => ({ id, userId: 'x', formattedAddress: `${id} St`, createdAt: day(20), visibility: true, stats: { views: 0 }, ...o });
-  const opn = (id, propertyId, daysAgo, serious = false) => ({ id, propertyId, type: 'opinion', serious, createdAt: day(daysAgo) });
+  // Older-style records (with the session id they always carried): every one counts as an opinion.
+  const opn = (id, propertyId, daysAgo, serious = false) => ({ id, propertyId, type: 'opinion', sessionId: `session_${id}`, serious, createdAt: day(daysAgo) });
   const profile = async (inputs, uid = 'x') => (await import('../../src/app/api/services/leadershipMetrics')).buildAgentProfile(inputs, uid);
   const ids = (p) => p.coaching.map((c) => c.id);
 

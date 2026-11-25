@@ -36,7 +36,7 @@ import { toOfficeTeamProperty } from './officeTeamService';
 import { isEligibleTeamAgent } from './teamAccess';
 import { loadTestCampaignIds } from './testCampaigns';
 import { themeForTeamId } from './teamThemes';
-import { isExcludedOpinion } from '../../utils/opinionExclusion';
+import { countsAsOpinion } from '../../utils/opinionRecords';
 
 export const TEAM_INVITE_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
 export const MAX_INVITES_PER_DAY = 10;
@@ -507,7 +507,7 @@ async function countOpinionsByProperty(propertyIds) {
     const snap = await adminDb.collection('offers').where('propertyId', 'in', batch).get();
     for (const d of snap.docs) {
       const o = d.data();
-      if (o.type === 'opinion' && !isExcludedOpinion(o) && counts[o.propertyId] !== undefined) counts[o.propertyId] += 1;
+      if (countsAsOpinion(o) && counts[o.propertyId] !== undefined) counts[o.propertyId] += 1;
     }
   }
   return counts;

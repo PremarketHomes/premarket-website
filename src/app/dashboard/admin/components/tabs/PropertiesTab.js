@@ -20,6 +20,7 @@ import { formatDate, getPropertyImage } from '../../utils/formatters';
 import { authFetch } from '../../../../utils/authFetch';
 import PropertyThumb from '../../../../components/PropertyThumb';
 import { isExcludedOpinion } from '../../../../utils/opinionExclusion';
+import { countsAsOpinion } from '../../../../utils/opinionRecords';
 
 export default function PropertiesTab({ user }) {
   const router = useRouter();
@@ -81,7 +82,8 @@ export default function PropertiesTab({ user }) {
         offersSnap.docs.forEach(d => {
           const data = d.data();
           if (data.type === 'opinion' && !isExcludedOpinion(data)) {
-            opinionCounts[data.propertyId] = (opinionCounts[data.propertyId] || 0) + 1;
+            // A registration stored on its own is not an opinion (utils/opinionRecords.js), only a registration.
+            if (countsAsOpinion(data)) opinionCounts[data.propertyId] = (opinionCounts[data.propertyId] || 0) + 1;
             if (data.serious === true) {
               interestCounts[data.propertyId] = (interestCounts[data.propertyId] || 0) + 1;
             }

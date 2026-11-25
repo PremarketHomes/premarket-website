@@ -53,14 +53,13 @@ export default function OpenHomeKiosk({
   onExit,
   onOpinionPersisted,      // (opinion) — after the server acknowledged it (analytics, view count)
   onRegistrationPersisted, // ({ docId }) — after the server acknowledged it
-  getVisitorId = () => null,
 }) {
   const baseline = useMemo(() => roundToStep((minPrice + maxPrice) / 2, step), [minPrice, maxPrice, step]);
 
   // ── per-visit data (not React state: must be exact inside timers/callbacks) ──
   const visit = useRef({ opinion: null, sessionId: null });
   const latest = useRef({});
-  latest.current = { propertyId, demoMode, onOpinionPersisted, onRegistrationPersisted, getVisitorId };
+  latest.current = { propertyId, demoMode, onOpinionPersisted, onRegistrationPersisted };
 
   const [ui, setUi] = useState({ phase: 'idle', value: baseline, moved: false, committed: null, held: false });
   const [sync, setSync] = useState({ pending: 0, failing: 0, durable: true });
@@ -85,12 +84,12 @@ export default function OpenHomeKiosk({
         setUi(s);
       },
       onCommit: (opinion) => {
-        const { propertyId: pid, demoMode: demo, getVisitorId: vid } = latest.current;
+        const { propertyId: pid, demoMode: demo } = latest.current;
         const sessionId = generateKioskSessionId();
         visit.current = { opinion, sessionId };
         if (demo) { setOpinionState('demo'); return; }
         setOpinionState('pending');
-        const item = buildOpinionItem({ propertyId: pid, opinion, sessionId, visitorId: vid() });
+        const item = buildOpinionItem({ propertyId: pid, opinion, sessionId });
         outboxRef.current?.enqueue(item);
         // Honest fallback wording if the server hasn't acknowledged quickly.
         setTimeout(() => setOpinionState((s) => (s === 'pending' ? 'queued' : s)), timing.queuedAfterMs);
@@ -239,9 +238,10 @@ export default function OpenHomeKiosk({
     if (regState.submitted) return; // single-flight: ignore a double tap
 
     clearIdle();
-    const { opinion, sessionId } = visit.current;
-    const docId = opinion?.id || generateOfferId();
-    const createdAtIso = new Date(opinion?.at || Date.now()).toISOString();
+    // The registration is its own record with its own id: never the opinion's id, amount or session, so the
+    // visitor's details can't be matched to the price they gave (utils/opinionRecords.js).
+    const docId = generateOfferId();
+    const createdAtIso = new Date().toISOString();
     setFormError('');
     setRegState({ submitted: true, docId, acked: false, slow: false });
 
@@ -249,9 +249,6 @@ export default function OpenHomeKiosk({
       outboxRef.current?.enqueue(buildRegistrationItem({
         propertyId: latest.current.propertyId,
         docId,
-        sessionId: sessionId || generateKioskSessionId(),
-        visitorId: latest.current.getVisitorId(),
-        amount: opinion?.amount,
         createdAtIso,
         buyer: form,
       }));

@@ -16,6 +16,7 @@
  */
 import { resolveBuyerIdentity, profileForRegistration } from '../../utils/registrationIdentity';
 import { isExcludedOpinion, exclusionSummary } from '../../utils/opinionExclusion';
+import { countsAsOpinion } from '../../utils/opinionRecords';
 
 export const MIN_GROUP = 3;
 
@@ -63,8 +64,12 @@ export function median(values) {
  */
 export function separateOpinions(docs, { buyers = {}, withIdentity = true } = {}) {
   const excluded = exclusionSummary(docs);
-  const opinions = (docs || []).filter((o) => o && o.type === 'opinion' && !isExcludedOpinion(o));
-  const serious = opinions.filter((o) => o.serious === true);
+  // Every opinion-type record: price opinions, registrations, and older records that hold both.
+  const records = (docs || []).filter((o) => o && o.type === 'opinion' && !isExcludedOpinion(o));
+  // What counts as a buyer opinion (utils/opinionRecords.js): a registration stored on its own is not one, so a buyer
+  // who gives a price and registers is counted once (their price), as before the two were stored apart.
+  const opinions = records.filter(countsAsOpinion);
+  const serious = records.filter((o) => o.serious === true); // registrations (separate or older combined records)
   const passive = opinions.filter((o) => o.serious !== true);
   const amounts = opinions.map(amountOf).filter((a) => a > 0);
   const seriousAmounts = serious.map(amountOf).filter((a) => a > 0);
@@ -133,8 +138,9 @@ export function separateOpinions(docs, { buyers = {}, withIdentity = true } = {}
       passiveMedian: groupsLargeEnough ? median(passiveAmounts) : null,
       priceMin: amounts.length ? amounts[amounts.length - 1] : null,
       priceMax: amounts.length ? amounts[0] : null,
-      fhbCount: opinions.filter((o) => o.isFirstHomeBuyer).length,
-      investorCount: opinions.filter((o) => o.isInvestor).length,
+      // Buyer answers live on registrations (separate records since the split; never on a price opinion).
+      fhbCount: records.filter((o) => o.isFirstHomeBuyer).length,
+      investorCount: records.filter((o) => o.isInvestor).length,
       seriousnessLevels: levels,
       weekly,
       minGroup: MIN_GROUP,

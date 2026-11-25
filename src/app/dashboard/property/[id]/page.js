@@ -252,7 +252,10 @@ function BuyerBreakdown({ summary }) {
 
   const seriousBuyers = { length: summary.serious || 0 };
   const passiveBuyers = { length: summary.passive || 0 };
-  const seriousPct = Math.round((seriousBuyers.length / total) * 100);
+  // Registrations are stored apart from price opinions (utils/opinionRecords.js), so the two groups can overlap:
+  // the bar compares the two counts, it does not split one set of buyers.
+  const both = seriousBuyers.length + passiveBuyers.length;
+  const seriousPct = both ? Math.round((seriousBuyers.length / both) * 100) : 0;
   const passivePct = 100 - seriousPct;
   const fhbCount = summary.fhbCount || 0;
   const investorCount = summary.investorCount || 0;
@@ -268,8 +271,8 @@ function BuyerBreakdown({ summary }) {
       {/* Serious vs Passive bar */}
       <div className="mb-6">
         <div className="flex items-center justify-between text-xs mb-2">
-          <span className="text-slate-900 font-semibold">Serious ({seriousBuyers.length})</span>
-          <span className="text-slate-500 font-semibold">Passive ({passiveBuyers.length})</span>
+          <span className="text-slate-900 font-semibold">Registered ({seriousBuyers.length})</span>
+          <span className="text-slate-500 font-semibold">Anonymous price opinions ({passiveBuyers.length})</span>
         </div>
         <div className="h-4 bg-slate-100 rounded-full overflow-hidden flex">
           <motion.div
@@ -1416,7 +1419,7 @@ export default function PropertyReportPage() {
           </div>
           {summary.serious > 0 && !summary.seriousMedian && (
             <p className="text-xs text-slate-400 -mt-2 mb-4">
-              Serious and passive medians appear once each group has at least {summary.minGroup || 3} price opinions, so no registered buyer&apos;s price can be worked out.
+              Registrations are stored separately from price opinions, so a registered buyer&apos;s price is never known. Serious and passive medians only use older opinions recorded with a registration, and only when each group has at least {summary.minGroup || 3}.
             </p>
           )}
 
