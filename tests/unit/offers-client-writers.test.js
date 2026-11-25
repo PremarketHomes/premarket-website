@@ -21,14 +21,16 @@ function sourceFiles(dir) {
 // in production (for a writer: a lost buyer registration).
 const REVIEWED_CLIENT_ACCESS = {
   // writers
-  'src/app/components/PropertyPageClient.js': 4, // opinion create/update, registration create/update
-  'src/app/tv/[id]/page.js': 3, // TV opinion create, qualification update, sign-up link
-  'src/app/utils/kioskPersistence.js': 1, // iPad kiosk queue (setDoc merge)
+  // Price opinions and registrations are SEPARATE records (utils/opinionRecords.js); the rules refuse any record that
+  // would hold a price together with buyer details.
+  'src/app/components/PropertyPageClient.js': 4, // opinion create/update, registration create/update (separate records)
+  'src/app/tv/[id]/page.js': 2, // TV opinion create, sign-up registration create (separate record)
+  'src/app/utils/kioskPersistence.js': 1, // iPad kiosk queue (setDoc merge; opinion and registration on separate ids)
   // readers
-  'src/app/buyer-dashboard/hooks/useBuyerData.js': 1, // where userId == own uid
-  'src/app/dashboard/page.js': 1, // where propertyId in own listings
-  // (the Report page no longer reads offers in the browser: every viewer gets the server's separated report,
-  // opinionPrivacy.js, so a buyer's identity never reaches the page together with their price)
+  'src/app/buyer-dashboard/hooks/useBuyerData.js': 1, // where userId == own uid (the buyer's own registrations)
+  // (the agent dashboard and the Report page no longer read offers in the browser: the dashboard gets counts from
+  // /api/offers/opinion-counts and every report viewer gets the server's separated report, opinionPrivacy.js, so raw
+  // records, some of which are older records with a buyer's details next to their price, never reach an agent)
   'src/app/dashboard/crm/[id]/page.js': 2, // superAdmin CRM, by email / buyerEmail
   'src/app/dashboard/admin/components/tabs/PropertiesTab.js': 1, // superAdmin counts
 };

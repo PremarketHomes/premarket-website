@@ -14,9 +14,9 @@ import {
   query,
   where,
   addDoc,
-  updateDoc,
   serverTimestamp,
 } from 'firebase/firestore';
+import { registrationRecord } from '../../utils/opinionRecords';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -344,18 +344,8 @@ function TvDisplayPage() {
     if (!qualificationData.buyerType || !qualificationData.seriousnessLevel) return;
     setShowQualificationModal(false);
     setShowSignupModal(true);
-
-    // Save qualification data to offer in background
-    if (savedOfferId) {
-      updateDoc(doc(db, 'offers', savedOfferId), {
-        serious: true,
-        isFirstHomeBuyer: qualificationData.isFirstHomeBuyer,
-        isInvestor: qualificationData.isInvestor,
-        buyerType: qualificationData.buyerType,
-        seriousnessLevel: qualificationData.seriousnessLevel,
-        updatedAt: serverTimestamp(),
-      }).catch((err) => console.error('Error updating TV offer:', err));
-    }
+    // The answers are NOT written onto the price opinion (it stays anonymous). They are kept here and saved with the
+    // buyer's registration if they create an account below (utils/opinionRecords.js).
   };
 
   const handleSkipQualification = () => {
@@ -393,15 +383,17 @@ function TvDisplayPage() {
         availableCampaigns: 1,
       });
 
-      // Link user to the saved offer
-      if (savedOfferId) {
-        await updateDoc(doc(db, 'offers', savedOfferId), {
-          userId,
-          serious: true,
-          isFirstHomeBuyer: qualificationData.isFirstHomeBuyer,
-          isInvestor: qualificationData.isInvestor,
-          buyerType: qualificationData.buyerType,
-          seriousnessLevel: qualificationData.seriousnessLevel,
+      // The buyer's registration is its OWN record (their account and answers, no price), never a link from their
+      // account to the price opinion they just gave, which stays anonymous (utils/opinionRecords.js).
+      if (property?.id) {
+        await addDoc(collection(db, 'offers'), {
+          ...registrationRecord({
+            propertyId: property.id,
+            buyer: { name: `${firstName.trim()} ${lastName.trim()}`, email, userId },
+            answers: qualificationData,
+            source: { fromTvDisplay: true, displayId },
+          }),
+          createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       }

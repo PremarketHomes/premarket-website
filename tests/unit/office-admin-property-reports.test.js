@@ -243,10 +243,13 @@ describe('report page: read-only mode and Team link (source-level)', () => {
     expect(team).toContain('href={`/dashboard/property/${p.id}`}');
     expect(team).toContain('View report');
   });
-  it('does not touch the Firestore rules for offers (still owner/superAdmin only)', () => {
+  it('office admins get no browser access to raw offers (and, since the opinion/registration split, nor does the listing agent)', () => {
     const rules = fs.readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf-8');
     const offers = rules.slice(rules.indexOf('match /offers/{offerId}'), rules.indexOf('match /likes/{likeId}'));
-    expect(offers).toContain('isOwnerOfProperty(resource.data.propertyId)');
+    const read = offers.slice(offers.indexOf('allow read'), offers.indexOf('allow create'));
+    expect(read).not.toContain('isOwnerOfProperty');
+    expect(read).toContain('resource.data.userId == request.auth.uid');
+    expect(read).toContain('isSuperAdmin()');
     expect(offers).not.toMatch(/officeAdmin/i);
   });
 });

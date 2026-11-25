@@ -9,6 +9,14 @@ Sentry.init({
   replaysOnErrorSampleRate: 1.0,
   sendDefaultPii: true,
   integrations: [
-    Sentry.replayIntegration(),
+    // Stated explicitly (these are the current defaults) so a future SDK default can never start recording what a
+    // buyer types or sees: every text and input is masked (price opinions, names, emails, phones), media is blocked,
+    // and no request or response bodies are captured.
+    Sentry.replayIntegration({
+      maskAllText: true,
+      maskAllInputs: true,
+      blockAllMedia: true,
+      networkDetailAllowUrls: [],
+    }),
   ],
 });

@@ -347,7 +347,7 @@ describe('BSO Dashboard figures and assigned campaigns', () => {
     const ids = await portfolio();
     store.set(`properties/${ids.petaBrad}`, { ...store.get(`properties/${ids.petaBrad}`), stats: { views: 12 } });
     store.set('offers/o1', { propertyId: ids.petaBrad, type: 'opinion' });
-    store.set('offers/o2', { propertyId: ids.petaBrad, type: 'opinion', serious: true });
+    store.set('offers/o2', { propertyId: ids.petaBrad, type: 'opinion', sessionId: 'session_o2', serious: true }); // an older registration record
     store.set('offers/o3', { propertyId: ids.petaBrad, type: 'like' }); // not an opinion
     store.set('offers/o4', { propertyId: 'chantalOwn', type: 'opinion' });
     // Before: Chantal's own upload is not Peta's. Hannah (office admin) assigns it to Peta with Change manager.
