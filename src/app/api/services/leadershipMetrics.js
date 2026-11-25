@@ -2,6 +2,7 @@
  * Leadership Hub — pure calculations. No I/O and no firebase imports, so the same code serves the
  * live API, the unit tests and the sample-data preview. Metric definitions live in leadershipService.js.
  */
+import { isRegistrationOnly } from '../../utils/opinionRecords'; // pure helper, no I/O
 
 export const LEADERSHIP_TIMEZONE = 'Australia/Sydney';
 const MAX_TREND_MONTHS = 12;
@@ -127,20 +128,23 @@ export function buildLeadershipData({ members: allMembers, pendingInvites = [], 
     if (!prop) continue; // not a campaign of a current member
     const when = toDate(o.createdAt) || toDate(o.createdAtIso);
     const reg = o.serious === true;
+    // A registration stored on its own (since price opinions and registrations were split) is a registration, not
+    // another opinion: the buyer's price, if they gave one, is its own record and is counted there.
+    const op = !isRegistrationOnly(o);
 
     const pp = perProperty.get(prop.id) || { opinions: 0, registrations: 0 };
-    pp.opinions += 1;
+    if (op) pp.opinions += 1;
     if (reg) pp.registrations += 1;
     perProperty.set(prop.id, pp);
 
     const a = perAgent.get(prop.userId); // original listing agent
-    const add = (bucket) => { a.opinions[bucket] += 1; if (reg) a.registrations[bucket] += 1; };
+    const add = (bucket) => { if (op) a.opinions[bucket] += 1; if (reg) a.registrations[bucket] += 1; };
     add('all');
     if (when) {
       if (when >= starts.month) add('month');
       if (when >= starts.week) add('week');
       if (when >= last30Start) add('last30');
-      bump(monthKey(when, tz), 'opinions');
+      if (op) bump(monthKey(when, tz), 'opinions');
       if (reg) bump(monthKey(when, tz), 'registrations');
     }
   }
@@ -296,6 +300,7 @@ export function buildAgentProfile(inputs, uid) {
   const seen = new Set();
   const myOpinions = opinions.filter((o) => {
     if (!mineIds.has(o.propertyId)) return false;
+    if (isRegistrationOnly(o)) return false; // a registration, not an opinion (see the hub totals above)
     if (o.id) { if (seen.has(o.id)) return false; seen.add(o.id); }
     return true;
   }).map((o) => ({ propertyId: o.propertyId, when: toDate(o.createdAt) || toDate(o.createdAtIso), reg: o.serious === true }));

@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/nextjs';
 import { isExcludedOpinion } from '../../utils/opinionExclusion';
+import { isRegistrationOnly } from '../../utils/opinionRecords';
 
 /**
  * Contact Computation Engine
@@ -199,8 +200,9 @@ export async function buildAllContacts(adminDb) {
       contact.lastName = parts.slice(1).join(' ') || null;
     }
 
-    // Count opinions (a total only: no listing, no amount)
-    if (data.type === 'opinion' || data.offerAmount) {
+    // Count opinions (a total only: no listing, no amount). A registration stored on its own (utils/opinionRecords.js)
+    // holds no price and says nothing about whether this buyer gave one, so it never counts as a price opinion.
+    if ((data.type === 'opinion' || data.offerAmount) && !isRegistrationOnly(data)) {
       contact.totalPriceOpinions++;
     }
 

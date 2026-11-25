@@ -20,18 +20,6 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.superAdmin == true;
     }
 
-    // True if the caller is the authenticated owner of the property a
-    // document references (used by offers below, so an agent can read
-    // opinions/interest submitted on their own listings). Guarded with
-    // exists() first: an offer can outlive its property (e.g. the agent
-    // later deletes the listing), and calling get() on a missing document
-    // would otherwise throw and deny the whole rule rather than just this
-    // branch.
-    function isOwnerOfProperty(propertyId) {
-      return isAuth() &&
-        exists(/databases/$(database)/documents/properties/$(propertyId)) &&
-        get(/databases/$(database)/documents/properties/$(propertyId)).data.userId == request.auth.uid;
-    }
 
     // ═══════════════════════════════════════════════════════════
     // USERS
@@ -142,8 +130,10 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════
     // Listings that were deleted while buyer offers still referenced them
     // (census 2026-11-11). Whoever re-created one of these ids would become
-    // the "owner" those orphaned offers point at (isOwnerOfProperty) and could
-    // read the buyers' details. The app only ever creates listings with
+    // the "owner" those orphaned offers point at and could have read the
+    // buyers' details (listing owners no longer read raw offers at all since
+    // the opinion/registration split, but the block stays as defence in
+    // depth for any owner-based access). The app only ever creates listings with
     // random ids (addDoc), so blocking these ids affects no real flow.
     // Stop-gap until orphaned offers are handled server-side.
     function isRetiredPropertyId(id) {
@@ -173,10 +163,11 @@ service cloud.firestore {
     // OFFERS (Price Opinions)
     // Anonymous create: web visitors submit price opinions
     //   without logging in - this is the core data collection.
-    // Read: NOT public (buyer PII — name/email/phone — lives on these
-    //   documents once someone registers interest). Restricted to the
-    //   buyer who owns the offer (userId match), the agent who owns the
-    //   referenced property, or a superAdmin. The old anonymous
+    // Read: NOT public (buyer PII — name/email/phone — lives on registration
+    //   documents, and older documents can hold it next to a price).
+    //   Restricted to the buyer who owns the offer (userId match) or a
+    //   superAdmin. The listing's agent no longer reads raw offers: their
+    //   reports come from the server, already separated. The old anonymous
     //   session-based "read back my previous opinion" lookup used by the
     //   property page now goes through /api/offers/session-lookup
     //   (Admin SDK, returns only the amount — never PII) instead of a
@@ -209,6 +200,29 @@ service cloud.firestore {
               'createdAt', 'updatedAt', 'fromWeb', 'fromIpadMode', 'fromTvDisplay', 'displayId',
               'serious', 'isFirstHomeBuyer', 'isInvestor', 'buyerType', 'nextAction', 'timeframe',
               'seriousnessLevel', 'buyerName', 'buyerEmail', 'buyerPhone', 'userId'];
+    }
+
+    // Price opinions and registrations are separate records (src/app/utils/opinionRecords.js). Every record a
+    // client creates or edits must be exactly one of:
+    //   - a registration (any name, email, phone, account or `serious` flag): it must be serious and hold NO price,
+    //     session id or device id, so nothing can match it to the buyer's opinion;
+    //   - an anonymous price opinion: none of those buyer fields at all.
+    // So a buyer's details can never be stored with a price. Older records that hold both are left as they are
+    // (never rewritten by a client: any client edit of one is refused).
+    function offerHoldsBuyer(data) {
+      return !isBlankField(data, 'buyerName')
+        || !isBlankField(data, 'buyerEmail')
+        || !isBlankField(data, 'buyerPhone')
+        || data.get('userId', null) != null
+        || data.get('serious', false) == true;
+    }
+
+    function offerKeepsOpinionAndBuyerApart(data) {
+      return !offerHoldsBuyer(data)
+        || (data.get('serious', false) == true
+            && data.get('offerAmount', null) == null
+            && !('sessionId' in data)
+            && !('visitorId' in data));
     }
 
     // Every field those writers change on an existing offer.
@@ -264,25 +278,29 @@ service cloud.firestore {
     }
 
     match /offers/{offerId} {
+      // Raw records: only the buyer's own (linked) registration and superAdmins. The listing agent reads the
+      // separated report through the server (/api/properties/[id]/report, opinionPrivacy.js), never raw records:
+      // older records can still hold a buyer's details together with their price.
       allow read: if isAuth() && (
         resource.data.userId == request.auth.uid
-        || isOwnerOfProperty(resource.data.propertyId)
         || isSuperAdmin()
       );
 
       allow create: if request.resource.data.keys().hasOnly(offerCreateKeys())
         && request.resource.data.get('type', null) == 'opinion'
         && request.resource.data.propertyId is string
+        && offerKeepsOpinionAndBuyerApart(request.resource.data)
         && (
           !('userId' in request.resource.data)
           || (isAuth() && request.resource.data.userId == request.auth.uid)
         );
 
-      allow update: if offerUpdateAllowed(
-        resource.data,
-        request.resource.data,
-        request.resource.data.diff(resource.data).affectedKeys()
-      );
+      allow update: if offerKeepsOpinionAndBuyerApart(request.resource.data)
+        && offerUpdateAllowed(
+          resource.data,
+          request.resource.data,
+          request.resource.data.diff(resource.data).affectedKeys()
+        );
 
       allow delete: if false;
     }

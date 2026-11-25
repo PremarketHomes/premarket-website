@@ -14,6 +14,8 @@
  * match, since the card's numbers must always agree with the Report.
  */
 
+import { isRegistrationOnly } from '../../utils/opinionRecords';
+
 export const CARD_WIDTH = 1080;
 export const CARD_HEIGHT = 1350;
 
@@ -32,8 +34,10 @@ export function median(arr) {
  */
 export function computeOpinionStats(offers) {
   const list = Array.isArray(offers) ? offers : [];
-  const opinions = list.filter((o) => o?.type === 'opinion');
-  const seriousBuyers = opinions.filter((o) => o?.serious === true);
+  const records = list.filter((o) => o?.type === 'opinion');
+  // A registration stored on its own is not an opinion (utils/opinionRecords.js): never counted twice.
+  const opinions = records.filter((o) => !isRegistrationOnly(o));
+  const seriousBuyers = records.filter((o) => o?.serious === true);
   const passiveBuyers = opinions.filter((o) => o?.serious !== true);
 
   const seriousAmounts = seriousBuyers.map((o) => parseFloat(o.offerAmount) || 0).filter((a) => a > 0);

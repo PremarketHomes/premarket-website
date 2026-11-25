@@ -63,7 +63,6 @@ import { CampaignPageLink, useCampaignLinkCopy } from '../components/CampaignLin
 import { loginUrlForCurrentPage } from '../utils/loginRedirect';
 import PropertyThumb from '../components/PropertyThumb';
 import { DashboardSkeleton, PropertyCardsSkeleton, CampaignRowsSkeleton } from './components/PageSkeletons';
-import { isExcludedOpinion } from '../utils/opinionExclusion';
 
 // --- Shimmer Image Wrapper ---
 function ShimmerImage({ src, alt, ...props }) {
@@ -1231,18 +1230,20 @@ function DashboardPage() {
       if (isFirst) {
         setPropertiesLoading(false);
         isFirst = false;
-        // Fetch buyer opinions count once
+        // Fetch buyer opinions count once: numbers only, from the server (raw opinion records never reach the
+        // browser; see api/offers/opinion-counts).
         const propertyIds = props.map(p => p.id);
         if (propertyIds.length > 0) {
-          let totalOpinions = 0;
-          for (let i = 0; i < propertyIds.length; i += 30) {
-            const batch = propertyIds.slice(i, i + 30);
-            const offersSnap = await getDocs(
-              query(collection(db, 'offers'), where('propertyId', 'in', batch))
-            );
-            totalOpinions += offersSnap.docs.filter(d => d.data().type === 'opinion' && !isExcludedOpinion(d.data())).length;
+          try {
+            const res = await authFetch('/api/offers/opinion-counts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ propertyIds }),
+            });
+            if (res.ok) setOpinionsCount((await res.json()).total || 0);
+          } catch (err) {
+            console.error('Error fetching opinion counts:', err);
           }
-          setOpinionsCount(totalOpinions);
         }
       }
     }, (err) => {

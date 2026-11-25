@@ -27,6 +27,7 @@
 import { getAuth } from 'firebase-admin/auth';
 import { redactLikesForTeam } from './teamRedaction';
 import { separateOpinions } from './opinionPrivacy';
+import { countsAsOpinion } from '../../utils/opinionRecords';
 import { serializeForClient } from './propertyAccessService';
 import { isExcludedOpinion, exclusionSummary } from '../../utils/opinionExclusion';
 import { loadTestCampaignIds } from './testCampaigns';
@@ -212,7 +213,7 @@ export async function getLeadershipPropertyReport(db, scope, propertyId) {
     }),
     listingAgent: { name: fullName(owner) || 'Agent', avatar: owner.avatar || null },
     totals: {
-      opinions: opinionDocs.length,
+      opinions: opinionDocs.filter(countsAsOpinion).length,
       registrations: opinionDocs.filter((o) => o.serious === true).length,
       likes: likesSnap.size,
     },

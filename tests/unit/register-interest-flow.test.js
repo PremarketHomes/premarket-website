@@ -28,17 +28,22 @@ describe('registering interest always creates a genuine lead', () => {
     const fnEnd = source.indexOf('\n  const handleRegisterInterest', fnStart);
     const fnBody = source.slice(fnStart, fnEnd > -1 ? fnEnd : fnStart + 4000);
 
-    expect(fnBody).toContain('updateDoc(doc(db, \'offers\', savedOfferId)');
+    // Every registration creates its own record (whether or not the buyer gave a price); a second submit from the
+    // same tab updates that registration record, never the price opinion.
     expect(fnBody).toContain('addDoc(collection(db, \'offers\')');
+    expect(fnBody).toContain('updateDoc(doc(db, \'offers\', savedRegistrationId)');
+    expect(fnBody).not.toContain('savedOfferId');
   });
 
-  it('handleContactSubmit never fabricates an offerAmount for a visitor who never gave a real opinion', () => {
+  it('handleContactSubmit never writes a price onto a registration, and never saves an unsubmitted slider value', () => {
     const source = readPropertyPageClient();
     const fnStart = source.indexOf('const handleContactSubmit');
     const fnEnd = source.indexOf('\n  const handleRegisterInterest', fnStart);
     const fnBody = source.slice(fnStart, fnEnd);
+    const code = fnBody.replace(/\/\/.*$/gm, '');
 
-    expect(fnBody).toContain('hasInteracted ? { offerAmount: Math.round(priceOpinion) } : {}');
+    expect(code).not.toMatch(/offerAmount|priceOpinion|createAnonymousOpinion|sessionId|visitorId|getSessionId/);
+    expect(code).toContain('registrationRecord(');
   });
 
   it('handleContactSubmit is gated by isPreviewDeployment, like the price-opinion write path', () => {

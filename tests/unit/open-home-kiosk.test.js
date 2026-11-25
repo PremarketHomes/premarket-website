@@ -171,8 +171,9 @@ describe('slider release records one anonymous opinion — deliberately', () => 
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
     const w = opinionWrites()[0];
     expect(w.docId).toMatch(/^[A-Za-z0-9]{20}$/);
-    expect(w.data).toMatchObject({ type: 'opinion', propertyId: 'prop1', offerAmount: 1120000, fromWeb: true, fromIpadMode: true, visitorId: 'v_kiosk' });
+    expect(w.data).toMatchObject({ type: 'opinion', propertyId: 'prop1', offerAmount: 1120000, fromWeb: true, fromIpadMode: true });
     expect(w.data.sessionId).toMatch(/^ipad_/);
+    expect('visitorId' in w.data).toBe(false);             // no device id on an opinion
     expect('userId' in w.data).toBe(false);
     expect('buyerEmail' in w.data).toBe(false);            // anonymous
     expect(screen.queryByTestId('kiosk-confirm')).toBeNull();
@@ -368,11 +369,11 @@ describe('Register interest: same page, private, honest', () => {
     fireEvent.change(screen.getByLabelText('Mobile'), { target: { value: d.phone } });
   };
 
-  it('is available straight after an opinion; opens a modal on the same page; registration is tied to that opinion', async () => {
+  it('is available straight after an opinion; opens a modal on the same page; the registration is its own record, never tied to the opinion', async () => {
     mount();
     await dragApprove(800);
     await waitFor(() => expect(opinionWrites()).toHaveLength(1));
-    const opinionId = opinionWrites()[0].docId;
+    const opinion = opinionWrites()[0];
     fireEvent.click(screen.getByRole('button', { name: /register interest/i }));
     expect(await screen.findByRole('dialog')).toBeTruthy();
     expect(screen.getByTestId('open-home-kiosk')).toBeTruthy();       // still the same page
@@ -380,9 +381,13 @@ describe('Register interest: same page, private, honest', () => {
     fireEvent.click(screen.getByRole('button', { name: /send my details/i }));
     await waitFor(() => expect(server.writes.some((w) => w.data.serious)).toBe(true));
     const reg = server.writes.find((w) => w.data.serious);
-    expect(reg.docId).toBe(opinionId);                               // merged onto the visitor's own opinion
-    expect(reg.data).toMatchObject({ serious: true, buyerName: 'Jane Buyer', buyerEmail: 'jane@example.com', buyerPhone: '0400 111 222', offerAmount: 1120000, nextAction: 'contact', fromIpadMode: true });
-    expect('userId' in reg.data).toBe(false);
+    expect(reg.docId).not.toBe(opinion.docId);                       // its own record, never the opinion's
+    expect(reg.data).toMatchObject({ serious: true, buyerName: 'Jane Buyer', buyerEmail: 'jane@example.com', buyerPhone: '0400 111 222', nextAction: 'contact', fromIpadMode: true });
+    for (const k of ['offerAmount', 'sessionId', 'visitorId', 'userId']) expect(k in reg.data, k).toBe(false);
+    // The opinion was never touched again and holds no buyer details.
+    expect(server.writes.filter((w) => w.docId === opinion.docId)).toHaveLength(1);
+    for (const k of ['buyerName', 'buyerEmail', 'buyerPhone', 'serious', 'userId', 'visitorId']) expect(k in opinion.data, k).toBe(false);
+    expect(opinion.data.offerAmount).toBe(1120000);
   });
 
   it('notifies the agent through the existing route only after the registration is acknowledged, and says so honestly', async () => {
