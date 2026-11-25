@@ -226,7 +226,35 @@ export function CheckedInScreen({ property, partner, firstName, checkedInAt, onO
 }
 
 /* ── 3. Anonymous price opinion ──────────────────────────────────────────────────────────── */
-export function OpinionScreen({ property, partner, range, value, hasInteracted, busy = false, error, onChange, onSlideStart, onSubmit, onDecline }) {
+/**
+ * `notice`: what the agent will see, which sets the privacy wording beside the slider.
+ *   'after-end' (live pilot from 25 Nov 2026): every amount once the open home ends, never who gave which.
+ *   anything else (concept demo, earlier pilot open homes): combined results only.
+ */
+function OpinionNotice({ notice, agentName }) {
+  if (notice === 'after-end') {
+    return (
+      <div data-testid="opinion-notice" data-notice="after-end">
+        <p className="text-[14px] font-semibold text-emerald-900">Anonymous: your name isn&rsquo;t attached.</p>
+        <p className="mt-0.5 text-[13px] leading-snug text-emerald-800/90">
+          Your opinion is sent on its own, with no name, number, email or time. When the open home ends, {agentName} sees
+          each amount given, lowest to highest, but never who gave which. If only a few people visit, they may be able to guess.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="opinion-notice" data-notice="combined">
+      <p className="text-[14px] font-semibold text-emerald-900">Completely anonymous.</p>
+      <p className="mt-0.5 text-[13px] leading-snug text-emerald-800/90">
+        Your opinion is sent on its own, with no name, number, email or time attached. {agentName} only ever sees
+        combined results, after the open home.
+      </p>
+    </div>
+  );
+}
+
+export function OpinionScreen({ property, partner, range, value, hasInteracted, busy = false, error, notice, onChange, onSlideStart, onSubmit, onDecline }) {
   return (
     <div className="flex min-h-full flex-1 flex-col bg-white text-slate-900" data-stage="opinion">
       <Header partner={partner} />
@@ -266,13 +294,7 @@ export function OpinionScreen({ property, partner, range, value, hasInteracted, 
 
         <div className="mt-4 flex gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
           <Lock className="mt-0.5 h-[18px] w-[18px] shrink-0 text-emerald-700" aria-hidden="true" />
-          <div>
-            <p className="text-[14px] font-semibold text-emerald-900">Completely anonymous.</p>
-            <p className="mt-0.5 text-[13px] leading-snug text-emerald-800/90">
-              Your opinion is sent on its own, with no name, number, email or time attached. {property.agentName} only ever sees
-              combined results, after the open home.
-            </p>
-          </div>
+          <OpinionNotice notice={notice} agentName={property.agentName} />
         </div>
 
         {error && <p className="mt-3 text-center text-[13px] text-red-600" role="alert">{error}</p>}
@@ -349,8 +371,8 @@ export function InterestPanel({ property, state = 'idle', wants = [], onStart, o
   );
 }
 
-/* ── 4. Completion (identical from across the room whether or not an opinion was given) ──── */
-export function CompleteScreen({ property, partner, outcome, interest }) {
+/* ── 4. Completion: word for word the same whether or not an opinion was given ───────────── */
+export function CompleteScreen({ partner, interest }) {
   const reduce = useReducedMotion();
   return (
     <div className="flex min-h-full flex-1 flex-col bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 text-white" data-stage="complete">
@@ -377,9 +399,7 @@ export function CompleteScreen({ property, partner, outcome, interest }) {
           </svg>
         </motion.div>
         <h1 className="mt-7 text-[36px] font-semibold leading-tight tracking-tight">You&rsquo;re all done!</h1>
-        <p className="mt-2 text-[17px] text-white/90">
-          {outcome === 'opinion' ? 'Thanks for sharing your anonymous opinion.' : 'Thanks for visiting today.'}
-        </p>
+        <p className="mt-2 text-[17px] text-white/90">Thanks for visiting today.</p>
         <div className="mt-7 inline-flex items-center gap-2.5 rounded-2xl border-[2.5px] border-white px-6 py-3.5 text-[16px] font-bold tracking-[0.2em]">
           <Check className="h-5 w-5" strokeWidth={3.5} aria-hidden="true" /> VISIT COMPLETE
         </div>

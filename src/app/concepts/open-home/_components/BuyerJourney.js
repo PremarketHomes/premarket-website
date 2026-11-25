@@ -24,7 +24,7 @@ const EMPTY_FORM = { fullName: '', mobile: '', email: '', updatesOptIn: false };
  * `onStage(stage)`: lets a presenter view follow along. `scrollRoot`: the element that scrolls (the phone screen in a
  * framed demo; the window on a real phone).
  */
-export default function BuyerJourney({ property, sessionId, onStage, scrollRoot, service: serviceProp, partner: partnerProp, range: rangeProp, brandStyle: brandStyleProp, ended: endedProp }) {
+export default function BuyerJourney({ property, sessionId, onStage, scrollRoot, service: serviceProp, partner: partnerProp, range: rangeProp, brandStyle: brandStyleProp, ended: endedProp, opinionNotice }) {
   const partner = useMemo(() => (partnerProp !== undefined ? partnerProp : partnerFor(property)), [partnerProp, property]);
   const range = useMemo(() => rangeProp || opinionRangeFor(property), [rangeProp, property]);
   const service = useMemo(() => serviceProp || createDemoService(sessionId, range), [serviceProp, sessionId, range]);
@@ -165,6 +165,7 @@ export default function BuyerJourney({ property, sessionId, onStage, scrollRoot,
         hasInteracted={hasInteracted}
         busy={busy}
         error={opinionError}
+        notice={opinionNotice}
         onChange={(v) => { setValue(v); setHasInteracted(true); }}
         onSlideStart={() => setHasInteracted(true)}
         onSubmit={sendOpinion}
@@ -172,7 +173,7 @@ export default function BuyerJourney({ property, sessionId, onStage, scrollRoot,
       />
     );
   } else if (stage === 'complete') {
-    screen = <CompleteScreen property={property} partner={partner} outcome={visit.outcome} interest={interestPanel(false)} />;
+    screen = <CompleteScreen partner={partner} interest={interestPanel(false)} />;
   } else if (stage === 'ended') {
     screen = <EndedScreen property={property} partner={partner} />;
   }

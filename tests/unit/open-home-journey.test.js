@@ -83,7 +83,9 @@ describe('buyer journey', () => {
 
     expect(screen.getByText('You’re all done!')).toBeTruthy();
     expect(screen.getByText('VISIT COMPLETE')).toBeTruthy();
-    expect(screen.getByText('Thanks for sharing your anonymous opinion.')).toBeTruthy();
+    // Word for word the screen a buyer who skipped gets (see the next test): nothing on it says an opinion was given.
+    expect(screen.getByText('Thanks for visiting today.')).toBeTruthy();
+    expect(screen.queryByText(/sharing your anonymous opinion/)).toBeNull();
 
     // Stored: the amount alone on one side, identity alone on the other, and the phone never keeps the amount.
     expect(readJson(`opinions:${s.id}`, null)).toEqual([amount]);
@@ -106,6 +108,41 @@ describe('buyer journey', () => {
     expect(screen.getByText('Thanks for visiting today.')).toBeTruthy();
     expect(screen.queryByText(/sharing your anonymous opinion/)).toBeNull();
     expect(readJson(`opinions:${s.id}`, [])).toEqual([]);
+  });
+
+  it('the green screen is identical, character for character, after submitting or skipping', async () => {
+    const finish = async (submit) => {
+      cleanup();
+      window.localStorage.clear();
+      const s = startSession(PROPERTY.id);
+      const { container } = render(createElement(BuyerJourney, { property: PROPERTY, sessionId: s.id }));
+      await waitFor(() => expect(stage(container)).toBe('check-in'));
+      await checkInAs(container);
+      fireEvent.click(screen.getByRole('button', { name: /Leave my anonymous opinion/ }));
+      if (submit) {
+        fireEvent.change(screen.getByLabelText('Price opinion'), { target: { value: String(RANGE.min + 100000) } });
+        fireEvent.click(screen.getByRole('button', { name: /Submit anonymous opinion/ }));
+      } else {
+        fireEvent.click(screen.getByRole('button', { name: /prefer not to give an opinion/ }));
+      }
+      await waitFor(() => expect(stage(container)).toBe('complete'));
+      return container.querySelector('[data-stage="complete"]').outerHTML;
+    };
+    expect(await finish(true)).toBe(await finish(false));
+  });
+
+  it('the live pilot’s opinion screen says the agent sees the amounts after the end and may be able to guess; the demo keeps its wording', async () => {
+    for (const [opinionNotice, expected] of [['after-end', /sees each amount given, lowest to highest, but never who gave which\. If only a few people visit, they may be able to guess\./], [undefined, /only ever sees combined results, after the open home/]]) {
+      cleanup();
+      window.localStorage.clear();
+      const s = startSession(PROPERTY.id);
+      const { container } = render(createElement(BuyerJourney, { property: PROPERTY, sessionId: s.id, opinionNotice }));
+      await waitFor(() => expect(stage(container)).toBe('check-in'));
+      await checkInAs(container);
+      fireEvent.click(screen.getByRole('button', { name: /Leave my anonymous opinion/ }));
+      await waitFor(() => expect(stage(container)).toBe('opinion'));
+      expect(screen.getByTestId('opinion-notice').textContent.replace(/\s+/g, ' ')).toMatch(expected);
+    }
   });
 
   it('register interest from the green screen goes to the identity record only, with no retyping', async () => {

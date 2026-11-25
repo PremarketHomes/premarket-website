@@ -4,7 +4,8 @@ import path from 'path';
 import { createFakeFirestore } from './helpers/fakeFirestore';
 
 // Open Home live pilot (api/services/openHomePilot.js + api/open-home/*): allowlisted agent only, own campaigns only,
-// public buyer routes by unguessable code, and identity / opinion stored apart with agents seeing aggregates only.
+// public buyer routes by unguessable code, and identity / opinion stored apart. Agents see no opinion data while an
+// open home runs, then every amount (sorted, never linked to anyone) once it ends; older open homes keep the from-5 rule.
 
 const PHIL = 'NwnuzW7YrdX7looxQVvg6ZpqaOg2';
 const OTHER = 'someOtherAgentUid000000000001';
@@ -16,6 +17,7 @@ vi.mock('firebase-admin/auth', () => ({
 
 const svc = await import('../../src/app/api/services/openHomePilot');
 const { computePriceOpinionRange } = await import('../../src/app/utils/priceOpinionRange');
+const { revealOpinions, sampleNote } = await import('../../src/app/utils/openHome/opinionReveal');
 const { NextRequest } = await import('next/server');
 const routes = {
   pilot: await import('../../src/app/api/open-home/pilot/route'),
@@ -122,7 +124,8 @@ describe('buyer: public visit, check-in, opinion, interest', () => {
   it('the public visit shows the property and branding only: no vendor details, price, ids or counts', async () => {
     const s = await start();
     const v = await svc.publicVisit(fake.db, { code: s.id, env: live });
-    expect(Object.keys(v).sort()).toEqual(['brand', 'mode', 'noticeVersion', 'property', 'range', 'state']);
+    expect(Object.keys(v).sort()).toEqual(['brand', 'mode', 'noticeVersion', 'opinionRule', 'property', 'range', 'state']);
+    expect(v).toMatchObject({ noticeVersion: 'open-home-pilot-2026-11-25', opinionRule: 'after-end' });
     expect(v.property).toEqual({ street: '23 Esplanade', suburb: 'Jacobs Well QLD 4208', imageUrl: 'https://cdn.example/p1.jpg', agentName: 'Phil Chillemi' });
     expect(v.brand).toEqual({ name: 'Harcourts Property Hub', logoUrl: 'https://premarket.homes/offices/hph/logo-colour.png', primary: '#001f49' });
     expect(v.range).toEqual(RANGE);
@@ -183,7 +186,7 @@ describe('buyer: public visit, check-in, opinion, interest', () => {
     await svc.pilotCheckIn(fake.db, { code: s.id, body: BUYER, env: live });
     const device = 'same-phone-0123456789';
     await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.min, device, env: live });
-    expect(await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.max, device, env: live })).toEqual({ ok: true, duplicate: true });
+    expect(await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.max, device, env: live })).toEqual({ ok: true });
     expect(fake.db._get(`openHomeOpinions/${s.id}`).amounts).toEqual([RANGE.min]);
     await rejects(svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.max + 10000, device: 'd2-0123456789abcdef', env: live }), 400, 'bad-amount');
     await rejects(svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.min + 5000, device: 'd2-0123456789abcdef', env: live }), 400, 'bad-amount');
@@ -191,7 +194,20 @@ describe('buyer: public visit, check-in, opinion, interest', () => {
     // 1 check-in + slack of 2 = at most 3 opinions
     await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.min, device: 'd2-0123456789abcdef', env: live });
     await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.min, device: 'd3-0123456789abcdef', env: live });
-    await rejects(svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.min, device: 'd4-0123456789abcdef', env: live }), 429, 'limit');
+    // over the cap: ignored, with the very same answer as a recorded one
+    expect(await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.max, device: 'd4-0123456789abcdef', env: live })).toEqual({ ok: true });
+    expect(fake.db._get(`openHomeOpinions/${s.id}`)).toMatchObject({ amounts: [RANGE.min, RANGE.min, RANGE.min], count: 3 });
+  });
+
+  it('nobody holding the QR link can probe the live opinion count: every accepted request gets the identical answer', async () => {
+    const s = await start();
+    await svc.pilotCheckIn(fake.db, { code: s.id, body: BUYER, env: live });
+    await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.min, device: 'genuine-buyer-0123456', env: live }); // a real buyer
+    // a prober sends opinions from fresh "phones": recorded, then over the cap; repeats, too. All look the same.
+    const answers = [];
+    for (let i = 0; i < 5; i += 1) answers.push(await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.max, device: `probe-${i}-0123456789ab`, env: live }));
+    answers.push(await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.max, device: 'probe-0-0123456789ab', env: live }));
+    expect(new Set(answers.map((a) => JSON.stringify(a)))).toEqual(new Set(['{"ok":true}']));
   });
 
   it('caps check-ins per open home', async () => {
@@ -230,6 +246,24 @@ describe('buyer: public visit, check-in, opinion, interest', () => {
   });
 });
 
+describe('revealOpinions / sampleNote (pure)', () => {
+  it('sealed while live, whatever is passed in', () => {
+    expect(revealOpinions([1200000, 1300000], { ended: false })).toEqual({ rule: 'after-end', state: 'sealed' });
+  });
+  it('after the end: sorted amounts, count, average to the nearest $1,000, range; junk values dropped', () => {
+    expect(revealOpinions([], { ended: true })).toEqual({ rule: 'after-end', state: 'revealed', count: 0, amounts: [], average: null, low: null, high: null });
+    expect(revealOpinions(undefined, { ended: true }).count).toBe(0);
+    expect(revealOpinions([1250000], { ended: true })).toMatchObject({ count: 1, amounts: [1250000], average: 1250000, low: 1250000, high: 1250000 });
+    expect(revealOpinions([1300000, 1200000, 1210000, NaN, -5, null], { ended: true })).toMatchObject({ count: 3, amounts: [1200000, 1210000, 1300000], average: 1237000, low: 1200000, high: 1300000 });
+  });
+  it('the caveat says a single opinion, or a few, is feedback and not a valuation', () => {
+    expect(sampleNote(0)).toBe('');
+    expect(sampleNote(1)).toMatch(/one buyer’s opinion.*not a statistically reliable valuation/);
+    for (const n of [2, 3, 4]) expect(sampleNote(n)).toMatch(new RegExp(`small sample: ${n} buyers’ opinions.*not a statistically reliable valuation`));
+    expect(sampleNote(5)).toMatch(/5 buyers’ opinions.*not a valuation/);
+  });
+});
+
 describe('agent: what the report shows', () => {
   async function withOpinions(n, { end = false } = {}) {
     const s = await start();
@@ -241,24 +275,98 @@ describe('agent: what the report shows', () => {
     return s;
   }
 
-  it('live: the register plus a stepped count, never an amount', async () => {
+  it('live: the register only; opinions sealed (no count, no amount), however many are in', async () => {
     const s = await withOpinions(6);
     const r = await svc.pilotSessionReport(fake.db, { uid: PHIL, sessionId: s.id, env: live });
-    expect(r.opinions).toEqual({ state: 'live', live: { label: '5+', atLeast: 5 } });
+    expect(r.opinions).toEqual({ rule: 'after-end', state: 'sealed' });
     expect(r.attendance).toHaveLength(6);
     expect(Object.keys(r.attendance[0]).sort()).toEqual(['checkedInAt', 'email', 'fullName', 'interest', 'marketingConsent', 'mobile']);
     const json = JSON.stringify(r);
-    expect(json).not.toMatch(/amounts|hashes|"ref"|sessionId|1090000|1110000/);
+    expect(json).not.toMatch(new RegExp(`amounts|hashes|"ref"|sessionId|"count"|${RANGE.min}|${RANGE.min + 20000}`));
   });
 
-  it('ended with 5+: combined results only; ended with fewer: nothing about price', async () => {
-    const big = await withOpinions(6, { end: true });
-    const r = await svc.pilotSessionReport(fake.db, { uid: PHIL, sessionId: big.id, env: live });
-    expect(r.opinions.state).toBe('ready');
-    expect(Object.keys(r.opinions).sort()).toEqual(['bands', 'count', 'middle', 'state', 'typical']);
+  // Open homes with 0, 1, 2, 3 and 5 opinions, end to end through the service. One more buyer checks in than gives an
+  // opinion, and opinions arrive out of order.
+  const ORDERS = {
+    0: [],
+    1: [RANGE.min + 50000],
+    2: [RANGE.min + 30000, RANGE.min + 10000],
+    3: [RANGE.min + 40000, RANGE.min, RANGE.min + 10000],
+    5: [RANGE.min + 90000, RANGE.min + 20000, RANGE.min + 60000, RANGE.min + 20000, RANGE.min + 40000],
+  };
+  const EXPECTED = {
+    0: { count: 0, amounts: [], average: null, low: null, high: null },
+    1: { count: 1, amounts: [RANGE.min + 50000], average: RANGE.min + 50000, low: RANGE.min + 50000, high: RANGE.min + 50000 },
+    2: { count: 2, amounts: [RANGE.min + 10000, RANGE.min + 30000], average: RANGE.min + 20000, low: RANGE.min + 10000, high: RANGE.min + 30000 },
+    3: { count: 3, amounts: [RANGE.min, RANGE.min + 10000, RANGE.min + 40000], average: RANGE.min + 17000, low: RANGE.min, high: RANGE.min + 40000 }, // mean +16,667 → nearest $1,000
+    5: { count: 5, amounts: [20000, 20000, 40000, 60000, 90000].map((d) => RANGE.min + d), average: RANGE.min + 46000, low: RANGE.min + 20000, high: RANGE.min + 90000 },
+  };
+  it.each([0, 1, 2, 3, 5])('an open home with %i opinion(s): sealed while live, every amount after the end, no order, time or link to anyone', async (n) => {
+    expect(RANGE.min % 1000).toBe(0);
+    const t0 = Date.parse('2026-11-29T00:00:00Z');
+    const s = await svc.startPilotSession(fake.db, { uid: PHIL, propertyId: 'p1', mode: 'live', env: live, now: t0 });
+    const refs = [];
+    for (let i = 0; i <= n; i += 1) refs.push((await svc.pilotCheckIn(fake.db, { code: s.id, body: { ...BUYER, fullName: `Buyer ${i} Name`, email: `b${i}@example.com` }, env: live, now: t0 + i * 60000 })).ref);
+    for (let i = 0; i < n; i += 1) {
+      expect(await svc.pilotOpinion(fake.db, { code: s.id, amount: ORDERS[n][i], device: `phone-${n}-${i}-0123456789`, env: live, now: t0 + i * 60000 + 30000 })).toEqual({ ok: true });
+    }
+
+    // while it runs: nothing about opinions, to Phil; nothing at all to anyone else
+    const during = await svc.pilotSessionReport(fake.db, { uid: PHIL, sessionId: s.id, env: live, now: t0 + 3600000 });
+    expect(during.opinions).toEqual({ rule: 'after-end', state: 'sealed' });
+    expect(JSON.stringify(during)).not.toMatch(/"count"|amounts|average/);
+    await rejects(svc.pilotSessionReport(fake.db, { uid: OTHER, sessionId: s.id, env: live }), 403, 'not-in-pilot');
+    await rejects(svc.pilotSessionReport(fake.db, { uid: OTHER, sessionId: s.id, env: staging }), 404, 'no-session'); // even a pilot agent, if not his
+
+    await svc.endPilotSession(fake.db, { uid: PHIL, sessionId: s.id, env: live, now: t0 + 3600000 });
+    const after = await svc.pilotSessionReport(fake.db, { uid: PHIL, sessionId: s.id, env: live, now: t0 + 3600000 });
+    expect(after.opinions).toEqual({ rule: 'after-end', state: 'revealed', ...EXPECTED[n] });
+    expect(after.attendance).toHaveLength(n + 1);
+    // the register carries no opinion data, and the opinions carry no identity, reference, device or time
+    const register = JSON.stringify(after.attendance);
+    for (const a of ORDERS[n]) expect(register).not.toContain(String(a));
+    const opinionsJson = JSON.stringify(after.opinions);
+    expect(opinionsJson).not.toMatch(/Buyer|@example|phone-|At"|time|order|hash/i);
+    for (const r of refs) expect(opinionsJson).not.toContain(r);
+    expect(Object.keys(after.opinions).sort()).toEqual(['amounts', 'average', 'count', 'high', 'low', 'rule', 'state']);
+    // stored the same way: one sorted list, no per-opinion records
+    expect(fake.db._get(`openHomeOpinions/${s.id}`)).toEqual({ propertyId: 'p1', agentUid: PHIL, mode: 'live', amounts: EXPECTED[n].amounts, count: n });
+    expect(fake.db._all('openHomeOpinions')).toHaveLength(1);
+
+    // nothing can be added after the end, so the summary Phil saw can't change and give a late buyer away
+    await rejects(svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.max, device: 'late-phone-0123456789', env: live, now: t0 + 3600000 }), 410, 'ended');
+    expect((await svc.pilotSessionReport(fake.db, { uid: PHIL, sessionId: s.id, env: live, now: t0 + 3600000 })).opinions).toEqual(after.opinions);
+  });
+
+  it('a session expiring on its own (12 hours) reveals the same way', async () => {
+    const t0 = Date.now() - 13 * 3600 * 1000;
+    const s = await svc.startPilotSession(fake.db, { uid: PHIL, propertyId: 'p1', mode: 'live', env: live, now: t0 });
+    await svc.pilotCheckIn(fake.db, { code: s.id, body: BUYER, env: live, now: t0 + 60000 });
+    await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.min, device: 'expiry-phone-0123456', env: live, now: t0 + 120000 });
+    expect((await svc.pilotSessionReport(fake.db, { uid: PHIL, sessionId: s.id, env: live })).opinions).toMatchObject({ state: 'revealed', count: 1, amounts: [RANGE.min] });
+  });
+
+  it('open homes started under the earlier notice keep the rule their buyers were shown (combined, from 5)', async () => {
+    for (const legacy of ['open-home-pilot-2026-11', undefined]) {
+      fake.db = createFakeFirestore({ properties: { p1: PROPERTY }, users: {} });
+      const s = await start();
+      await fake.db.collection('openHomeSessions').doc(s.id).update({ noticeVersion: legacy ?? null });
+      expect(await svc.publicVisit(fake.db, { code: s.id, env: live })).toMatchObject({ noticeVersion: 'open-home-pilot-2026-11', opinionRule: 'combined' });
+      for (let i = 0; i < 3; i += 1) {
+        await svc.pilotCheckIn(fake.db, { code: s.id, body: { ...BUYER, email: `b${i}@example.com` }, env: live });
+        await svc.pilotOpinion(fake.db, { code: s.id, amount: RANGE.min + i * 20000, device: `device-${i}-0123456789ab`, env: live });
+      }
+      expect(fake.db._all('openHomeAttendance').every((a) => a.noticeVersion === 'open-home-pilot-2026-11')).toBe(true);
+      expect((await svc.pilotSessionReport(fake.db, { uid: PHIL, sessionId: s.id, env: live })).opinions).toEqual({ rule: 'combined', state: 'live', live: { label: 'Fewer than 5', atLeast: 0 } });
+      await svc.endPilotSession(fake.db, { uid: PHIL, sessionId: s.id, env: live });
+      expect((await svc.pilotSessionReport(fake.db, { uid: PHIL, sessionId: s.id, env: live })).opinions).toEqual({ rule: 'combined', state: 'too-few', minimum: 5 });
+    }
     fake.db = createFakeFirestore({ properties: { p1: PROPERTY }, users: {} });
-    const small = await withOpinions(3, { end: true });
-    expect((await svc.pilotSessionReport(fake.db, { uid: PHIL, sessionId: small.id, env: live })).opinions).toEqual({ state: 'too-few', minimum: 5 });
+    const big = await withOpinions(6);
+    await fake.db.collection('openHomeSessions').doc(big.id).update({ noticeVersion: 'open-home-pilot-2026-11' });
+    await svc.endPilotSession(fake.db, { uid: PHIL, sessionId: big.id, env: live });
+    const r = await svc.pilotSessionReport(fake.db, { uid: PHIL, sessionId: big.id, env: live });
+    expect(Object.keys(r.opinions).sort()).toEqual(['bands', 'count', 'middle', 'rule', 'state', 'typical']);
   });
 
   it('another account can’t see or end Phil’s open home', async () => {
@@ -295,7 +403,20 @@ describe('API routes', () => {
     expect(ok.status).toBe(201);
     const { session } = await ok.json();
     expect((await routes.session.GET(req(`/api/open-home/sessions/${session.id}`), ctx({ id: session.id }))).status).toBe(401);
+    expect((await routes.session.GET(req(`/api/open-home/sessions/${session.id}`, { token: 'other-token' }), ctx({ id: session.id }))).status).toBe(403);
     expect((await routes.session.GET(req(`/api/open-home/sessions/${session.id}`, { token: 'phil-token' }), ctx({ id: session.id }))).status).toBe(200);
+  });
+
+  it('the report route sends nothing about opinions while live, and the amounts after the end', async () => {
+    const s = await start();
+    await svc.pilotCheckIn(fake.db, { code: s.id, body: BUYER, env: live });
+    await routes.opinion.POST(req(`/api/open-home/visit/${s.id}/opinion`, { method: 'POST', body: { amount: RANGE.min + 70000, device: 'device-route-0123456' } }), ctx({ code: s.id }));
+    const during = await (await routes.session.GET(req(`/api/open-home/sessions/${s.id}`, { token: 'phil-token' }), ctx({ id: s.id }))).json();
+    expect(during.opinions).toEqual({ rule: 'after-end', state: 'sealed' });
+    expect(JSON.stringify(during)).not.toContain(String(RANGE.min + 70000));
+    await svc.endPilotSession(fake.db, { uid: PHIL, sessionId: s.id, env: live });
+    const after = await (await routes.session.GET(req(`/api/open-home/sessions/${s.id}`, { token: 'phil-token' }), ctx({ id: s.id }))).json();
+    expect(after.opinions).toMatchObject({ state: 'revealed', count: 1, amounts: [RANGE.min + 70000] });
   });
 
   it('buyer routes work without any login, JSON only, and the opinion route stores nothing but the amount', async () => {
@@ -331,7 +452,7 @@ describe('isolation from everything that exists today', () => {
   const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
   it('pilot code never touches offers, the kiosk, reports or emails', () => {
-    const files = ['api/services/openHomePilot.js', 'api/open-home/_http.js', 'open-home/liveService.js', 'open-home/[code]/OpenHomeVisitClient.js', 'dashboard/open-home/page.js', 'dashboard/open-home/sign/page.js'];
+    const files = ['api/services/openHomePilot.js', 'api/open-home/_http.js', 'open-home/liveService.js', 'open-home/[code]/OpenHomeVisitClient.js', 'dashboard/open-home/page.js', 'dashboard/open-home/OpinionAmounts.js', 'dashboard/open-home/sign/page.js', 'utils/openHome/opinionReveal.js'];
     for (const f of files) {
       const src = read(f).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
       expect(src, f).not.toMatch(/'offers'|"offers"|kioskPersistence|kioskOutbox|reportService|resendService|sendEmail|twilio|sms/i);
@@ -341,7 +462,7 @@ describe('isolation from everything that exists today', () => {
   it('the buyer’s phone sends no cookies and keeps the check-in reference out of the opinion request', () => {
     const live = read('open-home/liveService.js');
     expect(live).toMatch(/credentials: 'omit'/);
-    expect(live).toMatch(/submitOpinion: \(amount\) => post\(code, '\/opinion', \{ amount, device: deviceToken\(code\) \}\)/);
+    expect(live).toMatch(/submitOpinion: \(amount\) => postOpinion\(code, \{ amount, device: deviceToken\(code\) \}\)/);
     expect(read('api/open-home/visit/[code]/opinion/route.js')).toMatch(/const \{ amount, device \} = await readJson\(request\);/);
   });
 
@@ -351,6 +472,22 @@ describe('isolation from everything that exists today', () => {
     expect(rules).toMatch(/match \/\{document=\*\*\} \{\s*allow read, write: if false;\s*\}/);
     const serverOnly = fs.readFileSync(path.resolve(ROOT, '../../tests/rules/server-only.test.js'), 'utf8');
     for (const c of Object.values(svc.COLLECTIONS)) expect(serverOnly).toContain(`'${c}'`);
+  });
+
+  it('the completion screen is word for word the same whether the buyer gave an opinion or skipped', () => {
+    const screens = read('concepts/open-home/_components/BuyerScreens.js');
+    const complete = screens.slice(screens.indexOf('export function CompleteScreen'), screens.indexOf('export function EndedScreen'));
+    expect(complete).toContain('Thanks for visiting today.');
+    expect(complete).not.toMatch(/outcome|opinion/i);
+    expect(read('concepts/open-home/_components/BuyerJourney.js')).toMatch(/<CompleteScreen partner=\{partner\} interest=\{interestPanel\(false\)\} \/>/);
+  });
+
+  it('the buyer is told, before giving an opinion, that the agent sees the amounts after the end and may be able to guess', () => {
+    const screens = read('concepts/open-home/_components/BuyerScreens.js');
+    const notice = screens.slice(screens.indexOf("if (notice === 'after-end')"), screens.indexOf('data-notice="combined"'));
+    expect(notice).toMatch(/When the open home ends, \{agentName\} sees\s+each amount given, lowest to highest, but never who gave which\. If only a few people visit, they may be able to guess\./);
+    expect(notice).not.toMatch(/Completely anonymous|combined results/);
+    expect(read('open-home/[code]/OpenHomeVisitClient.js')).toMatch(/opinionNotice=\{data\.opinionRule\}/);
   });
 
   it('the dashboard shows the Open Home link only when the server says so', () => {

@@ -12,6 +12,7 @@ import QrCode from '../../components/QrCode';
 import BrandLockup from '../../concepts/open-home/_components/BrandLockup';
 import { AttendanceList, Card, Kpi, LivePill, OpinionLiveCard, OpinionResultsCard, PropertyHeading } from '../../concepts/open-home/_components/AgentDashboard';
 import { LIVE_COUNT_STEP, MIN_OPINIONS_TO_SHOW } from '../../utils/openHome/opinionSummary';
+import { RevealedOpinionsCard, SealedOpinionsCard } from './OpinionAmounts';
 import { openHomeVisitUrl } from '../../utils/openHome/brand';
 import { shortDay, timeOfDay } from '../../concepts/open-home/_lib/format';
 
@@ -181,6 +182,15 @@ function SessionView({ id, onBack }) {
   const interested = attendance.filter((a) => a.interest).length;
   const heading = { ...property, state: '', postcode: '' };
   const sessionForHeading = { id: session.id, startedAt: session.startedAt, endedAt: session.endedAt };
+  // 'after-end' (open homes from 25 Nov 2026): nothing while live, every amount after. Older open homes keep the
+  // combined-from-5 rule their buyers were shown.
+  const afterEnd = opinions.rule === 'after-end';
+  const opinionKpi = afterEnd
+    ? { value: live ? 'Sealed' : opinions.count, sub: live ? 'Shown when you end' : undefined }
+    : {
+      value: opinions.state === 'live' ? opinions.live.label : opinions.state === 'ready' ? opinions.count : `Fewer than ${MIN_OPINIONS_TO_SHOW}`,
+      sub: live ? `Shown in steps of ${LIVE_COUNT_STEP}` : undefined,
+    };
 
   const end = async () => { await api(`/api/open-home/sessions/${id}/end`, { method: 'POST', body: '{}' }).catch((e) => setError(e.message)); setConfirm(null); load(); };
   const remove = async () => { try { await api(`/api/open-home/sessions/${id}`, { method: 'DELETE' }); onBack(); } catch (e) { setError(e.message); setConfirm(null); } };
@@ -193,7 +203,7 @@ function SessionView({ id, onBack }) {
       </Link>
       {live && (confirm === 'end' ? (
         <span className="inline-flex items-center gap-1.5 rounded-xl bg-red-50 p-1 pl-3 text-[13px] font-medium text-red-800">
-          End and close check-in?
+          {afterEnd ? 'End? Check-in and opinions close.' : 'End and close check-in?'}
           <button type="button" onClick={end} className="h-7 rounded-lg bg-red-600 px-2.5 text-[12.5px] font-semibold text-white" data-testid="confirm-end">End now</button>
           <button type="button" onClick={() => setConfirm(null)} className="h-7 rounded-lg px-2 text-[12.5px] font-semibold text-red-800">Cancel</button>
         </span>
@@ -232,10 +242,10 @@ function SessionView({ id, onBack }) {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kpi icon={Users} label={live ? 'Checked in' : 'Attended'} value={attendance.length} sub={live ? 'Updates live' : undefined} tone="green" testId="kpi-checked-in" />
         <Kpi icon={HeartHandshake} label="Registered interest" value={interested} tone="blue" testId="kpi-interest" />
-        <Kpi icon={Lock} label="Anonymous opinions" value={opinions.state === 'live' ? opinions.live.label : opinions.state === 'ready' ? opinions.count : `Fewer than ${MIN_OPINIONS_TO_SHOW}`} sub={live ? `Shown in steps of ${LIVE_COUNT_STEP}` : undefined} tone="amber" testId="kpi-opinions" />
+        <Kpi icon={Lock} label="Anonymous opinions" value={opinionKpi.value} sub={opinionKpi.sub} tone="amber" testId="kpi-opinions" />
         <Kpi icon={Radio} label="Status" value={live ? 'Active' : 'Ended'} sub={live ? `Since ${timeOfDay(session.startedAt)}` : undefined} />
       </div>
-      {!live && <OpinionResultsCard results={opinions} />}
+      {!live && (afterEnd ? <RevealedOpinionsCard results={opinions} /> : <OpinionResultsCard results={opinions} />)}
       <div className={`grid gap-5 ${live ? 'lg:grid-cols-3' : ''}`}>
         <Card className={live ? 'lg:col-span-2' : ''}>
           <div className="border-b border-slate-100 px-5 py-3.5">
@@ -255,7 +265,7 @@ function SessionView({ id, onBack }) {
                 <Copy className="h-3.5 w-3.5" aria-hidden="true" /> {copied ? 'Link copied' : 'Copy check-in link'}
               </button>
             </Card>
-            <OpinionLiveCard results={opinions} />
+            {afterEnd ? <SealedOpinionsCard /> : <OpinionLiveCard results={opinions} />}
           </div>
         )}
       </div>
