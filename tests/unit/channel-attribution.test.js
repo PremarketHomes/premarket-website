@@ -480,15 +480,16 @@ describe('the buyer page sends the channel only where it should', () => {
   });
 
   it('credits only a NEW opinion, and never writes the channel onto the opinion or a registration', () => {
+    // Every new anonymous opinion is created in one place (createAnonymousOpinion); the credit is sent from there.
+    const create = src.slice(src.indexOf('const createAnonymousOpinion'), src.indexOf('const savePriceOpinion'));
+    expect(create).toContain("fetch('/api/offers/opinion-channel'");
+    const written = create.slice(create.indexOf("addDoc(collection(db, 'offers'), {"), create.indexOf('});'));
+    expect(written).not.toMatch(/channel/i);
     const save = src.slice(src.indexOf('const savePriceOpinion'), src.indexOf('const formatMoney'));
-    const createBranch = save.slice(save.indexOf('// Create new offer'));
-    const updateBranch = save.slice(save.indexOf('if (savedOfferId)'), save.indexOf('// Create new offer'));
-    expect(createBranch).toContain("fetch('/api/offers/opinion-channel'");
-    expect(updateBranch).not.toContain('opinion-channel');
-    const offerData = save.slice(save.indexOf('const offerData = {'), save.indexOf('};', save.indexOf('const offerData = {')));
-    expect(offerData).not.toMatch(/channel/i);
+    const updateBranch = save.slice(save.indexOf('if (savedOfferId)'), save.indexOf('} else {'));
+    expect(updateBranch).not.toMatch(/channel/i);
     const register = src.slice(src.indexOf('const handleContactSubmit'), src.indexOf('const handleRegisterInterest'));
-    expect(register).not.toMatch(/channel/i);
+    expect(register).not.toMatch(/channel|createAnonymousOpinion/i);
     expect(src.match(/opinion-channel/g)).toHaveLength(2); // the call, and the comment pointing at the route
   });
 

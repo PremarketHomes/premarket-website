@@ -41,8 +41,7 @@ What a channel measures is **the link that was opened**, not how the buyer first
 
 Opinions are not counted under a channel when:
 
-- they were given while registering interest without saving first
-- the opinion record already carries a registration or an account
+- the opinion record already carries a registration or an account (only older records, from before price opinions and registrations were stored apart; see `docs/buyer-privacy.md`)
 - they came from the iPad (open home) screen
 - they are older than 30 minutes when the page asks
 - the network call fails
@@ -64,9 +63,9 @@ Premarket's promise is that price opinions stay anonymous. Channel tracking is b
 
 **Never stored.** The channel is not written to `offers` (the opinion), `propertyViews`, `propertyViewSessions` or `propertyEngagement`, and is not pushed to analytics events.
 
-- Those records carry visitor and session ids, and a registration is written onto the same `offers` record as the opinion (the existing design).
+- Those records carry visitor and session ids, and older `offers` records can hold a registration on the same record as the opinion. New registrations are separate records (`docs/buyer-privacy.md`), and the database rules refuse an unknown field such as a channel on any `offers` record.
 - A per-record channel there would let an opinion be traced to a channel, and then to a person.
-- The new system does not build on that existing linkage. It never processes an opinion record that already carries a registration or an account.
+- The new system does not build on that older linkage. It never processes an opinion record that carries a registration or an account.
 
 **Crediting an opinion** (`POST /api/offers/opinion-channel`). The buyer page calls it right after creating a new opinion, when the page was opened through a channel link. The server counts the opinion only if every condition holds:
 
@@ -106,9 +105,9 @@ Unit tests check these rules for every combination of up to 7 opinions per chann
 - **Collusion.** If two of the 3 people in a channel are cooperating with the agent, the third can be exposed. No minimum-group rule can prevent that.
 - **Operator access.** Like the Open Home pilot, someone with administrator access to the live database could, for about an hour (Firestore keeps old versions for 3,600 seconds and point-in-time recovery is off), compare when an opinion was created with when a channel total changed.
   - Agents and offices have no such access.
-- **Existing, not changed by this work (flagged for a separate decision).**
-  - The buyer page pushes `opinion_amount` and `session_id` into the Google Tag Manager `dataLayer` (`price_opinion_created`, `price_opinion_updated`, `opinion_submit_attempted`). If GTM forwards those events to Google Analytics, GA holds amounts per browser session, and `session_id` matches the `offers` record, which can carry a registration.
-  - A channel letter in the page address is also visible to analytics as part of the page URL, as any UTM tag would be. No channel is added to analytics events.
+- **Analytics.**
+  - Fixed by the buyer privacy change this branch builds on (`docs/buyer-privacy.md`): the buyer page no longer sends any opinion amount, session id or buyer detail to Google Tag Manager.
+  - A channel letter in the page address is visible to analytics as part of the page URL, as any UTM tag would be. No channel is added to analytics events.
 
 ## Testing
 
