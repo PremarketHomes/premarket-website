@@ -3,6 +3,7 @@ import { areActiveTeamPeers, isTeamManagerFor, sellingAgentOfProperty } from './
 import { isActiveBso } from './bsoService';
 import { redactLikesForTeam, redactPropertyForTeam } from './teamRedaction';
 import { separateOpinions } from './opinionPrivacy';
+import { loadChannelReport } from './channelAttribution';
 
 /**
  * Who may view a property's private report (opinions, buyer contact details,
@@ -106,15 +107,18 @@ export async function getPropertyReportData(db, { uid, propertyId }) {
     loadBuyerProfiles(db, propertyId),
   ]);
 
+  // Buyer identity and price opinions are separated for EVERY viewer, the listing agent included (opinionPrivacy.js).
+  const separated = separateOpinions(offers.docs.map((d) => ({ id: d.id, ...d.data() })), { buyers });
   return {
     status: 200,
     access,
     readOnly: access === 'officeAdmin' || access === 'manager' || access === 'teamManager',
     ...(access === 'teamManager' ? { reportRecipients: await teamManagerReportRecipients(db, { uid, property }) } : {}),
     property: serializeForClient({ id: propertyId, ...property }),
-    // Buyer identity and price opinions are separated for EVERY viewer, the listing agent included (opinionPrivacy.js).
-    ...separateOpinions(offers.docs.map((d) => ({ id: d.id, ...d.data() })), { buyers }),
+    ...separated,
     likes: likes.docs.map((d) => serializeForClient({ id: d.id, ...d.data() })),
+    // Marketing Channel Performance: counts only, small groups withheld on the server (channelReport.js).
+    channels: await loadChannelReport(db, { propertyId, property, priceCount: separated.summary.priceCount }),
   };
 }
 
@@ -127,15 +131,18 @@ async function getRedactedTeamReport(db, { propertyId, property, access }) {
     db.collection('offers').where('propertyId', '==', propertyId).get(),
     db.collection('likes').where('propertyId', '==', propertyId).get(),
   ]);
+  // Same separated shape, with no buyer identity at all (registrations say only what each buyer wants).
+  const separated = separateOpinions(offers.docs.map((d) => d.data()), { withIdentity: false });
   return {
     status: 200,
     access,
     readOnly: true,
     redacted: true,
     property: serializeForClient({ id: propertyId, ...redactPropertyForTeam(property) }),
-    // Same separated shape, with no buyer identity at all (registrations say only what each buyer wants).
-    ...separateOpinions(offers.docs.map((d) => d.data()), { withIdentity: false }),
+    ...separated,
     likes: redactLikesForTeam(likes.docs.map((d) => d.data()), serializeForClient),
+    // Campaign-level link counts only (no buyer data), with the same small-group rule as every other viewer.
+    channels: await loadChannelReport(db, { propertyId, property, priceCount: separated.summary.priceCount }),
   };
 }
 

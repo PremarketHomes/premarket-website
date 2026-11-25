@@ -3,6 +3,7 @@ import { adminDb } from '../../firebase/adminApp';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { computeSessionUpdate } from '../../utils/sessionWindow';
 import { isLikelyScanner } from '../../utils/scannerDetection';
+import { recordChannelView } from '../services/channelAttribution';
 
 const SESSIONS_COLLECTION = 'propertyViewSessions';
 
@@ -69,7 +70,7 @@ export async function POST(req) {
       return NextResponse.json({ success: true, skipped: 'preview-environment' });
     }
 
-    const { propertyId, visitorId, isReturn } = await req.json();
+    const { propertyId, visitorId, isReturn, channel } = await req.json();
 
     if (!propertyId) {
       return NextResponse.json({ error: 'propertyId required' }, { status: 400 });
@@ -93,6 +94,18 @@ export async function POST(req) {
     }
 
     await propertyRef.update(updateData);
+
+    // Marketing channel (utils/campaignChannels.js): when the page was opened through a channel's link (e.g. the SMS
+    // link), the same open is also counted in that channel's campaign-level total. Counted only after the view itself,
+    // so channel views are always part of Total Views. Nothing about the channel is added to propertyViews or the
+    // visitor's session below. A failure here never fails the view: the open then simply counts as General / Unknown.
+    if (channel !== undefined && channel !== null) {
+      try {
+        await recordChannelView(adminDb, { propertyId, channel });
+      } catch (err) {
+        console.error('Channel view count failed:', err?.message || err);
+      }
+    }
 
     const userAgent = req.headers.get('user-agent') || '';
     const scannerSuspected = isLikelyScanner(userAgent);

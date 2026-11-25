@@ -109,8 +109,11 @@ export function waitForPropNumber(propertyId, timeoutMs = LINK_WAIT_MS) {
 
 const currentOrigin = () => (typeof window !== 'undefined' ? window.location.origin : undefined);
 
-/** The campaign's link to share (built from the page's own origin, so staging hands out staging links), or null. */
-export const campaignLink = (propertyId, number) => (isPropNumber(number) ? propLinkUrl(number, currentOrigin()) : null);
+/**
+ * The campaign's link to share (built from the page's own origin, so staging hands out staging links), or null.
+ * `channel` ('email' | 'sms', see campaignChannels.js) gives that channel's link; leave it out for the general link.
+ */
+export const campaignLink = (propertyId, number, channel) => (isPropNumber(number) ? propLinkUrl(number, currentOrigin(), channel) : null);
 
 /** Same-site address of the campaign's buyer page (/prop4827319056), or null until the number is known. */
 export const campaignPath = (propertyId, number) => (isPropNumber(number) ? propPath(number) : null);
@@ -133,12 +136,15 @@ const result = async (link) => {
  * Not an async function on purpose: the clipboard call has to START inside the click (Safari). While the link is still
  * loading, a ClipboardItem holding a pending value is written straight away (Safari and Chrome fill it in when the link
  * arrives); otherwise the copy happens once the link is known.
+ *
+ * `channel` ('email' | 'sms') copies that channel's link (the same link plus its letter); leave it out for the general
+ * link. Same rules: never the full link.
  */
-export function copyCampaignLink(propertyId) {
+export function copyCampaignLink(propertyId, channel) {
   const number = knownPropNumber(propertyId);
-  if (number) return result(campaignLink(propertyId, number));
+  if (number) return result(campaignLink(propertyId, number, channel));
 
-  const linkPromise = waitForPropNumber(propertyId).then((n) => campaignLink(propertyId, n));
+  const linkPromise = waitForPropNumber(propertyId).then((n) => campaignLink(propertyId, n, channel));
   if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
     try {
       const blob = linkPromise.then((link) => {

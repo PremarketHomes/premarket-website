@@ -13,10 +13,15 @@
  *     (about 1 in 90,000 at 100,000 campaigns), the same order as the older /p/ codes (13.5 billion possibilities).
  *   - A campaign gets one number, the first time someone asks for its link, and keeps it forever.
  *
+ * Marketing channel links (campaignChannels.js): the same link plus one letter, e.g. premarket.homes/prop4827319056s for
+ * SMS. Same page; the letter only lets the campaign report count which link buyers opened.
+ *
  * Older addresses, all still valid forever and rendering the very same page:
  *   premarket.homes/p/{code}            7-character short links handed out before the prop format (Nov 2026)
  *   premarket.homes/find-property?propertyId=...   the original full link
  */
+
+import { channelForSuffix, suffixForChannel } from './campaignChannels';
 
 export const PUBLIC_ORIGIN = 'https://premarket.homes';
 
@@ -43,11 +48,34 @@ export function normalizePropSlug(raw) {
   return isPropNumber(number) ? number : null;
 }
 
-/** Same-site path of a campaign's prop link: /prop4827319056. */
-export const propPath = (number) => `/${PROP_PREFIX}${number}`;
+/**
+ * A prop link's path segment read with its optional marketing-channel letter (see campaignChannels.js):
+ *   "prop4827319056"  -> { number: '4827319056', channel: null }     the general link
+ *   "prop4827319056s" -> { number: '4827319056', channel: 'sms' }
+ * null when it cannot be one of ours. Same tolerance as normalizePropSlug (capital letters, trailing punctuation).
+ * An unknown letter is not a link (null), never quietly treated as the general link.
+ */
+export function parsePropSlug(raw) {
+  if (typeof raw !== 'string' || raw.length > 64) return null;
+  let s = raw;
+  try { s = decodeURIComponent(s); } catch { /* keep the raw text */ }
+  s = s.trim().replace(/[.,;:!?)\]}>'"]+$/, '').toLowerCase();
+  if (!s.startsWith(PROP_PREFIX)) return null;
+  const rest = s.slice(PROP_PREFIX.length);
+  if (isPropNumber(rest)) return { number: rest, channel: null };
+  const number = rest.slice(0, PROP_NUMBER_DIGITS);
+  const channel = rest.length === PROP_NUMBER_DIGITS + 1 ? channelForSuffix(rest.slice(PROP_NUMBER_DIGITS)) : null;
+  return isPropNumber(number) && channel ? { number, channel } : null;
+}
 
-/** A campaign's prop link. `origin` defaults to the live site; the dashboard passes its own origin (staging). */
-export const propLinkUrl = (number, origin = PUBLIC_ORIGIN) => `${origin}${propPath(number)}`;
+/** Same-site path of a campaign's prop link: /prop4827319056, or /prop4827319056s for a channel's link. */
+export const propPath = (number, channel) => `/${PROP_PREFIX}${number}${suffixForChannel(channel)}`;
+
+/**
+ * A campaign's prop link. `origin` defaults to the live site; the dashboard passes its own origin (staging).
+ * `channel` ('email' | 'sms') gives that channel's link; leave it out for the general link.
+ */
+export const propLinkUrl = (number, origin = PUBLIC_ORIGIN, channel) => `${origin}${propPath(number, channel)}`;
 
 // --- /p/ short links (legacy: still resolved forever, no longer handed out) ---
 export const SHORT_CODE_ALPHABET = '23456789bcdfghjkmnpqrstvwxyz';

@@ -71,6 +71,7 @@ import { ReportSkeleton } from '../../components/PageSkeletons';
 import { exclusionNotice } from '../../../utils/opinionExclusion';
 import { useCampaignLink, campaignLink, displayLink } from '../../../utils/useShortLinks';
 import { CampaignPageLink, useCampaignLinkCopy } from '../../../components/CampaignLinks';
+import ChannelPerformance from '../../../components/ChannelPerformance';
 
 
 // --- Engagement Stat Card ---
@@ -767,8 +768,10 @@ export default function PropertyReportPage() {
   // The campaign's link (premarket.homes/prop...), requested as soon as the page opens (alongside the report, not
   // after it), so it is ready before the agent can click. Copy link waits for it; it never copies the full link.
   const propNumber = useCampaignLink(propertyId);
-  const { copy: copyCampaign, copiedId, toast: copyToast } = useCampaignLinkCopy();
+  const { copy: copyCampaign, copiedId, copiedKey, toast: copyToast } = useCampaignLinkCopy();
   const copied = copiedId === propertyId;
+  // Marketing Channel Performance from the report (counts only, small groups already withheld by the server).
+  const [channelReport, setChannelReport] = useState(null);
   const [archiving, setArchiving] = useState(false);
   const [showSoldConfirm, setShowSoldConfirm] = useState(false);
   const [markingSold, setMarkingSold] = useState(false);
@@ -836,6 +839,7 @@ export default function PropertyReportPage() {
           summary: report.summary || null,
         });
         setLikes(Array.isArray(report.likes) ? report.likes : []);
+        setChannelReport(report.channels || null);
       } catch (err) {
         console.error('Error fetching report data:', err);
         setAccessError('error');
@@ -1367,6 +1371,15 @@ export default function PropertyReportPage() {
             </p>
           )}
         </div>
+
+        {/* Marketing Channel Performance: Email / SMS / General links and how each performed */}
+        <ChannelPerformance
+          propertyId={property.id}
+          propNumber={propNumber}
+          channels={channelReport}
+          copy={copyCampaign}
+          copiedKey={copiedKey}
+        />
 
         {/* Price Intelligence */}
         <div>
