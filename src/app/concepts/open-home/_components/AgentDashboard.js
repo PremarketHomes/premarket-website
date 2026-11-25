@@ -47,11 +47,12 @@ function useNow(ms = 20000) {
 
 const wantsLabel = (ids = []) => ids.map((id) => INTEREST_OPTIONS.find((o) => o.id === id)?.label).filter(Boolean).join(', ');
 
-function Card({ children, className = '', ...rest }) {
+// The display pieces below are shared with the live pilot's dashboard (dashboard/open-home).
+export function Card({ children, className = '', ...rest }) {
   return <section className={`rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${className}`} {...rest}>{children}</section>;
 }
 
-function Kpi({ icon: Icon, label, value, sub, tone = 'slate', testId }) {
+export function Kpi({ icon: Icon, label, value, sub, tone = 'slate', testId }) {
   const tones = {
     slate: 'bg-slate-100 text-slate-700',
     green: 'bg-emerald-50 text-emerald-700',
@@ -70,7 +71,7 @@ function Kpi({ icon: Icon, label, value, sub, tone = 'slate', testId }) {
   );
 }
 
-function LivePill({ ended }) {
+export function LivePill({ ended }) {
   if (ended) {
     return <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-semibold text-slate-600"><Square className="h-3 w-3" aria-hidden="true" /> Ended</span>;
   }
@@ -82,7 +83,7 @@ function LivePill({ ended }) {
   );
 }
 
-function AttendanceList({ rows, newestFirst, compact }) {
+export function AttendanceList({ rows, newestFirst, compact }) {
   const list = newestFirst ? [...rows].reverse() : rows;
   if (!rows.length) {
     return (
@@ -145,7 +146,7 @@ function AttendanceList({ rows, newestFirst, compact }) {
   );
 }
 
-function OpinionLiveCard({ results }) {
+export function OpinionLiveCard({ results }) {
   const atLeast = results.live.atLeast;
   const steps = [5, 10, 15, 20];
   return (
@@ -189,7 +190,7 @@ function SpreadChart({ bands }) {
   );
 }
 
-function OpinionResultsCard({ results }) {
+export function OpinionResultsCard({ results }) {
   if (results.state !== 'ready') {
     return (
       <Card className="p-6">
@@ -233,7 +234,7 @@ function downloadCsv(rows, property, session) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-function PropertyHeading({ property, session, ended, now, right }) {
+export function PropertyHeading({ property, session, ended, now, right }) {
   const mins = minutesBetween(session.startedAt, ended ? session.endedAt : now);
   return (
     <Card className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
@@ -246,7 +247,7 @@ function PropertyHeading({ property, session, ended, now, right }) {
           </span>
         </div>
         <h2 className="mt-1.5 truncate text-[22px] font-semibold tracking-tight text-slate-900">{property.street}</h2>
-        <p className="text-[13.5px] text-slate-500">{property.suburb} {property.state} {property.postcode} · Open home {session.id}</p>
+        <p className="text-[13.5px] text-slate-500">{[[property.suburb, property.state, property.postcode].filter(Boolean).join(' '), `Open home ${session.id}`].filter(Boolean).join(' · ')}</p>
       </div>
       {right}
     </Card>

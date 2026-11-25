@@ -5,11 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { CheckInScreen, CheckedInScreen, OpinionScreen, CompleteScreen, EndedScreen, InterestPanel } from './BuyerScreens';
 import { partnerFor, opinionRangeFor, brandStyleFor } from '../_lib/demoProperties';
 import { validateCheckIn, firstNameOf } from '../_lib/checkInForm';
-import { checkIn, registerInterest } from '../_lib/attendanceStore';
-import { submitOpinion } from '../_lib/opinionStore';
-import { getSession } from '../_lib/sessionStore';
-import { readVisit, saveVisit } from '../_lib/visitState';
-import { subscribe } from '../_lib/demoStorage';
+import { createDemoService } from '../_lib/demoService';
 import { roundToStep } from '../../../utils/priceOpinionStep';
 
 const EMPTY_FORM = { fullName: '', mobile: '', email: '', updatesOptIn: false };
@@ -18,17 +14,20 @@ const EMPTY_FORM = { fullName: '', mobile: '', email: '', updatesOptIn: false };
  * The buyer's open-home visit on their own phone: check in → checked in → anonymous opinion → done.
  *
  * Two flows that never meet:
- *   - identity:  checkIn(details) and registerInterest(ref)  → attendanceStore (who visited)
- *   - opinion:   submitOpinion(sessionId, amount)            → opinionStore (amount only)
- * The opinion call is made with the session and the amount and nothing else: not the check-in reference, the name or a
- * timestamp. What this phone remembers (visitState) is for this buyer only, to reopen where they left off.
+ *   - identity:  service.checkIn(details) and service.registerInterest(ref)   (who visited)
+ *   - opinion:   service.submitOpinion(amount)                                (amount only)
+ * The opinion call carries the amount and nothing else: not the check-in reference, the name or a timestamp. What this
+ * phone remembers (service.loadVisit/saveVisit) is for this buyer only, to reopen where they left off.
  *
+ * `service`: the concept demo's browser-local stores by default (_lib/demoService.js); the live pilot passes its
+ * server-backed one (open-home/liveService.js) plus the real `partner`, `range`, `brandStyle` and `ended`.
  * `onStage(stage)`: lets a presenter view follow along. `scrollRoot`: the element that scrolls (the phone screen in a
  * framed demo; the window on a real phone).
  */
-export default function BuyerJourney({ property, sessionId, onStage, scrollRoot }) {
-  const partner = useMemo(() => partnerFor(property), [property]);
-  const range = useMemo(() => opinionRangeFor(property), [property]);
+export default function BuyerJourney({ property, sessionId, onStage, scrollRoot, service: serviceProp, partner: partnerProp, range: rangeProp, brandStyle: brandStyleProp, ended: endedProp }) {
+  const partner = useMemo(() => (partnerProp !== undefined ? partnerProp : partnerFor(property)), [partnerProp, property]);
+  const range = useMemo(() => rangeProp || opinionRangeFor(property), [rangeProp, property]);
+  const service = useMemo(() => serviceProp || createDemoService(sessionId, range), [serviceProp, sessionId, range]);
   const baseline = useMemo(() => roundToStep((range.min + range.max) / 2), [range]);
   const reduce = useReducedMotion();
 
@@ -38,6 +37,7 @@ export default function BuyerJourney({ property, sessionId, onStage, scrollRoot 
   const [opinionOpen, setOpinionOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [errors, setErrors] = useState({});
+  const [formError, setFormError] = useState('');
   const [busy, setBusy] = useState(false);
   const [value, setValue] = useState(baseline);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -47,13 +47,13 @@ export default function BuyerJourney({ property, sessionId, onStage, scrollRoot 
 
   useEffect(() => {
     const load = () => {
-      setVisit(readVisit(sessionId));
-      setEnded(!!getSession(sessionId)?.endedAt);
+      setVisit(service.loadVisit());
+      setEnded(endedProp !== undefined ? endedProp : service.isEnded());
     };
     load();
     setReady(true);
-    return subscribe((key) => { if (key === null || key === 'sessions' || key === `visit:${sessionId}`) load(); });
-  }, [sessionId]);
+    return service.subscribe ? service.subscribe(load) : undefined;
+  }, [service, endedProp]);
 
   const stage = !ready ? 'loading'
     : visit?.stage === 'complete' ? 'complete'
@@ -68,12 +68,13 @@ export default function BuyerJourney({ property, sessionId, onStage, scrollRoot 
     else if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
   }, [stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const update = useCallback((next) => { saveVisit(sessionId, next); setVisit(next); }, [sessionId]);
+  const update = useCallback((next) => { service.saveVisit(next); setVisit(next); }, [service]);
 
   const submitCheckIn = async () => {
     if (busy) return;
     const v = validateCheckIn(form);
     setErrors(v.errors);
+    setFormError('');
     if (!v.ok) {
       const firstBad = ['fullName', 'mobile', 'email'].find((k) => v.errors[k]);
       const idx = { fullName: 0, mobile: 1, email: 2 }[firstBad];
@@ -81,9 +82,14 @@ export default function BuyerJourney({ property, sessionId, onStage, scrollRoot 
       return;
     }
     setBusy(true);
-    const res = await checkIn(sessionId, form);
+    const res = await service.checkIn(form);
     setBusy(false);
-    if (!res.ok) { setErrors(res.errors || {}); return; }
+    if (!res.ok) {
+      setErrors(res.errors || {});
+      if (res.code === 'ended') setEnded(true);
+      else if (!res.errors) setFormError(res.message || 'That didn’t go through. Please try again.');
+      return;
+    }
     update({ stage: 'checked-in', firstName: firstNameOf(v.value.fullName), ref: res.ref, checkedInAt: new Date().toISOString(), outcome: null, interest: false });
     setForm(EMPTY_FORM); // typed details don't linger in memory once sent
   };
@@ -92,10 +98,10 @@ export default function BuyerJourney({ property, sessionId, onStage, scrollRoot 
     if (busy || !hasInteracted) return;
     setBusy(true);
     setOpinionError('');
-    // Amount and session only. Deliberately NOT visit.ref, the buyer's name or the time.
-    const res = await submitOpinion(sessionId, value, range);
+    // The amount only. Deliberately NOT visit.ref, the buyer's name or the time.
+    const res = await service.submitOpinion(value);
     setBusy(false);
-    if (!res.ok) { setOpinionError('That didn’t send. Please try again.'); return; }
+    if (!res.ok) { setOpinionError(res.message || 'That didn’t send. Please try again.'); return; }
     update({ ...visit, stage: 'complete', outcome: 'opinion' });
   };
 
@@ -103,9 +109,9 @@ export default function BuyerJourney({ property, sessionId, onStage, scrollRoot 
 
   const sendInterest = async () => {
     setInterest((s) => ({ ...s, state: 'sending' }));
-    const res = await registerInterest(sessionId, visit?.ref, { wants: interest.wants });
+    const res = await service.registerInterest(visit?.ref, interest.wants);
     if (!res.ok) { setInterest((s) => ({ ...s, state: 'form' })); return; }
-    update({ ...readVisit(sessionId), interest: true });
+    update({ ...(service.loadVisit() || visit), interest: true });
     setInterest({ state: 'done', wants: [] });
   };
 
@@ -137,7 +143,7 @@ export default function BuyerJourney({ property, sessionId, onStage, scrollRoot 
 
   let screen = null;
   if (stage === 'check-in') {
-    screen = <CheckInScreen property={property} partner={partner} form={form} errors={errors} busy={busy} onChange={(f) => { setForm(f); if (Object.keys(errors).length) setErrors({}); }} onSubmit={submitCheckIn} formRef={formRef} />;
+    screen = <CheckInScreen property={property} partner={partner} form={form} errors={errors} formError={formError} busy={busy} onChange={(f) => { setForm(f); if (Object.keys(errors).length) setErrors({}); }} onSubmit={submitCheckIn} formRef={formRef} />;
   } else if (stage === 'checked-in') {
     screen = (
       <CheckedInScreen
@@ -172,7 +178,7 @@ export default function BuyerJourney({ property, sessionId, onStage, scrollRoot 
   }
 
   return (
-    <div className="relative flex min-h-full flex-1 flex-col" style={brandStyleFor(property)} data-journey-stage={stage}>
+    <div className="relative flex min-h-full flex-1 flex-col" style={brandStyleProp || brandStyleFor(property)} data-journey-stage={stage}>
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={stage}

@@ -49,6 +49,7 @@ const PROTECTED_WRITE_PATHS = [
   /^\/api\/properties\/managed(\/|$)/,
   /^\/api\/properties\/promo-create$/,
   /^\/api\/properties\/[^/]+\/(managed|campaign-link)(\/|$)/,
+  /^\/api\/open-home(\/|$)/, // Open Home pilot (its public buyer routes also refuse writes in the service itself)
 ];
 
 export function isBlockedPreviewWrite({ method, pathname }, env = process.env) {

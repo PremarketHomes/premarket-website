@@ -75,7 +75,9 @@ function PrivacyLine({ children }) {
 function PropertyCard({ property, partner }) {
   return (
     <div className="mt-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-2.5">
-      <img src={property.imageUrl} alt="" className="h-[60px] w-[76px] shrink-0 rounded-xl object-cover" />
+      {property.imageUrl
+        ? <img src={property.imageUrl} alt="" className="h-[60px] w-[76px] shrink-0 rounded-xl object-cover" />
+        : <span className="grid h-[60px] w-[76px] shrink-0 place-items-center rounded-xl bg-slate-200 text-slate-500"><House className="h-6 w-6" aria-hidden="true" /></span>}
       <div className="min-w-0">
         <p className="truncate text-[15px] font-semibold text-slate-900">{property.street}</p>
         <p className="truncate text-[13px] text-slate-500">{property.suburb} {property.state}</p>
@@ -108,7 +110,7 @@ function Field({ label, icon: Icon, error, id, ...input }) {
 }
 
 /* ── 1. Arrival and check-in ─────────────────────────────────────────────────────────────── */
-export function CheckInScreen({ property, partner, form, errors = {}, busy = false, onChange, onSubmit, formRef }) {
+export function CheckInScreen({ property, partner, form, errors = {}, formError = '', busy = false, onChange, onSubmit, formRef }) {
   const uid = useId();
   const set = (k) => (e) => onChange?.({ ...form, [k]: k === 'updatesOptIn' ? e.target.checked : e.target.value });
   return (
@@ -136,6 +138,7 @@ export function CheckInScreen({ property, partner, form, errors = {}, busy = fal
             <input type="checkbox" checked={!!form.updatesOptIn} onChange={set('updatesOptIn')} className="mt-0.5 h-5 w-5 shrink-0 rounded border-slate-300 accent-[var(--brand-primary,#c2410c)]" />
             <span>Optional: send me updates about similar properties from {property.agentName}.</span>
           </label>
+          {formError && <p className="text-center text-[13px] text-red-600" role="alert">{formError}</p>}
           <div className="pt-2">
             <PrimaryButton type="submit" busy={busy}>
               Check in <ArrowRight className="h-5 w-5" aria-hidden="true" />
@@ -143,11 +146,12 @@ export function CheckInScreen({ property, partner, form, errors = {}, busy = fal
           </div>
         </form>
 
-        <p className="mt-5 flex gap-2 text-[12px] leading-relaxed text-slate-500">
+        <p className="mt-5 flex gap-2 text-[12px] leading-relaxed text-slate-500" data-testid="collection-notice">
           <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>
             Your details go to {property.agentName}{partner ? ` at ${partner.name}` : ''} to record who attended this open home and to
-            follow up with you about this property. They are never attached to your price opinion. No account or app needed.{' '}
+            follow up with you about this property. Premarket keeps them securely on their behalf. They are never attached to your
+            price opinion. No account or app needed.{' '}
             <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-medium text-slate-700 underline underline-offset-2">Privacy policy</a>
           </span>
         </p>

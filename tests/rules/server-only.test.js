@@ -47,6 +47,11 @@ const SERVER_ONLY_COLLECTIONS = [
   'propertyShortLinks', // campaign -> its short-link code (server only)
   'propLinks',          // premarket.homes/prop{number} -> campaign (read and written only by the server)
   'propertyPropLinks',  // campaign -> its prop number (server only)
+  'openHomeSessions',      // Open Home pilot: open-home sessions (server only)
+  'openHomeAttendance',    // Open Home pilot: buyer check-ins, identity (server only)
+  'openHomeOpinions',      // Open Home pilot: anonymous amounts per session, no identity (server only)
+  'openHomeOpinionGuards', // Open Home pilot: duplicate-prevention hashes (server only)
+  'openHomeActive',        // Open Home pilot: campaign -> its running open home (server only)
 ];
 
 describe.each(
