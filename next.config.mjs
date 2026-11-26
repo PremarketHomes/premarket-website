@@ -96,6 +96,11 @@ const nextConfig = {
         headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
       },
       {
+        // Images for internal emails (e.g. the weekly HPH leaderboard), served from public/email: never indexed.
+        source: '/email/:path*',
+        headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow, noimageindex' }],
+      },
+      {
         source: '/rex-embed/:path*',
         headers: [
           {

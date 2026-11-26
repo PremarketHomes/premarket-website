@@ -37,6 +37,8 @@ beforeEach(() => {
   seed('officeAdminInfo', 'hph', { name: 'HPH', status: 'active', retailCampaignPrice: 349 });
   seed('officeAdminInfo', 'other', { name: 'Other', status: 'active' });
   seed('users', 'phil', { officeId: 'hph' });
+  seed('users', 'hphBso', { officeId: 'hph' });
+  seed('users', 'hphAdmin', { officeId: 'hph' });
   seed('users', 'otherAgent', { officeId: 'other' });
   seed('users', 'solo', {});
 });
@@ -53,7 +55,7 @@ describe('GET /api/agents/campaign-pricing', () => {
     expect((await call(null)).status).toBe(401);
   });
 
-  it('HPH agents get $349 and retail terms, with no wholesale, margin or GST wording', async () => {
+  it('an office retail price with no stated payer keeps the original vendor wording, unchanged ($349 example)', async () => {
     const { status, body } = await call('phil');
     expect(status).toBe(200);
     expect(body.retail).toBe(true);
@@ -65,6 +67,44 @@ describe('GET /api/agents/campaign-pricing', () => {
     expect(body.terms).toContain('6. Payment Terms');
     expect(body.terms).toContain('7. Disclaimers');
     expect(body.terms).toContain('1. Introduction');
+  });
+
+  it('HPH as approved (Nov 2026): $199 total, payable by either the agent or the vendor, with no wholesale, margin or GST wording', async () => {
+    seed('officeAdminInfo', 'hph', { name: 'HPH', status: 'active', retailCampaignPrice: 199, retailCampaignPayer: 'agent_or_vendor' });
+    const { status, body } = await call('phil');
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ retail: true, price: 199, payer: 'agent_or_vendor' });
+    expect(body.terms).toContain('Campaign Fee: The Premarket campaign fee is $199 AUD in total per campaign.');
+    expect(body.terms).toContain("Agent or Vendor Paid: The campaign fee is payable by either the agent or the vendor (Seller), through the agent's agency.");
+    expect(body.terms).not.toContain('Vendor Paid: The campaign fee is payable by the vendor');
+    const all = JSON.stringify(body);
+    expect(all).not.toMatch(/\$\s?200|\b200\b|\b149\b|\b349\b|GST|invoice/i);
+    expect(body.terms).toContain('1. Introduction');
+    expect(body.terms).toContain('7. Disclaimers');
+  });
+
+  it('HPH BSOs and office admins see exactly what HPH agents see (the lookup is the caller\'s own office)', async () => {
+    seed('officeAdminInfo', 'hph', { name: 'HPH', status: 'active', retailCampaignPrice: 199, retailCampaignPayer: 'agent_or_vendor' });
+    const agent = (await call('phil')).body;
+    expect((await call('hphBso')).body).toEqual(agent);
+    expect((await call('hphAdmin')).body).toEqual(agent);
+  });
+
+  it('other offices and independent agents are unaffected by the HPH change', async () => {
+    seed('officeAdminInfo', 'hph', { name: 'HPH', status: 'active', retailCampaignPrice: 199, retailCampaignPayer: 'agent_or_vendor' });
+    seed('officeAdminInfo', 'retail2', { name: 'Another retail office', status: 'active', retailCampaignPrice: 395 });
+    seed('users', 'retail2Agent', { officeId: 'retail2' });
+    expect((await call('otherAgent')).body).toEqual({ retail: false });
+    expect((await call('solo')).body).toEqual({ retail: false });
+    const r2 = (await call('retail2Agent')).body;
+    expect(r2).toMatchObject({ retail: true, price: 395, payer: 'vendor' });
+    expect(r2.terms).toContain("Vendor Paid: The campaign fee is payable by the vendor (Seller) through the agent's agency.");
+    expect(r2.terms).toContain('$395 AUD per campaign.');
+  });
+
+  it('an unknown payer value fails closed (500) instead of showing possibly wrong wording or the standard figure', async () => {
+    seed('officeAdminInfo', 'hph', { name: 'HPH', status: 'active', retailCampaignPrice: 199, retailCampaignPayer: 'agent-or-vendor' });
+    expect((await call('phil')).status).toBe(500);
   });
 
   it('other offices and independent agents are unchanged (standard flow)', async () => {
@@ -111,8 +151,13 @@ describe('wholesale billing and the existing endpoint are untouched', () => {
 describe('upload page and dashboard banner', () => {
   const add = read('src/app/dashboard/add/page.js');
 
-  it('shows the exact HPH confirmation wording and no GST wording in the retail branch', () => {
+  it('shows the exact retail confirmation wording for both payer settings, and no GST wording in the retail branch', () => {
+    expect(add).toContain('Premarket campaign fee — ${retail.price} AUD total per campaign');
+    expect(add).toContain('The campaign fee can be paid by either the agent or the vendor, through your agency.');
+    expect(add).toContain("retail.payer === 'agent_or_vendor'");
     expect(add).toContain('Premarket campaign fee — ${retail.price} AUD per campaign');
+    expect(add).toContain('The campaign fee is payable by the vendor through your agency.');
+    expect(add).toContain("payer: data.payer");
     const retailBlock = add.slice(add.indexOf("retail.state === 'retail' && ("), add.indexOf("retail.state === 'unknown' && ("));
     expect(retailBlock).not.toMatch(/GST|\$200|invoice/i);
   });

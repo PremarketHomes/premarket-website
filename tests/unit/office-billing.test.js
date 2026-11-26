@@ -160,6 +160,17 @@ describe('charge creation', () => {
     expect(JSON.stringify(db._store.propertyCharges.p1)).not.toContain('349');
   });
 
+  it('the approved HPH $199 retail price, payable by agent or vendor, never changes the wholesale charge or who is billed', async () => {
+    db.seed('officeAdminInfo', HPH, { name: 'Harcourts Property Hub', status: 'active', officeAdminUids: ['hphAdmin'], retailCampaignPrice: 199, retailCampaignPayer: 'agent_or_vendor' });
+    await billing.recordPropertyCharge(prop('p1', 'phil', '1 Phil St'));
+    const charge = db._store.propertyCharges.p1;
+    // Whether the agent or the vendor ends up paying HPH, Premarket's charge is the same: $200 to the office, once.
+    expect(charge).toMatchObject({ totalInc: 200, subtotalEx: 200, gstAmount: 0, status: 'pending', billingEntityKey: `office:${HPH}`, billingEntityType: 'office' });
+    expect(JSON.stringify(charge)).not.toMatch(/199|agent_or_vendor|retail/i);
+    const again = await billing.recordPropertyCharge(prop('p1', 'phil', '1 Phil St'));
+    expect(again).toMatchObject({ created: false, reason: 'already-recorded' });
+  });
+
   it('records an independent agent\'s charge exactly as before (agent:{uid}, no office fields)', async () => {
     await billing.recordPropertyCharge(prop('p2', 'solo', '2 Solo St'));
     const charge = db._store.propertyCharges.p2;
