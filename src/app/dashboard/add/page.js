@@ -305,7 +305,7 @@ function AddPropertyInner() {
       })
       .then((data) => {
         setRetail(data.retail
-          ? { state: 'retail', price: data.price, terms: data.terms }
+          ? { state: 'retail', price: data.price, payer: data.payer, terms: data.terms }
           : { state: 'none', price: null, terms: '' });
       })
       .catch((err) => {
@@ -1733,12 +1733,26 @@ function AddPropertyInner() {
           )}
           {step === STEPS.TERMS && !promoApplied && !retailFailed && retail.state === 'retail' && (
             <div className="mb-3 bg-stone-100/60 border border-stone-200 rounded-md px-4 py-3">
-              <p className="text-sm font-medium text-stone-900">
-                Premarket campaign fee — ${retail.price} AUD per campaign
-              </p>
-              <p className="text-xs text-stone-600 mt-1 leading-relaxed">
-                The campaign fee is payable by the vendor through your agency.
-              </p>
+              {/* Who pays is the office's stated payer (campaignPricingService): display only; Premarket always bills the agency. */}
+              {retail.payer === 'agent_or_vendor' ? (
+                <>
+                  <p className="text-sm font-medium text-stone-900">
+                    Premarket campaign fee — ${retail.price} AUD total per campaign
+                  </p>
+                  <p className="text-xs text-stone-600 mt-1 leading-relaxed">
+                    The campaign fee can be paid by either the agent or the vendor, through your agency.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-stone-900">
+                    Premarket campaign fee — ${retail.price} AUD per campaign
+                  </p>
+                  <p className="text-xs text-stone-600 mt-1 leading-relaxed">
+                    The campaign fee is payable by the vendor through your agency.
+                  </p>
+                </>
+              )}
             </div>
           )}
           {step === STEPS.TERMS && !retailFailed && retail.state === 'unknown' && (
